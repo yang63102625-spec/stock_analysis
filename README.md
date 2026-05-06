@@ -9,13 +9,13 @@
 | 模块 | 说明 |
 | ---- | ---- |
 | AI 分析 | 决策仪表盘、精确买卖点位、操作检查清单 |
-| AI 选股 | 量化筛选 + 实时过滤 + LLM 精选 1–5 只（买回踩/突破/底部反转/MACD金叉 + 盘后全市场筛选） |
+| AI 选股 | 量化筛选 + 实时过滤 + LLM 精选 1–5 只（买回踩/突破/底部反转/尾盘买入） |
 | 多维度 | 技术面 + 筹码分布 + 舆情情报 + 实时行情 |
 | 市场 | A股、港股、美股 |
-| Agent 问股 | 多轮策略问答，13 种内建策略（Web/Bot/API） |
-| 回测 | 历史分析准确率、方向胜率、止盈止损命中率 |
-| 推送 | 企业微信、飞书、Telegram、邮件、钉钉等 |
-| 自动化 | GitHub Actions 定时执行 |
+| Agent 问股 | 多轮策略问答，12 种内建策略（Web/Bot/API） |
+| 回测 | 选股回测引擎、历史准确率、方向胜率、止盈止损命中率 |
+| 推送 | 企业微信、飞书、钉钉、Telegram、Discord、邮件、Pushover 等 |
+| 自动化 | GitHub Actions 定时执行（大盘复盘 + 个股分析 + AI选股） |
 
 ## 快速开始
 
@@ -24,7 +24,7 @@
 1. **Fork** 本仓库
 2. **配置 Secrets**：`Settings` → `Secrets and variables` → `Actions`
    - 必填：`STOCK_LIST`（如 `600519,hk00700,AAPL`）
-   - AI：`GEMINI_API_KEY` 或 `OPENAI_API_KEY`（至少一个）
+   - AI：支持 Gemini、OpenAI、DeepSeek、Anthropic、DashScope（通义千问）等，配置任一即可
    - 通知：`WECHAT_WEBHOOK_URL` / `TELEGRAM_BOT_TOKEN` / `EMAIL_SENDER` 等（至少一个）
 3. **启用 Actions**：`Actions` → 启用工作流
 4. **手动测试**：`Actions` → `每日股票分析` → `Run workflow`
@@ -55,11 +55,19 @@ Docker：`docker-compose -f docker/docker-compose.yml up -d server`
 🟡 宁德时代(300750) | 乖离率7.8%超过警戒线，严禁追高
 ```
 
+## 技术栈
+
+- **后端**：Python 3.10+ / FastAPI / Uvicorn
+- **AI**：LiteLLM 统一接口，支持 Gemini、OpenAI、DeepSeek、Anthropic、DashScope 等 9+ 模型渠道
+- **数据源**：Tushare、AkShare、efinance、通达信(pytdx)、BaoStock、yfinance
+- **前端**：Vite + TypeScript + React（Web）/ Electron（桌面端）
+- **部署**：GitHub Actions / Docker / 本地
+
 ## 文档
 
 - [配置指南](docs/guide.md) — 环境变量、Docker、LLM、通知渠道
 - [分析策略指南](docs/analysis-strategy-guide.md) — 核心理念、选股原则、策略说明
-- [选股策略详解](docs/picker-strategies-guide.md) — 量化筛选四类策略（买回踩/突破/底部反转/MACD金叉）参数与流程
+- [选股策略详解](docs/picker-strategies-guide.md) — 量化筛选四类策略（买回踩/突破/底部反转/尾盘买入）参数与流程
 - **[实时行情筛选指南](docs/realtime-picker-guide.md)** — 🆕 支持当天选股+操作，实时筛选规则配置
 - [远端部署](docs/remote-deploy.md) — Token 获取、自建服务器
 - [常见问题](docs/faq.md)
