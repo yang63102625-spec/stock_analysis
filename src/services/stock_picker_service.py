@@ -2888,6 +2888,7 @@ class StockPickerService:
             )
 
             all_futures = {fut_indices: "indices", fut_stats: "market_stats", fut_sectors: "sector_rankings"}
+            today_str = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
 
             try:
                 for future in as_completed(all_futures, timeout=self._INTEL_TOTAL_TIMEOUT):
@@ -2901,7 +2902,6 @@ class StockPickerService:
                     if label == "indices" and result:
                         intel["indices"] = result
                         # Check if any index is flagged stale by DataFetcherManager
-                        today_str = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
                         idx_dates = [idx.get("data_date") for idx in result if idx.get("data_date")]
                         has_stale_flag = any(idx.get("_stale") for idx in result)
                         if has_stale_flag or (idx_dates and all(d != today_str for d in idx_dates)):
