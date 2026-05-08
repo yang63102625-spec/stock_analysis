@@ -204,7 +204,7 @@ class _StrategyConfig:
     pos_mult: float = 1.0      # position multiplier on top of market-cap baseline
     stop_pct_extra: float = 0.0  # additional stop-loss percent on top of band default
     abs_stop_cap_pct: Optional[float] = None  # if set, hard cap stop loss at this drop
-    tp2_rule: str = "浮盈 ≥15% 启用 trailing：跌破 MA10 或回撤 ATR×2.5"
+    tp2_rule: str = "赚到 +15% 后启用动态保护——股价跌破 10 日均线，或从最高点回撤 2.5 倍日波幅时清仓"
     stage_rules: Dict[str, str] = field(default_factory=dict, hash=False, compare=False)
 
 
@@ -216,7 +216,7 @@ _STRATEGY_CONFIGS: Dict[str, _StrategyConfig] = {
         stage_rules={
             "stage_6pct": "减仓 1/3，止损上移至成本",
             "stage_12pct": "再减 1/3，止损上移至 +6%",
-            "stage_15pct": "剩余 1/3 启用 trailing（跌破 MA10 或回撤 ATR×2.5）",
+            "stage_15pct": "剩余 1/3 启用动态保护：跌破 10 日均线或从最高点回撤 2.5 倍日波幅时清仓",
         },
     ),
     BREAKOUT: _StrategyConfig(
@@ -226,7 +226,7 @@ _STRATEGY_CONFIGS: Dict[str, _StrategyConfig] = {
         stage_rules={
             "stage_6pct": "减仓 1/3，止损上移至成本",
             "stage_12pct": "再减 1/3，止损上移至 +6%",
-            "stage_15pct": "剩余 1/3 启用 trailing（跌破 MA10 或回撤 ATR×2.5）",
+            "stage_15pct": "剩余 1/3 启用动态保护：跌破 10 日均线或从最高点回撤 2.5 倍日波幅时清仓",
             "fail_breakout": "若 3 个交易日内回到突破位下方 → 全部止损",
         },
     ),

@@ -248,8 +248,7 @@ class Config:
     backtest_enabled: bool = True
     backtest_eval_window_days: int = 10
     backtest_min_age_days: int = 14
-    backtest_engine_version: str = "v1"
-    backtest_neutral_band_pct: float = 2.0
+    backtest_neutral_band_pct: float = 2.0  # legacy; current engine ignores this
 
     # === 选股配置 ===
     # PICKER_STRATEGIES: comma-separated strategy IDs (buy_pullback, breakout, bottom_reversal)
@@ -750,7 +749,6 @@ class Config:
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS', '10')),
             backtest_min_age_days=int(os.getenv('BACKTEST_MIN_AGE_DAYS', '14')),
-            backtest_engine_version=os.getenv('BACKTEST_ENGINE_VERSION', 'v1'),
             backtest_neutral_band_pct=float(os.getenv('BACKTEST_NEUTRAL_BAND_PCT', '2.0')),
             picker_strategies=cls._parse_picker_strategies(os.getenv('PICKER_STRATEGIES', '')),
             picker_mode=cls._parse_picker_mode(os.getenv('PICKER_MODE', 'balanced')),

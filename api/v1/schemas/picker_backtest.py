@@ -28,6 +28,10 @@ class PickerBacktestResultItem(BaseModel):
     return_pct: Optional[float] = None
     outcome: str  # win | loss | insufficient
     score: float = 0.0
+    # Trade-levels engine diagnostics (why/when the trade exited)
+    exit_reason: Optional[str] = None  # stop_loss / trailing_ma10 / stage_break_+12pct / hardcap_+20pct / window_end / ...
+    hold_days: Optional[int] = None
+    strategy_id: Optional[str] = None  # buy_pullback / breakout / bottom_reversal / eod_buyback
 
 
 class PickerBacktestSummary(BaseModel):

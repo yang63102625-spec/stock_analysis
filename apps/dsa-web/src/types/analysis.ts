@@ -37,6 +37,19 @@ export interface ReportSummary {
   trendPrediction: string;
   sentimentScore: number;
   sentimentLabel?: SentimentLabel;
+  // System-computed quantitative signals
+  signalScore?: number;
+  buySignal?: string;
+  peRatio?: number;
+  marketEnvironment?: string;
+  // Per-dimension breakdown (post-rebalance caps in label)
+  trendScore?: number;
+  biasScore?: number;
+  volumeScore?: number;
+  supportScore?: number;
+  macdScore?: number;
+  rsiScore?: number;
+  capitalFlowScore?: number;
 }
 
 /** 策略点位区 */
@@ -45,6 +58,10 @@ export interface ReportStrategy {
   secondaryBuy?: string;
   stopLoss?: string;
   takeProfit?: string;
+  // Trade-levels engine extras
+  positionPct?: number;
+  riskReward?: number;
+  takeProfit2Rule?: string;
 }
 
 /** 详情区（可折叠） */

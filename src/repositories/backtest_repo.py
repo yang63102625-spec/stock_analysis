@@ -31,10 +31,15 @@ class BacktestRepository:
         min_age_days: int,
         limit: int,
         eval_window_days: int,
-        engine_version: str,
         force: bool,
+        strategies: Optional[List[str]] = None,
     ) -> List[AnalysisHistory]:
-        """Return AnalysisHistory rows eligible for backtest."""
+        """Return AnalysisHistory rows eligible for backtest.
+
+        When `strategies` is given, an analysis is treated as "already done" only when
+        ALL requested strategies have a result row for it (so partially-evaluated
+        analyses get re-run for the missing strategies).
+        """
         cutoff_dt = datetime.now() - timedelta(days=min_age_days)
 
         with self.db.get_session() as session:
@@ -45,13 +50,27 @@ class BacktestRepository:
             query = select(AnalysisHistory).where(and_(*conditions))
 
             if not force:
-                existing_ids = select(BacktestResult.analysis_history_id).where(
-                    and_(
-                        BacktestResult.eval_window_days == eval_window_days,
-                        BacktestResult.engine_version == engine_version,
+                if strategies:
+                    # Skip analyses that already have results for ALL requested strategies.
+                    fully_done_ids: Optional[set] = None
+                    for sid in strategies:
+                        sub = session.execute(
+                            select(BacktestResult.analysis_history_id).where(
+                                and_(
+                                    BacktestResult.eval_window_days == eval_window_days,
+                                    BacktestResult.strategy_id == sid,
+                                )
+                            )
+                        ).scalars().all()
+                        ids_for_sid = set(sub)
+                        fully_done_ids = ids_for_sid if fully_done_ids is None else fully_done_ids & ids_for_sid
+                    if fully_done_ids:
+                        query = query.where(AnalysisHistory.id.not_in(list(fully_done_ids)))
+                else:
+                    existing_ids = select(BacktestResult.analysis_history_id).where(
+                        BacktestResult.eval_window_days == eval_window_days
                     )
-                )
-                query = query.where(AnalysisHistory.id.not_in(existing_ids))
+                    query = query.where(AnalysisHistory.id.not_in(existing_ids))
 
             query = query.order_by(desc(AnalysisHistory.created_at)).limit(limit)
             rows = session.execute(query).scalars().all()
@@ -69,17 +88,19 @@ class BacktestRepository:
         with self.db.get_session() as session:
             try:
                 if replace_existing:
+                    # Delete rows that conflict with the new ones, scoped by the unique
+                    # key (analysis_history_id, eval_window_days, strategy_id) so other
+                    # strategies for the same analysis aren't wiped.
                     analysis_ids = sorted({r.analysis_history_id for r in results if r.analysis_history_id is not None})
-                    key_pairs = sorted({(r.eval_window_days, r.engine_version) for r in results})
-
+                    key_pairs = sorted({(r.eval_window_days, r.strategy_id) for r in results})
                     if analysis_ids and key_pairs:
-                        for window_days, engine_version in key_pairs:
+                        for window_days, strategy_id in key_pairs:
                             session.execute(
                                 delete(BacktestResult).where(
                                     and_(
                                         BacktestResult.analysis_history_id.in_(analysis_ids),
                                         BacktestResult.eval_window_days == window_days,
-                                        BacktestResult.engine_version == engine_version,
+                                        BacktestResult.strategy_id == strategy_id,
                                     )
                                 )
                             )
@@ -133,7 +154,6 @@ class BacktestRepository:
                         BacktestSummary.scope == summary.scope,
                         BacktestSummary.code == summary.code,
                         BacktestSummary.eval_window_days == summary.eval_window_days,
-                        BacktestSummary.engine_version == summary.engine_version,
                     )
                 )
                 .limit(1)
@@ -159,8 +179,12 @@ class BacktestRepository:
                     "take_profit_trigger_rate",
                     "ambiguous_rate",
                     "avg_days_to_first_hit",
-                    "advice_breakdown_json",
                     "diagnostics_json",
+                    "signal_breakdown_json",
+                    "score_bucket_breakdown_json",
+                    "exit_reason_breakdown_json",
+                    "regime_breakdown_json",
+                    "strategy_breakdown_json",
                 ):
                     setattr(existing, attr, getattr(summary, attr))
                 session.commit()
@@ -175,13 +199,11 @@ class BacktestRepository:
         scope: str,
         code: Optional[str],
         eval_window_days: Optional[int] = None,
-        engine_version: str,
     ) -> Optional[BacktestSummary]:
         with self.db.get_session() as session:
             conditions = [
                 BacktestSummary.scope == scope,
                 BacktestSummary.code == code,
-                BacktestSummary.engine_version == engine_version,
             ]
             if eval_window_days is not None:
                 conditions.append(BacktestSummary.eval_window_days == eval_window_days)

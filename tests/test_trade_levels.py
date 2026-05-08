@@ -56,7 +56,7 @@ def test_buy_pullback_levels_sane():
     assert tl.stop_loss < tl.ideal_buy
     assert tl.take_profit_1 > tl.ideal_buy
     assert tl.risk_reward > 0
-    assert "trailing" in tl.take_profit_2_rule
+    assert "动态保护" in tl.take_profit_2_rule
     assert 0 < tl.position_pct <= 0.25
 
 

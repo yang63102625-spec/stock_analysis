@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AnalysisResult, AnalysisReport } from '../../types/analysis';
 import { ReportOverview } from './ReportOverview';
+import { ReportScores } from './ReportScores';
 import { ReportStrategy } from './ReportStrategy';
 import { ReportNews } from './ReportNews';
 import { ReportDetails } from './ReportDetails';
@@ -37,6 +38,9 @@ export const ReportSummary: React.FC<ReportSummaryProps> = ({
         summary={summary}
         isHistory={isHistory}
       />
+
+      {/* 系统量化评分区 */}
+      <ReportScores summary={summary} />
 
       {/* 策略点位区 */}
       <ReportStrategy strategy={strategy} />

@@ -6,13 +6,19 @@ from __future__ import annotations
 import json
 import logging
 import math
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, select
 
 from src.config import get_config
-from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
+from src.core.backtest_engine import (
+    OVERALL_SENTINEL_CODE,
+    AnalysisSnapshot,
+    BacktestEngine,
+    EvaluationConfig,
+)
 from src.repositories.backtest_repo import BacktestRepository
 from src.repositories.stock_repo import StockRepository
 from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager
@@ -28,6 +34,9 @@ class BacktestService:
         self.repo = BacktestRepository(self.db)
         self.stock_repo = StockRepository(self.db)
 
+    # Allowed picker strategies (mirrors trade_levels strategy ids).
+    _ALLOWED_STRATEGIES = ("buy_pullback", "breakout", "bottom_reversal", "eod_buyback")
+
     def run_backtest(
         self,
         *,
@@ -36,6 +45,7 @@ class BacktestService:
         eval_window_days: Optional[int] = None,
         min_age_days: Optional[int] = None,
         limit: int = 200,
+        strategies: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         config = get_config()
 
@@ -44,13 +54,12 @@ class BacktestService:
         if min_age_days is None:
             min_age_days = getattr(config, "backtest_min_age_days", 14)
 
-        engine_version = getattr(config, "backtest_engine_version", "v1")
-        neutral_band_pct = float(getattr(config, "backtest_neutral_band_pct", 2.0))
+        # Normalize strategies list: filter to known ids; default to single buy_pullback.
+        wanted = [s for s in (strategies or []) if s in self._ALLOWED_STRATEGIES] or ["buy_pullback"]
 
         eval_config = EvaluationConfig(
             eval_window_days=int(eval_window_days),
-            neutral_band_pct=neutral_band_pct,
-            engine_version=str(engine_version),
+            neutral_band_pct=float(getattr(config, "backtest_neutral_band_pct", 2.0)),
         )
 
         candidates = self.repo.get_candidates(
@@ -58,8 +67,8 @@ class BacktestService:
             min_age_days=int(min_age_days),
             limit=int(limit),
             eval_window_days=int(eval_window_days),
-            engine_version=str(engine_version),
             force=force,
+            strategies=wanted,
         )
 
         total_candidates = len(candidates)
@@ -101,10 +110,10 @@ class BacktestService:
                             analysis_history_id=analysis.id,
                             code=analysis.code,
                             eval_window_days=int(eval_window_days),
-                            engine_version=str(engine_version),
                             eval_status="error",
                             evaluated_at=datetime.now(),
                             operation_advice=analysis.operation_advice,
+                            strategy_id=wanted[0],
                         )
                     )
                     continue
@@ -139,10 +148,10 @@ class BacktestService:
                             code=analysis.code,
                             analysis_date=analysis_date,
                             eval_window_days=int(eval_window_days),
-                            engine_version=str(engine_version),
                             eval_status="insufficient_data",
                             evaluated_at=datetime.now(),
                             operation_advice=analysis.operation_advice,
+                            strategy_id=wanted[0],
                         )
                     )
                     continue
@@ -179,17 +188,8 @@ class BacktestService:
                         eval_window_days=int(eval_window_days),
                     )
 
-                evaluation = BacktestEngine.evaluate_single(
-                    operation_advice=analysis.operation_advice,
-                    analysis_date=start_daily.date,
-                    start_price=float(start_daily.close),
-                    forward_bars=forward_bars,
-                    stop_loss=analysis.stop_loss,
-                    take_profit=analysis.take_profit,
-                    config=eval_config,
-                )
-
-                if evaluation.get("eval_status") == "insufficient_data":
+                # Last-resort refetch when forward_bars are still short (recent dates).
+                if len(forward_bars) < int(eval_window_days):
                     mkt_today = self._market_calendar_today(analysis.code)
                     if start_daily.date >= mkt_today - timedelta(days=500):
                         self._try_fill_daily_data(
@@ -204,57 +204,29 @@ class BacktestService:
                             analysis_date=start_daily.date,
                             eval_window_days=int(eval_window_days),
                         )
-                        if len(forward_bars) >= int(eval_window_days):
-                            evaluation = BacktestEngine.evaluate_single(
-                                operation_advice=analysis.operation_advice,
-                                analysis_date=start_daily.date,
-                                start_price=float(start_daily.close),
-                                forward_bars=forward_bars,
-                                stop_loss=analysis.stop_loss,
-                                take_profit=analysis.take_profit,
-                                config=eval_config,
-                            )
 
-                status = evaluation.get("eval_status")
-                if status == "insufficient_data":
-                    insufficient += 1
-                elif status == "completed":
-                    completed += 1
-                else:
-                    errors += 1
-
-                results_to_save.append(
-                    BacktestResult(
-                        analysis_history_id=analysis.id,
-                        code=analysis.code,
-                        analysis_date=evaluation.get("analysis_date"),
-                        eval_window_days=int(evaluation.get("eval_window_days") or eval_window_days),
-                        engine_version=str(evaluation.get("engine_version") or engine_version),
-                        eval_status=str(evaluation.get("eval_status") or "error"),
-                        evaluated_at=datetime.now(),
-                        operation_advice=evaluation.get("operation_advice"),
-                        position_recommendation=evaluation.get("position_recommendation"),
-                        start_price=evaluation.get("start_price"),
-                        end_close=evaluation.get("end_close"),
-                        max_high=evaluation.get("max_high"),
-                        min_low=evaluation.get("min_low"),
-                        stock_return_pct=evaluation.get("stock_return_pct"),
-                        direction_expected=evaluation.get("direction_expected"),
-                        direction_correct=evaluation.get("direction_correct"),
-                        outcome=evaluation.get("outcome"),
-                        stop_loss=evaluation.get("stop_loss"),
-                        take_profit=evaluation.get("take_profit"),
-                        hit_stop_loss=evaluation.get("hit_stop_loss"),
-                        hit_take_profit=evaluation.get("hit_take_profit"),
-                        first_hit=evaluation.get("first_hit"),
-                        first_hit_date=evaluation.get("first_hit_date"),
-                        first_hit_trading_days=evaluation.get("first_hit_trading_days"),
-                        simulated_entry_price=evaluation.get("simulated_entry_price"),
-                        simulated_exit_price=evaluation.get("simulated_exit_price"),
-                        simulated_exit_reason=evaluation.get("simulated_exit_reason"),
-                        simulated_return_pct=evaluation.get("simulated_return_pct"),
+                # Multi-strategy evaluation: same forward_bars, different trade_levels rules.
+                # One result row per (analysis, strategy) pair so users can compare.
+                base_snapshot = self._build_snapshot(analysis)
+                for strategy_id in wanted:
+                    snapshot = replace(base_snapshot, strategy_id=strategy_id)
+                    evaluation = BacktestEngine.evaluate_single(
+                        analysis=snapshot,
+                        analysis_date=start_daily.date,
+                        start_price=float(start_daily.close),
+                        forward_bars=forward_bars,
+                        config=eval_config,
                     )
-                )
+                    status = evaluation.get("eval_status")
+                    if status == "completed":
+                        completed += 1
+                    elif status == "insufficient_data":
+                        insufficient += 1
+                    elif status != "missing_signal":
+                        errors += 1
+                    results_to_save.append(
+                        self._evaluation_to_result(evaluation, analysis, eval_window_days)
+                    )
 
             except Exception as exc:
                 errors += 1
@@ -265,10 +237,10 @@ class BacktestService:
                         code=analysis.code,
                         analysis_date=self._resolve_analysis_date(analysis),
                         eval_window_days=int(eval_window_days),
-                        engine_version=str(engine_version),
                         eval_status="error",
                         evaluated_at=datetime.now(),
                         operation_advice=analysis.operation_advice,
+                        strategy_id=wanted[0],
                     )
                 )
 
@@ -280,7 +252,6 @@ class BacktestService:
             self._recompute_summaries(
                 touched_codes=sorted(touched_codes),
                 eval_window_days=int(eval_window_days),
-                engine_version=str(engine_version),
             )
 
         logger.info(
@@ -302,25 +273,110 @@ class BacktestService:
 
     def get_recent_evaluations(self, *, code: Optional[str], eval_window_days: Optional[int] = None, limit: int = 50, page: int = 1) -> Dict[str, Any]:
         offset = max(page - 1, 0) * limit
-        rows, total = self.repo.get_results_paginated(code=code, eval_window_days=eval_window_days, days=None, offset=offset, limit=limit)
+        rows, total = self.repo.get_results_paginated(
+            code=code,
+            eval_window_days=eval_window_days,
+            days=None,
+            offset=offset,
+            limit=limit,
+        )
 
         name_map = self._build_name_map([r.analysis_history_id for r in rows])
         items = [self._result_to_dict(r, name_map) for r in rows]
         return {"total": total, "page": page, "limit": limit, "items": items}
 
     def get_summary(self, *, scope: str, code: Optional[str], eval_window_days: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        config = get_config()
-        engine_version = str(getattr(config, "backtest_engine_version", "v1"))
         lookup_code = OVERALL_SENTINEL_CODE if scope == "overall" else code
         summary = self.repo.get_summary(
             scope=scope,
             code=lookup_code,
             eval_window_days=eval_window_days,
-            engine_version=engine_version,
         )
         if summary is None:
             return None
         return self._summary_to_dict(summary)
+
+    @staticmethod
+    def _build_snapshot(analysis: AnalysisHistory) -> AnalysisSnapshot:
+        """Build the v2 AnalysisSnapshot from a stored AnalysisHistory row.
+
+        strategy_id defaults to 'buy_pullback' (most general). Future enhancement:
+        plumb strategy_id through the analysis pipeline so analyses know which
+        picker strategy generated them.
+        """
+        return AnalysisSnapshot(
+            code=analysis.code,
+            operation_advice=analysis.operation_advice,
+            signal_score=getattr(analysis, "signal_score", None),
+            buy_signal=getattr(analysis, "buy_signal", None),
+            market_environment=getattr(analysis, "market_environment", None),
+            strategy_id=getattr(analysis, "strategy_id", None) or "buy_pullback",
+            ideal_buy=getattr(analysis, "ideal_buy", None),
+            stop_loss=getattr(analysis, "stop_loss", None),
+            take_profit=getattr(analysis, "take_profit", None),
+            risk_reward=getattr(analysis, "risk_reward", None),
+            position_pct=getattr(analysis, "position_pct", None),
+            trend_score=getattr(analysis, "trend_score", None),
+            bias_score=getattr(analysis, "bias_score", None),
+            volume_score=getattr(analysis, "volume_score", None),
+            support_score=getattr(analysis, "support_score", None),
+            macd_score=getattr(analysis, "macd_score", None),
+            rsi_score=getattr(analysis, "rsi_score", None),
+            capital_flow_score=getattr(analysis, "capital_flow_score", None),
+        )
+
+    @staticmethod
+    def _evaluation_to_result(
+        evaluation: Dict[str, Any],
+        analysis: AnalysisHistory,
+        eval_window_days: int,
+    ) -> BacktestResult:
+        """Map an evaluation dict to a BacktestResult ORM row."""
+        return BacktestResult(
+            analysis_history_id=analysis.id,
+            code=analysis.code,
+            analysis_date=evaluation.get("analysis_date"),
+            eval_window_days=int(evaluation.get("eval_window_days") or eval_window_days),
+            eval_status=str(evaluation.get("eval_status") or "error"),
+            evaluated_at=datetime.now(),
+            operation_advice=evaluation.get("operation_advice"),
+            position_recommendation=evaluation.get("position_recommendation"),
+            start_price=evaluation.get("start_price"),
+            end_close=evaluation.get("end_close"),
+            max_high=evaluation.get("max_high"),
+            min_low=evaluation.get("min_low"),
+            stock_return_pct=evaluation.get("stock_return_pct"),
+            direction_expected=evaluation.get("direction_expected"),
+            direction_correct=evaluation.get("direction_correct"),
+            outcome=evaluation.get("outcome"),
+            stop_loss=evaluation.get("stop_loss"),
+            take_profit=evaluation.get("take_profit"),
+            hit_stop_loss=evaluation.get("hit_stop_loss"),
+            hit_take_profit=evaluation.get("hit_take_profit"),
+            first_hit=evaluation.get("first_hit"),
+            first_hit_date=evaluation.get("first_hit_date"),
+            first_hit_trading_days=evaluation.get("first_hit_trading_days"),
+            simulated_entry_price=evaluation.get("simulated_entry_price"),
+            simulated_exit_price=evaluation.get("simulated_exit_price"),
+            simulated_exit_reason=evaluation.get("simulated_exit_reason"),
+            simulated_return_pct=evaluation.get("simulated_return_pct"),
+            # v2 additions
+            signal_score_at_eval=evaluation.get("signal_score_at_eval"),
+            buy_signal_at_eval=evaluation.get("buy_signal_at_eval"),
+            market_environment_at_eval=evaluation.get("market_environment_at_eval"),
+            strategy_id=evaluation.get("strategy_id"),
+            risk_reward_at_eval=evaluation.get("risk_reward_at_eval"),
+            position_pct_at_eval=evaluation.get("position_pct_at_eval"),
+            trend_score_at_eval=evaluation.get("trend_score_at_eval"),
+            bias_score_at_eval=evaluation.get("bias_score_at_eval"),
+            volume_score_at_eval=evaluation.get("volume_score_at_eval"),
+            support_score_at_eval=evaluation.get("support_score_at_eval"),
+            macd_score_at_eval=evaluation.get("macd_score_at_eval"),
+            rsi_score_at_eval=evaluation.get("rsi_score_at_eval"),
+            capital_flow_score_at_eval=evaluation.get("capital_flow_score_at_eval"),
+            exit_reason=evaluation.get("exit_reason"),
+            hold_days=evaluation.get("hold_days"),
+        )
 
     def _resolve_analysis_date(self, analysis) -> Optional[date]:
         parsed = self.repo.parse_analysis_date_from_snapshot(analysis.context_snapshot)
@@ -418,26 +474,19 @@ class BacktestService:
             logger.warning("补全日线数据失败(%s): %s", code, exc)
             return False
 
-    def _recompute_summaries(self, *, touched_codes: List[str], eval_window_days: int, engine_version: str) -> None:
+    def _recompute_summaries(self, *, touched_codes: List[str], eval_window_days: int) -> None:
         with self.db.get_session() as session:
             # overall
             overall_rows = session.execute(
-                select(BacktestResult).where(
-                    and_(
-                        BacktestResult.eval_window_days == eval_window_days,
-                        BacktestResult.engine_version == engine_version,
-                    )
-                )
+                select(BacktestResult).where(BacktestResult.eval_window_days == eval_window_days)
             ).scalars().all()
             overall_data = BacktestEngine.compute_summary(
                 results=overall_rows,
                 scope="overall",
                 code=OVERALL_SENTINEL_CODE,
                 eval_window_days=eval_window_days,
-                engine_version=engine_version,
             )
-            overall_summary = self._build_summary_model(overall_data)
-            self.repo.upsert_summary(overall_summary)
+            self.repo.upsert_summary(self._build_summary_model(overall_data))
 
             for code in touched_codes:
                 rows = session.execute(
@@ -445,7 +494,6 @@ class BacktestService:
                         and_(
                             BacktestResult.code == code,
                             BacktestResult.eval_window_days == eval_window_days,
-                            BacktestResult.engine_version == engine_version,
                         )
                     )
                 ).scalars().all()
@@ -454,10 +502,8 @@ class BacktestService:
                     scope="stock",
                     code=code,
                     eval_window_days=eval_window_days,
-                    engine_version=engine_version,
                 )
-                summary = self._build_summary_model(data)
-                self.repo.upsert_summary(summary)
+                self.repo.upsert_summary(self._build_summary_model(data))
 
     @staticmethod
     def _build_summary_model(summary_data: Dict[str, Any]) -> BacktestSummary:
@@ -465,7 +511,6 @@ class BacktestService:
             scope=summary_data.get("scope"),
             code=summary_data.get("code"),
             eval_window_days=summary_data.get("eval_window_days"),
-            engine_version=summary_data.get("engine_version"),
             computed_at=datetime.now(),
             total_evaluations=summary_data.get("total_evaluations") or 0,
             completed_count=summary_data.get("completed_count") or 0,
@@ -484,8 +529,12 @@ class BacktestService:
             take_profit_trigger_rate=summary_data.get("take_profit_trigger_rate"),
             ambiguous_rate=summary_data.get("ambiguous_rate"),
             avg_days_to_first_hit=summary_data.get("avg_days_to_first_hit"),
-            advice_breakdown_json=json.dumps(summary_data.get("advice_breakdown") or {}, ensure_ascii=False),
             diagnostics_json=json.dumps(summary_data.get("diagnostics") or {}, ensure_ascii=False),
+            signal_breakdown_json=json.dumps(summary_data.get("signal_breakdown") or {}, ensure_ascii=False),
+            score_bucket_breakdown_json=json.dumps(summary_data.get("score_bucket_breakdown") or {}, ensure_ascii=False),
+            exit_reason_breakdown_json=json.dumps(summary_data.get("exit_reason_breakdown") or {}, ensure_ascii=False),
+            regime_breakdown_json=json.dumps(summary_data.get("regime_breakdown") or {}, ensure_ascii=False),
+            strategy_breakdown_json=json.dumps(summary_data.get("strategy_breakdown") or {}, ensure_ascii=False),
         )
 
     def _build_name_map(self, analysis_ids: List[int]) -> Dict[int, str]:
@@ -510,7 +559,6 @@ class BacktestService:
             "name": name,
             "analysis_date": row.analysis_date.isoformat() if row.analysis_date else None,
             "eval_window_days": row.eval_window_days,
-            "engine_version": row.engine_version,
             "eval_status": row.eval_status,
             "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
             "operation_advice": row.operation_advice,
@@ -534,6 +582,22 @@ class BacktestService:
             "simulated_exit_price": row.simulated_exit_price,
             "simulated_exit_reason": row.simulated_exit_reason,
             "simulated_return_pct": row.simulated_return_pct,
+            # v2 additions
+            "signal_score_at_eval": getattr(row, "signal_score_at_eval", None),
+            "buy_signal_at_eval": getattr(row, "buy_signal_at_eval", None),
+            "market_environment_at_eval": getattr(row, "market_environment_at_eval", None),
+            "strategy_id": getattr(row, "strategy_id", None),
+            "risk_reward_at_eval": getattr(row, "risk_reward_at_eval", None),
+            "position_pct_at_eval": getattr(row, "position_pct_at_eval", None),
+            "trend_score_at_eval": getattr(row, "trend_score_at_eval", None),
+            "bias_score_at_eval": getattr(row, "bias_score_at_eval", None),
+            "volume_score_at_eval": getattr(row, "volume_score_at_eval", None),
+            "support_score_at_eval": getattr(row, "support_score_at_eval", None),
+            "macd_score_at_eval": getattr(row, "macd_score_at_eval", None),
+            "rsi_score_at_eval": getattr(row, "rsi_score_at_eval", None),
+            "capital_flow_score_at_eval": getattr(row, "capital_flow_score_at_eval", None),
+            "exit_reason": getattr(row, "exit_reason", None),
+            "hold_days": getattr(row, "hold_days", None),
         }
 
     @staticmethod
@@ -542,7 +606,6 @@ class BacktestService:
             "scope": row.scope,
             "code": None if row.code == OVERALL_SENTINEL_CODE else row.code,
             "eval_window_days": row.eval_window_days,
-            "engine_version": row.engine_version,
             "computed_at": row.computed_at.isoformat() if row.computed_at else None,
             "total_evaluations": row.total_evaluations,
             "completed_count": row.completed_count,
@@ -561,8 +624,12 @@ class BacktestService:
             "take_profit_trigger_rate": row.take_profit_trigger_rate,
             "ambiguous_rate": row.ambiguous_rate,
             "avg_days_to_first_hit": row.avg_days_to_first_hit,
-            "advice_breakdown": json.loads(row.advice_breakdown_json) if row.advice_breakdown_json else {},
             "diagnostics": json.loads(row.diagnostics_json) if row.diagnostics_json else {},
+            "signal_breakdown": json.loads(row.signal_breakdown_json) if getattr(row, "signal_breakdown_json", None) else {},
+            "score_bucket_breakdown": json.loads(row.score_bucket_breakdown_json) if getattr(row, "score_bucket_breakdown_json", None) else {},
+            "exit_reason_breakdown": json.loads(row.exit_reason_breakdown_json) if getattr(row, "exit_reason_breakdown_json", None) else {},
+            "regime_breakdown": json.loads(row.regime_breakdown_json) if getattr(row, "regime_breakdown_json", None) else {},
+            "strategy_breakdown": json.loads(row.strategy_breakdown_json) if getattr(row, "strategy_breakdown_json", None) else {},
         }
 
     # ── Score Effectiveness Analysis ─────────────────────────────────

@@ -5,12 +5,15 @@
 
 // ============ Request / Response ============
 
+export type IndividualBacktestStrategy = 'buy_pullback' | 'breakout' | 'bottom_reversal' | 'eod_buyback';
+
 export interface BacktestRunRequest {
   code?: string;
   force?: boolean;
   evalWindowDays?: number;
   minAgeDays?: number;
   limit?: number;
+  strategies?: IndividualBacktestStrategy[];
 }
 
 export interface BacktestRunResponse {
@@ -29,7 +32,6 @@ export interface BacktestResultItem {
   name?: string;
   analysisDate?: string;
   evalWindowDays: number;
-  engineVersion: string;
   evalStatus: string;
   evaluatedAt?: string;
   operationAdvice?: string;
@@ -53,6 +55,22 @@ export interface BacktestResultItem {
   simulatedExitPrice?: number;
   simulatedExitReason?: string;
   simulatedReturnPct?: number;
+  // v2: System-computed signal snapshot + sim diagnostics
+  signalScoreAtEval?: number;
+  buySignalAtEval?: string;  // STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID
+  marketEnvironmentAtEval?: string;
+  strategyId?: string;
+  riskRewardAtEval?: number;
+  positionPctAtEval?: number;
+  trendScoreAtEval?: number;
+  biasScoreAtEval?: number;
+  volumeScoreAtEval?: number;
+  supportScoreAtEval?: number;
+  macdScoreAtEval?: number;
+  rsiScoreAtEval?: number;
+  capitalFlowScoreAtEval?: number;
+  exitReason?: string;
+  holdDays?: number;
 }
 
 export interface BacktestResultsResponse {
@@ -68,7 +86,6 @@ export interface PerformanceMetrics {
   scope: string;
   code?: string;
   evalWindowDays: number;
-  engineVersion: string;
   computedAt?: string;
 
   totalEvaluations: number;
@@ -91,6 +108,18 @@ export interface PerformanceMetrics {
   ambiguousRate?: number;
   avgDaysToFirstHit?: number;
 
-  adviceBreakdown: Record<string, unknown>;
   diagnostics: Record<string, unknown>;
+  signalBreakdown?: Record<string, BreakdownBucket>;
+  scoreBucketBreakdown?: Record<string, BreakdownBucket>;
+  exitReasonBreakdown?: Record<string, BreakdownBucket>;
+  regimeBreakdown?: Record<string, BreakdownBucket>;
+  strategyBreakdown?: Record<string, BreakdownBucket>;
+}
+
+export interface BreakdownBucket {
+  total: number;
+  win: number;
+  loss: number;
+  neutral: number;
+  win_rate_pct?: number | null;
 }

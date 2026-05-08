@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Cleanup: remove backtest engine v1 entirely
+
+- Dropped the `backtest_engine_version` config knob, the `BACKTEST_ENGINE_VERSION` env var,
+  and the corresponding entry in `src/core/config_registry.py` / WebUI i18n.
+- Dropped the `engine_version` column from `backtest_results` and `backtest_summaries`
+  (SQLite `ALTER TABLE ... DROP COLUMN`), removed `EvaluationConfig.engine_version` and the
+  `BacktestEngine.ENGINE_VERSION` constant, and rebuilt the unique indexes
+  (`backtest_results` → `(analysis_history_id, eval_window_days, strategy_id)`,
+  `backtest_summaries` → `(scope, code, eval_window_days)`).
+- Also dropped the legacy `advice_breakdown_json` column / API field / TS type — the v2
+  `signal_breakdown / score_bucket_breakdown / exit_reason_breakdown / regime_breakdown /
+  strategy_breakdown` panels fully replace it.
+- The one-shot wipe migration introduced earlier still runs once on first init so any
+  stale rows from the old schema are erased before the column drop.
+
+### Individual Stock Backtest: per-strategy multi-run
+
+- API: `POST /api/v1/backtest/run` now accepts an optional `strategies: string[]` payload
+  (subset of `buy_pullback / breakout / bottom_reversal / eod_buyback`). When supplied,
+  each analysis record is evaluated once per strategy and persisted as a separate
+  `BacktestResult` row, so users can compare per-strategy win rate / R/R / exit reasons
+  side by side in the existing breakdown panel.
+- DB: extended the `backtest_results` unique key to
+  `(analysis_history_id, eval_window_days, engine_version, strategy_id)`. SQLite migration
+  drops the old index and creates the new one in place.
+- Service: shared data fetch (start price + forward bars) is reused across strategies,
+  only the trade-levels evaluation runs per strategy. `force=True` rerun replaces only the
+  rows whose `strategy_id` matches the new run, so other strategies for the same analysis
+  are kept.
+- WebUI: the individual-stock backtest "Controls" card grew a `回测策略` chip row mirroring
+  the picker UI; defaults to `买回踩` and supports multi-select.
+
+### BREAKING: Individual Stock Backtest Engine v2 (signal-driven, trade-levels-aware)
+- **Engine rewritten** (`src/core/backtest_engine.py`): no longer parses LLM `operation_advice` text. Now driven by:
+  - System-computed `buy_signal` (`STRONG_BUY` / `BUY` → long; `HOLD` / `AVOID` / `STRONG_AVOID` → cash). Eliminates Chinese-keyword fragility.
+  - Unified `simulate_forward_trade` (same engine as picker backtest): staged exits, MA10 trailing, ATR×2.5 retracement, slippage, limit-up entry filter.
+- **`engine_version` bumped to `v2`**. Default in `Config` and `BACKTEST_ENGINE_VERSION` env var both updated.
+- **DB schema extended** (`backtest_results` adds 16 columns, `backtest_summaries` adds 5 JSON columns): `signal_score_at_eval` / `buy_signal_at_eval` / `market_environment_at_eval` / `strategy_id` / `risk_reward_at_eval` / `position_pct_at_eval` / 7 dim score snapshots / `exit_reason` / `hold_days`. Summaries now carry `signal_breakdown_json` / `score_bucket_breakdown_json` / `exit_reason_breakdown_json` / `regime_breakdown_json` / `strategy_breakdown_json`.
+- **One-shot data wipe**: on first DB init under v3.x+, all legacy `backtest_results` / `backtest_summaries` rows are DELETEd (note: the `engine_version` column referenced here was later dropped entirely — see top of changelog). Re-run `/api/v1/backtest/run` to regenerate. Pre-v3.0 analyses (which lack `signal_score`) yield `eval_status='missing_signal'` and are skipped.
+- **API + WebUI**:
+  - `BacktestResultItem` exposes the 16 new fields; `PerformanceMetrics` exposes 5 breakdown dicts.
+  - `BacktestPage.tsx` individual-backtest table replaces 「建议 / 止损 / 止盈」 columns with 「信号 / 量化分 / 策略 / 持仓 / 退出原因」.
+  - New `BreakdownGrid` panel under `PerformancePanel` shows win-rate by signal / score-bucket / exit_reason / regime / strategy.
+- **Tests**: `tests/test_backtest_engine.py` rewritten for v2 (15 cases covering signal mapping, missing_signal handling, simulate_forward_trade integration, breakdown aggregation). `tests/test_backtest_summary.py` updated to v2 row shape.
+
+### Fixed (Picker Backtest WebUI: expose exit_reason / hold_days / strategy)
+- **`PickResult` extended** with `exit_reason` (e.g., `stop_loss` / `trailing_ma10` / `stage_break_+12pct` / `hardcap_+20pct` / `window_end`), `hold_days`, and `strategy_id`. Previously `simulate_forward_trade` returned these but the picker backtest pipeline dropped them on the floor.
+- **`_get_forward_return` signature changed** from `Tuple[exit_price, return_pct]` to `Dict[str, Any]` so the parallel runner can propagate the diagnostic fields.
+- **API + TS schema + WebUI table** updated: results table now shows 持仓 / 退出原因 / 策略 columns. Users can finally diagnose *why* a backtest pick lost money (止损 vs 移动止盈 vs 窗口到期 vs 硬顶平仓).
+
+### Fixed (Analysis WebUI: expose system signals & trade-level extras)
+- **DB schema extended** (`AnalysisHistory`): added `signal_score` / `buy_signal` / `pe_ratio` / `market_environment` / `position_pct` / `risk_reward` / `take_profit_2_rule` columns. Auto-migration via `ALTER TABLE` (existing rows get NULL; new analyses populate full set).
+- **save_analysis_history**: extracts the new fields from `context_snapshot.enhanced_context.{trend_analysis, trade_levels}` (computed by pipeline / trade_levels engine) and persists them.
+- **API schemas** (`ReportSummary` / `ReportStrategy`): exposed `signal_score`, `buy_signal`, `pe_ratio`, `market_environment`, full per-dimension breakdown (`trend_score` / `bias_score` / `volume_score` / `support_score` / `macd_score` / `rsi_score` / `capital_flow_score`), and trade-level extras (`position_pct` / `risk_reward` / `take_profit_2_rule`). These were previously computed but silently dropped at the Pydantic boundary.
+- **WebUI**: new `ReportScores` panel shows total quant score (0-100), `buy_signal` badge, market regime, PE, and a 7-dim score-bar breakdown. `ReportStrategy` now also renders 建议仓位 / 盈亏比 R/R / 后续止盈规则.
+- **Stale comments fixed** in `storage.py` (`support_score` 0-12 → 0-6, `macd_score` 0-10 → 0-13, `capital_flow_score` 0-10 → 0-13 weighted) to match the post-rebalance scoring.
+
 ### Changed (Parameter Tuning Wave — Investment-Expert Review)
 - **R/R floor raised 1.8 → 2.0** (`trade_levels.RR_MIN`): A-share round-trip cost (slippage + tax) ~0.5% leaves net 1.5 at 1.8 — insufficient at <50% win rate. New 2.0 keeps positive expectancy at win rates ≥45%.
 - **Trailing trigger lowered +20% → +15%** (`evaluate_trailing_exit`): A-share rallies often start ABC consolidation around +18-22%; entering trailing at +15% locks 3-5% additional profit on average.

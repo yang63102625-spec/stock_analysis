@@ -61,7 +61,6 @@ const fieldTitleMap: Record<string, string> = {
   BACKTEST_ENABLED: '启用回测',
   BACKTEST_EVAL_WINDOW_DAYS: '回测评估窗口（交易日）',
   BACKTEST_MIN_AGE_DAYS: '回测最小历史天数',
-  BACKTEST_ENGINE_VERSION: '回测引擎版本',
   BACKTEST_NEUTRAL_BAND_PCT: '回测中性区间阈值（%）',
 };
 
@@ -104,7 +103,6 @@ const fieldDescriptionMap: Record<string, string> = {
   BACKTEST_ENABLED: '是否启用回测功能（true/false）。',
   BACKTEST_EVAL_WINDOW_DAYS: '回测评估窗口长度，单位为交易日。',
   BACKTEST_MIN_AGE_DAYS: '仅回测早于该天数的分析记录。',
-  BACKTEST_ENGINE_VERSION: '回测引擎版本标识，用于区分结果版本。',
   BACKTEST_NEUTRAL_BAND_PCT: '中性区间阈值百分比，例如 2 表示 -2%~+2%。',
 };
 

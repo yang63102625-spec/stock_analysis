@@ -127,6 +127,21 @@ class ReportSummary(BaseModel):
     )
     sentiment_label: Optional[str] = Field(None, description="情绪标签")
 
+    # System-computed quantitative signals (not LLM output)
+    signal_score: Optional[int] = Field(None, description="系统量化总分 (0-100)")
+    buy_signal: Optional[str] = Field(None, description="买入信号: STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID")
+    pe_ratio: Optional[float] = Field(None, description="市盈率 (PE)")
+    market_environment: Optional[str] = Field(None, description="大盘环境: bull/sideways/bear/strong_bear")
+
+    # Per-dimension breakdown (range comments reflect post-rebalance caps)
+    trend_score: Optional[int] = Field(None, description="趋势 (0-30)")
+    bias_score: Optional[int] = Field(None, description="乖离 (0-15)")
+    volume_score: Optional[int] = Field(None, description="量能 (0-18)")
+    support_score: Optional[int] = Field(None, description="支撑 (0-6)")
+    macd_score: Optional[int] = Field(None, description="MACD (0-13)")
+    rsi_score: Optional[int] = Field(None, description="RSI (0-5)")
+    capital_flow_score: Optional[int] = Field(None, description="资金流 (0-13, 加权)")
+
 
 class ReportStrategy(BaseModel):
     """策略点位区"""
@@ -135,6 +150,10 @@ class ReportStrategy(BaseModel):
     secondary_buy: Optional[str] = Field(None, description="第二买入价")
     stop_loss: Optional[str] = Field(None, description="止损价")
     take_profit: Optional[str] = Field(None, description="止盈价")
+    # Trade-levels engine extras (system-computed)
+    position_pct: Optional[float] = Field(None, description="建议仓位 (0-1)")
+    risk_reward: Optional[float] = Field(None, description="盈亏比 R/R")
+    take_profit_2_rule: Optional[str] = Field(None, description="后续止盈/移动止盈规则")
 
 
 class ReportDetails(BaseModel):

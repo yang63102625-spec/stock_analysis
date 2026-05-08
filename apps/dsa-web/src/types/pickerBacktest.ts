@@ -22,6 +22,9 @@ export interface PickerBacktestResultItem {
   returnPct?: number;
   outcome: string;
   score?: number;
+  exitReason?: string;  // stop_loss / trailing_ma10 / stage_break_+12pct / hardcap_+20pct / window_end / ...
+  holdDays?: number;
+  strategyId?: string;  // buy_pullback / breakout / bottom_reversal / eod_buyback
 }
 
 export interface PickerBacktestSummary {

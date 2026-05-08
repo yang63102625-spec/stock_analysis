@@ -14,6 +14,15 @@ class BacktestRunRequest(BaseModel):
     eval_window_days: Optional[int] = Field(None, ge=1, le=120, description="评估窗口（交易日数）")
     min_age_days: Optional[int] = Field(None, ge=0, le=365, description="分析记录最小天龄（0=不限）")
     limit: int = Field(200, ge=1, le=2000, description="最多处理的分析记录数")
+    strategies: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Strategies to evaluate per analysis record: buy_pullback / breakout / "
+            "bottom_reversal / eod_buyback. Each picked strategy produces one BacktestResult "
+            "row per analysis (so users can compare per-strategy performance). "
+            "Defaults to ['buy_pullback'] if omitted."
+        ),
+    )
 
 
 class BacktestRunResponse(BaseModel):
@@ -30,7 +39,6 @@ class BacktestResultItem(BaseModel):
     name: str = ""
     analysis_date: Optional[str] = None
     eval_window_days: int
-    engine_version: str
     eval_status: str
     evaluated_at: Optional[str] = None
     operation_advice: Optional[str] = None
@@ -54,6 +62,22 @@ class BacktestResultItem(BaseModel):
     simulated_exit_price: Optional[float] = None
     simulated_exit_reason: Optional[str] = None
     simulated_return_pct: Optional[float] = None
+    # v2: System-computed signal snapshot + sim diagnostics
+    signal_score_at_eval: Optional[int] = None
+    buy_signal_at_eval: Optional[str] = None  # STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID
+    market_environment_at_eval: Optional[str] = None
+    strategy_id: Optional[str] = None
+    risk_reward_at_eval: Optional[float] = None
+    position_pct_at_eval: Optional[float] = None
+    trend_score_at_eval: Optional[int] = None
+    bias_score_at_eval: Optional[int] = None
+    volume_score_at_eval: Optional[int] = None
+    support_score_at_eval: Optional[int] = None
+    macd_score_at_eval: Optional[int] = None
+    rsi_score_at_eval: Optional[int] = None
+    capital_flow_score_at_eval: Optional[int] = None
+    exit_reason: Optional[str] = None  # stop_loss / trailing_ma10 / stage_break_+12pct / hardcap_+20pct / window_end / ...
+    hold_days: Optional[int] = None
 
 
 class BacktestResultsResponse(BaseModel):
@@ -67,7 +91,6 @@ class PerformanceMetrics(BaseModel):
     scope: str
     code: Optional[str] = None
     eval_window_days: int
-    engine_version: str
     computed_at: Optional[str] = None
 
     total_evaluations: int
@@ -90,6 +113,10 @@ class PerformanceMetrics(BaseModel):
     ambiguous_rate: Optional[float] = None
     avg_days_to_first_hit: Optional[float] = None
 
-    advice_breakdown: Dict[str, Any] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    signal_breakdown: Dict[str, Any] = Field(default_factory=dict)
+    score_bucket_breakdown: Dict[str, Any] = Field(default_factory=dict)
+    exit_reason_breakdown: Dict[str, Any] = Field(default_factory=dict)
+    regime_breakdown: Dict[str, Any] = Field(default_factory=dict)
+    strategy_breakdown: Dict[str, Any] = Field(default_factory=dict)
 

@@ -77,6 +77,33 @@ export const ReportStrategy: React.FC<ReportStrategyProps> = ({ strategy }) => {
           <StrategyItem key={item.label} {...item} />
         ))}
       </div>
+
+      {(strategy.positionPct != null || strategy.riskReward != null || strategy.takeProfit2Rule) && (
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 text-xs">
+          {strategy.positionPct != null && (
+            <div className="rounded border border-border bg-elevated p-2">
+              <div className="text-muted">建议仓位</div>
+              <div className="font-mono font-semibold text-primary">
+                {(strategy.positionPct * 100).toFixed(0)}%
+              </div>
+            </div>
+          )}
+          {strategy.riskReward != null && (
+            <div className="rounded border border-border bg-elevated p-2">
+              <div className="text-muted">盈亏比 R/R</div>
+              <div className="font-mono font-semibold text-primary">
+                {strategy.riskReward.toFixed(2)}
+              </div>
+            </div>
+          )}
+          {strategy.takeProfit2Rule && (
+            <div className="col-span-2 md:col-span-1 rounded border border-border bg-elevated p-2">
+              <div className="text-muted">后续止盈</div>
+              <div className="text-primary leading-snug">{strategy.takeProfit2Rule}</div>
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 };

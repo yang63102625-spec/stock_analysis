@@ -207,10 +207,16 @@ class AnalysisHistory(Base):
     trend_score = Column(Integer, default=0)           # 0-30
     bias_score = Column(Integer, default=0)            # 0-15
     volume_score = Column(Integer, default=0)          # 0-18
-    support_score = Column(Integer, default=0)         # 0-12
-    macd_score = Column(Integer, default=0)            # 0-10
+    support_score = Column(Integer, default=0)         # 0-6
+    macd_score = Column(Integer, default=0)            # 0-13
     rsi_score = Column(Integer, default=0)             # 0-5
-    capital_flow_score = Column(Integer, default=0)    # 0-10
+    capital_flow_score = Column(Integer, default=0)    # 0-13 (weighted)
+
+    # System-computed quantitative signals (not LLM output)
+    signal_score = Column(Integer, default=0)          # 0-100 total technical score
+    buy_signal = Column(String(24))                    # STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID
+    pe_ratio = Column(Float)
+    market_environment = Column(String(24))            # bull/bear/sideways/strong_bear
 
     # 详细数据
     raw_result = Column(Text)
@@ -222,6 +228,10 @@ class AnalysisHistory(Base):
     secondary_buy = Column(Float)
     stop_loss = Column(Float)
     take_profit = Column(Float)
+    # Trade-levels engine extras (computed by trade_levels.py)
+    position_pct = Column(Float)
+    risk_reward = Column(Float)
+    take_profit_2_rule = Column(Text)
 
     created_at = Column(DateTime, default=datetime.now, index=True)
 
@@ -248,6 +258,13 @@ class AnalysisHistory(Base):
             'macd_score': self.macd_score,
             'rsi_score': self.rsi_score,
             'capital_flow_score': self.capital_flow_score,
+            'signal_score': self.signal_score,
+            'buy_signal': self.buy_signal,
+            'pe_ratio': self.pe_ratio,
+            'market_environment': self.market_environment,
+            'position_pct': self.position_pct,
+            'risk_reward': self.risk_reward,
+            'take_profit_2_rule': self.take_profit_2_rule,
             'raw_result': self.raw_result,
             'news_content': self.news_content,
             'context_snapshot': self.context_snapshot,
@@ -401,7 +418,6 @@ class BacktestResult(Base):
 
     # 回测参数
     eval_window_days = Column(Integer, nullable=False, default=10)
-    engine_version = Column(String(16), nullable=False, default='v1')
 
     # 状态
     eval_status = Column(String(16), nullable=False, default='pending')
@@ -410,6 +426,27 @@ class BacktestResult(Base):
     # 建议快照（避免未来分析字段变化导致回测不可解释）
     operation_advice = Column(String(20))
     position_recommendation = Column(String(8))  # long/cash
+
+    # v2: System-computed signal snapshot (single source of truth, NOT LLM text)
+    signal_score_at_eval = Column(Integer)
+    buy_signal_at_eval = Column(String(24))           # STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID
+    market_environment_at_eval = Column(String(24))   # bull/bear/sideways/strong_bear
+    strategy_id = Column(String(32))                  # buy_pullback/breakout/bottom_reversal/eod_buyback
+    risk_reward_at_eval = Column(Float)
+    position_pct_at_eval = Column(Float)
+
+    # v2: Per-dimension score snapshots (avoids JOIN on AnalysisHistory for analytics)
+    trend_score_at_eval = Column(Integer)
+    bias_score_at_eval = Column(Integer)
+    volume_score_at_eval = Column(Integer)
+    support_score_at_eval = Column(Integer)
+    macd_score_at_eval = Column(Integer)
+    rsi_score_at_eval = Column(Integer)
+    capital_flow_score_at_eval = Column(Integer)
+
+    # v2: Trade-levels engine simulation diagnostics
+    exit_reason = Column(String(32))                  # stop_loss/trailing_ma10/stage_break_+12pct/...
+    hold_days = Column(Integer)
 
     # 价格与收益
     start_price = Column(Float)
@@ -442,8 +479,8 @@ class BacktestResult(Base):
         UniqueConstraint(
             'analysis_history_id',
             'eval_window_days',
-            'engine_version',
-            name='uix_backtest_analysis_window_version',
+            'strategy_id',
+            name='uix_backtest_analysis_window_strategy',
         ),
         Index('ix_backtest_code_date', 'code', 'analysis_date'),
     )
@@ -460,7 +497,6 @@ class BacktestSummary(Base):
     code = Column(String(16), index=True)
 
     eval_window_days = Column(Integer, nullable=False, default=10)
-    engine_version = Column(String(16), nullable=False, default='v1')
     computed_at = Column(DateTime, default=datetime.now, index=True)
 
     # 计数
@@ -490,16 +526,20 @@ class BacktestSummary(Base):
     avg_days_to_first_hit = Column(Float)
 
     # 诊断字段（JSON 字符串）
-    advice_breakdown_json = Column(Text)
     diagnostics_json = Column(Text)
+    # Per-bucket breakdowns (current engine).
+    signal_breakdown_json = Column(Text)         # by buy_signal (STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID)
+    score_bucket_breakdown_json = Column(Text)   # by signal_score bucket (ge_80/70_80/60_70/lt_60)
+    exit_reason_breakdown_json = Column(Text)    # by simulated exit_reason
+    regime_breakdown_json = Column(Text)         # by market_environment
+    strategy_breakdown_json = Column(Text)       # by strategy_id
 
     __table_args__ = (
         UniqueConstraint(
             'scope',
             'code',
             'eval_window_days',
-            'engine_version',
-            name='uix_backtest_summary_scope_code_window_version',
+            name='uix_backtest_summary_scope_code_window',
         ),
     )
 
@@ -602,12 +642,93 @@ class DatabaseManager:
                     "ALTER TABLE analysis_history ADD COLUMN macd_score INTEGER DEFAULT 0",
                     "ALTER TABLE analysis_history ADD COLUMN rsi_score INTEGER DEFAULT 0",
                     "ALTER TABLE analysis_history ADD COLUMN capital_flow_score INTEGER DEFAULT 0",
+                    # Analysis history: system-computed signal/regime + trade-level extras
+                    "ALTER TABLE analysis_history ADD COLUMN signal_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN buy_signal VARCHAR(24)",
+                    "ALTER TABLE analysis_history ADD COLUMN pe_ratio FLOAT",
+                    "ALTER TABLE analysis_history ADD COLUMN market_environment VARCHAR(24)",
+                    "ALTER TABLE analysis_history ADD COLUMN position_pct FLOAT",
+                    "ALTER TABLE analysis_history ADD COLUMN risk_reward FLOAT",
+                    "ALTER TABLE analysis_history ADD COLUMN take_profit_2_rule TEXT",
+                    # v2 backtest engine: signal snapshot + dim snapshot + sim diagnostics
+                    "ALTER TABLE backtest_results ADD COLUMN signal_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN buy_signal_at_eval VARCHAR(24)",
+                    "ALTER TABLE backtest_results ADD COLUMN market_environment_at_eval VARCHAR(24)",
+                    "ALTER TABLE backtest_results ADD COLUMN strategy_id VARCHAR(32)",
+                    "ALTER TABLE backtest_results ADD COLUMN risk_reward_at_eval FLOAT",
+                    "ALTER TABLE backtest_results ADD COLUMN position_pct_at_eval FLOAT",
+                    "ALTER TABLE backtest_results ADD COLUMN trend_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN bias_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN volume_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN support_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN macd_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN rsi_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN capital_flow_score_at_eval INTEGER",
+                    "ALTER TABLE backtest_results ADD COLUMN exit_reason VARCHAR(32)",
+                    "ALTER TABLE backtest_results ADD COLUMN hold_days INTEGER",
+                    "ALTER TABLE backtest_summaries ADD COLUMN signal_breakdown_json TEXT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN score_bucket_breakdown_json TEXT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN exit_reason_breakdown_json TEXT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN regime_breakdown_json TEXT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN strategy_breakdown_json TEXT",
+                    # Per-strategy backtest + engine_version drop: rebuild unique indexes.
+                    # Old indexes are dropped, new ones created without engine_version.
+                    "DROP INDEX IF EXISTS uix_backtest_analysis_window_version",
+                    "DROP INDEX IF EXISTS uix_backtest_analysis_window_version_strategy",
+                    (
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uix_backtest_analysis_window_strategy "
+                        "ON backtest_results (analysis_history_id, eval_window_days, strategy_id)"
+                    ),
+                    "DROP INDEX IF EXISTS uix_backtest_summary_scope_code_window_version",
+                    (
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uix_backtest_summary_scope_code_window "
+                        "ON backtest_summaries (scope, code, eval_window_days)"
+                    ),
+                    # Drop legacy columns. SQLite 3.35+ supports DROP COLUMN.
+                    "ALTER TABLE backtest_results DROP COLUMN engine_version",
+                    "ALTER TABLE backtest_summaries DROP COLUMN engine_version",
+                    "ALTER TABLE backtest_summaries DROP COLUMN advice_breakdown_json",
                 ]:
                     try:
                         conn.execute(text(sql))
                         conn.commit()
                     except Exception:
                         pass  # Column may already exist
+
+                # One-shot wipe: legacy backtest data uses incompatible semantics
+                # (text-based advice parsing, no signal_score, no exit_reason / hold_days,
+                # picker backtest pre-trade_levels engine). Wipe everything once on the
+                # first init that detects an unmigrated row, then mark with a sentinel.
+                try:
+                    sentinel = conn.execute(
+                        text(
+                            "SELECT COUNT(*) FROM backtest_summaries "
+                            "WHERE scope = '__migration_marker__' AND code = 'unified_v3'"
+                        )
+                    ).scalar() or 0
+                    if int(sentinel) == 0:
+                        legacy_results = conn.execute(text("SELECT COUNT(*) FROM backtest_results")).scalar() or 0
+                        legacy_summaries = conn.execute(text("SELECT COUNT(*) FROM backtest_summaries")).scalar() or 0
+                        legacy_picker = conn.execute(text("SELECT COUNT(*) FROM picker_backtest_history")).scalar() or 0
+                        if int(legacy_results) + int(legacy_summaries) + int(legacy_picker) > 0:
+                            logger.info(
+                                "[Migration] One-shot wipe: backtest_results=%d backtest_summaries=%d "
+                                "picker_backtest_history=%d (engine semantics changed in v3.x)",
+                                int(legacy_results), int(legacy_summaries), int(legacy_picker),
+                            )
+                            conn.execute(text("DELETE FROM backtest_results"))
+                            conn.execute(text("DELETE FROM backtest_summaries"))
+                            conn.execute(text("DELETE FROM picker_backtest_history"))
+                        # Insert sentinel so subsequent restarts don't re-wipe.
+                        conn.execute(
+                            text(
+                                "INSERT INTO backtest_summaries (scope, code, eval_window_days) "
+                                "VALUES ('__migration_marker__', 'unified_v3', 0)"
+                            )
+                        )
+                        conn.commit()
+                except Exception as exc:
+                    logger.debug("[Migration] one-shot backtest wipe skipped: %s", exc)
         except Exception:
             pass
 
@@ -948,6 +1069,9 @@ class DatabaseManager:
 
         # Extract per-dimension scores from context_snapshot
         dim_scores = self._extract_dimension_scores(context_snapshot)
+        # Extract system-computed signals + trade-level extras
+        meta_signals = self._extract_meta_signals(context_snapshot)
+        tl_extras = self._extract_trade_levels_meta(context_snapshot)
 
         record = AnalysisHistory(
             query_id=query_id,
@@ -972,6 +1096,13 @@ class DatabaseManager:
             secondary_buy=sniper_points.get("secondary_buy"),
             stop_loss=sniper_points.get("stop_loss"),
             take_profit=sniper_points.get("take_profit"),
+            signal_score=meta_signals.get("signal_score"),
+            buy_signal=meta_signals.get("buy_signal"),
+            pe_ratio=meta_signals.get("pe_ratio"),
+            market_environment=meta_signals.get("market_environment"),
+            position_pct=tl_extras.get("position_pct"),
+            risk_reward=tl_extras.get("risk_reward"),
+            take_profit_2_rule=tl_extras.get("take_profit_2_rule"),
             created_at=datetime.now(),
         )
 
@@ -1650,6 +1781,55 @@ class DatabaseManager:
             except (TypeError, ValueError):
                 result[k] = 0
         return result
+
+    @staticmethod
+    def _extract_meta_signals(context_snapshot: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Pull system-computed signal_score / buy_signal / pe_ratio / market_environment."""
+        if not isinstance(context_snapshot, dict):
+            return {}
+        enhanced = context_snapshot.get("enhanced_context")
+        if not isinstance(enhanced, dict):
+            return {}
+        ta = enhanced.get("trend_analysis") or {}
+        out: Dict[str, Any] = {}
+        try:
+            ss = ta.get("signal_score")
+            out["signal_score"] = int(ss) if ss is not None else None
+        except (TypeError, ValueError):
+            out["signal_score"] = None
+        bs = ta.get("buy_signal")
+        out["buy_signal"] = str(bs) if bs is not None else None
+        env = ta.get("market_environment")
+        out["market_environment"] = str(env) if env is not None else None
+        # pe_ratio lives at enhanced top-level (see pipeline._enhance_context)
+        pe = enhanced.get("pe_ratio")
+        try:
+            out["pe_ratio"] = float(pe) if pe is not None else None
+        except (TypeError, ValueError):
+            out["pe_ratio"] = None
+        return out
+
+    @staticmethod
+    def _extract_trade_levels_meta(context_snapshot: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Pull position_pct / risk_reward / take_profit_2_rule from trade_levels block."""
+        if not isinstance(context_snapshot, dict):
+            return {}
+        enhanced = context_snapshot.get("enhanced_context")
+        if not isinstance(enhanced, dict):
+            return {}
+        tl = enhanced.get("trade_levels")
+        if not isinstance(tl, dict):
+            return {}
+        out: Dict[str, Any] = {}
+        for k in ("position_pct", "risk_reward"):
+            try:
+                v = tl.get(k)
+                out[k] = float(v) if v is not None else None
+            except (TypeError, ValueError):
+                out[k] = None
+        rule = tl.get("take_profit_2_rule")
+        out["take_profit_2_rule"] = str(rule) if rule else None
+        return out
 
     def _extract_sniper_points(self, result: Any) -> Dict[str, Optional[float]]:
         """

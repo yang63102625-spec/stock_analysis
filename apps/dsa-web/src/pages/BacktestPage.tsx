@@ -103,8 +103,58 @@ const PerformancePanel: React.FC<{ metrics: PerformanceMetrics; title: string }>
       <StatCell label="止盈触发" value={pct(metrics.takeProfitTriggerRate)} />
       <StatCell label="触发天数" value={metrics.avgDaysToFirstHit != null ? metrics.avgDaysToFirstHit.toFixed(1) : '--'} />
     </div>
+    <BreakdownGrid metrics={metrics} />
   </div>
 );
+
+/* ── v2 breakdown panel ──────────────────────────────────────── */
+const BreakdownGrid: React.FC<{ metrics: PerformanceMetrics }> = ({ metrics }) => {
+  const groups: Array<{ title: string; data?: Record<string, { total: number; win: number; loss: number; win_rate_pct?: number | null }> }> = [
+    { title: '按信号', data: metrics.signalBreakdown as never },
+    { title: '按量化分', data: metrics.scoreBucketBreakdown as never },
+    { title: '按退出原因', data: metrics.exitReasonBreakdown as never },
+    { title: '按大盘', data: metrics.regimeBreakdown as never },
+    { title: '按策略', data: metrics.strategyBreakdown as never },
+  ];
+  const visible = groups.filter((g) => g.data && Object.keys(g.data).length > 0);
+  if (visible.length === 0) return null;
+  return (
+    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {visible.map((g) => (
+        <div key={g.title} className="rounded-xl border border-border bg-elevated/40 p-3">
+          <div className="text-xs text-muted mb-2">{g.title}</div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted">
+                <th className="text-left font-normal pb-1">分桶</th>
+                <th className="text-right font-normal pb-1">N</th>
+                <th className="text-right font-normal pb-1">胜率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(g.data!).map(([k, v]) => (
+                <tr key={k} className="border-t border-border/40">
+                  <td className="py-1 font-mono text-primary">{k}</td>
+                  <td className="py-1 text-right font-mono text-secondary">{v.total}</td>
+                  <td className="py-1 text-right font-mono">
+                    <span className={
+                      v.win_rate_pct == null ? 'text-muted'
+                        : v.win_rate_pct >= 60 ? 'text-emerald-500'
+                        : v.win_rate_pct >= 45 ? 'text-secondary'
+                        : 'text-red-500'
+                    }>
+                      {v.win_rate_pct != null ? `${v.win_rate_pct.toFixed(0)}%` : '--'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 /* ── Run Summary ─────────────────────────────────────────────── */
 const RunSummary: React.FC<{ data: BacktestRunResponse }> = ({ data }) => (
@@ -169,6 +219,8 @@ const BacktestPage: React.FC = () => {
   const [overallPerf, setOverallPerf] = useState<PerformanceMetrics | null>(null);
   const [stockPerf, setStockPerf] = useState<PerformanceMetrics | null>(null);
   const [isLoadingPerf, setIsLoadingPerf] = useState(false);
+  // Per-strategy individual backtest (mirrors picker UI). Defaults to buy_pullback.
+  const [individualStrategies, setIndividualStrategies] = useState<PickerStrategy[]>(['buy_pullback']);
 
   // Picker backtest state (default: last 3 months)
   const [pickerStartDate, setPickerStartDate] = useState(() => {
@@ -274,6 +326,7 @@ const BacktestPage: React.FC = () => {
         force: forceRerun || undefined,
         minAgeDays: forceRerun ? 0 : undefined,
         evalWindowDays,
+        strategies: individualStrategies.length > 0 ? individualStrategies : ['buy_pullback'],
       });
       setRunResult(response);
       fetchResults(1, codeFilter.trim() || undefined, evalWindowDays);
@@ -395,7 +448,39 @@ const BacktestPage: React.FC = () => {
         {activeTab === 'analysis' && (
         <>
         {/* ─── Controls ─── */}
-        <div className="bg-elevated/60 border border-border rounded-2xl p-6 mb-8">
+        <div className="bg-elevated/60 border border-border rounded-2xl p-6 mb-8 space-y-3">
+          {/* Strategy chips */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-medium text-muted shrink-0">回测策略</label>
+            <div className="flex flex-wrap gap-2">
+              {STRATEGY_OPTIONS.map((o) => {
+                const selected = individualStrategies.includes(o.value);
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => {
+                      if (selected) {
+                        const next = individualStrategies.filter((s) => s !== o.value);
+                        setIndividualStrategies(next.length > 0 ? next : ['buy_pullback']);
+                      } else {
+                        setIndividualStrategies([...individualStrategies, o.value]);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all
+                      ${selected
+                        ? 'bg-cyan text-white shadow-glow-cyan'
+                        : 'bg-elevated text-secondary border border-border hover:bg-surface-hover hover:border-cyan/20'}
+                      disabled:opacity-60 disabled:cursor-not-allowed`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="ml-auto text-xs text-muted">每条记录会按选中的策略各跑一次，可在表格的「策略」列对比</span>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <input
               type="text"
@@ -524,12 +609,14 @@ const BacktestPage: React.FC = () => {
                       <th className="px-4 py-3 text-left text-xs text-muted font-medium">代码</th>
                       <th className="px-4 py-3 text-left text-xs text-muted font-medium">名称</th>
                       <th className="px-4 py-3 text-left text-xs text-muted font-medium">分析日期</th>
-                      <th className="px-4 py-3 text-left text-xs text-muted font-medium">建议</th>
+                      <th className="px-4 py-3 text-left text-xs text-muted font-medium">信号</th>
+                      <th className="px-4 py-3 text-right text-xs text-muted font-medium">量化分</th>
+                      <th className="px-4 py-3 text-left text-xs text-muted font-medium">策略</th>
                       <th className="px-4 py-3 text-left text-xs text-muted font-medium">方向</th>
                       <th className="px-4 py-3 text-left text-xs text-muted font-medium">结果</th>
                       <th className="px-4 py-3 text-right text-xs text-muted font-medium">收益率</th>
-                      <th className="px-4 py-3 text-center text-xs text-muted font-medium">止损</th>
-                      <th className="px-4 py-3 text-center text-xs text-muted font-medium">止盈</th>
+                      <th className="px-4 py-3 text-right text-xs text-muted font-medium">持仓</th>
+                      <th className="px-4 py-3 text-left text-xs text-muted font-medium">退出原因</th>
                       <th className="px-4 py-3 text-left text-xs text-muted font-medium">状态</th>
                     </tr>
                   </thead>
@@ -542,9 +629,13 @@ const BacktestPage: React.FC = () => {
                         <td className="px-4 py-2.5 font-mono text-cyan text-xs">{row.code}</td>
                         <td className="px-4 py-2.5 text-sm text-primary font-medium truncate max-w-[120px]" title={row.name || ''}>{row.name || '--'}</td>
                         <td className="px-4 py-2.5 text-xs text-secondary">{row.analysisDate || '--'}</td>
-                        <td className="px-4 py-2.5 text-sm text-primary truncate max-w-[100px]" title={row.operationAdvice || ''}>
-                          {row.operationAdvice || '--'}
+                        <td className="px-4 py-2.5 text-xs">
+                          <span className="font-mono text-primary">{row.buySignalAtEval || '--'}</span>
                         </td>
+                        <td className="px-4 py-2.5 text-sm font-mono text-right text-primary">
+                          {row.signalScoreAtEval != null ? row.signalScoreAtEval : '--'}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-secondary">{row.strategyId || '--'}</td>
                         <td className="px-4 py-2.5 text-sm">
                           <span className="flex items-center gap-1.5">
                             {boolIcon(row.directionCorrect)}
@@ -561,8 +652,12 @@ const BacktestPage: React.FC = () => {
                             {pct(row.simulatedReturnPct)}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-center">{boolIcon(row.hitStopLoss)}</td>
-                        <td className="px-4 py-2.5 text-center">{boolIcon(row.hitTakeProfit)}</td>
+                        <td className="px-4 py-2.5 text-xs font-mono text-right text-secondary">
+                          {row.holdDays != null ? `${row.holdDays}d` : '--'}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-secondary" title={row.exitReason || ''}>
+                          {row.exitReason || '--'}
+                        </td>
                         <td className="px-4 py-2.5">{statusBadge(row.evalStatus)}</td>
                       </tr>
                     ))}
@@ -761,6 +856,9 @@ const BacktestPage: React.FC = () => {
                         <th className="px-4 py-3 text-left text-xs text-muted font-medium">名称</th>
                         <th className="px-4 py-3 text-right text-xs text-muted font-medium">买入价</th>
                         <th className="px-4 py-3 text-right text-xs text-muted font-medium">收益率</th>
+                        <th className="px-4 py-3 text-right text-xs text-muted font-medium">持仓</th>
+                        <th className="px-4 py-3 text-left text-xs text-muted font-medium">退出原因</th>
+                        <th className="px-4 py-3 text-left text-xs text-muted font-medium">策略</th>
                         <th className="px-4 py-3 text-left text-xs text-muted font-medium">结果</th>
                       </tr>
                     </thead>
@@ -782,6 +880,15 @@ const BacktestPage: React.FC = () => {
                             }>
                               {row.returnPct != null ? `${row.returnPct.toFixed(1)}%` : '--'}
                             </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs font-mono text-right text-secondary">
+                            {row.holdDays != null ? `${row.holdDays}d` : '--'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-secondary" title={row.exitReason || ''}>
+                            {row.exitReason || '--'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-secondary">
+                            {row.strategyId || '--'}
                           </td>
                           <td className="px-4 py-2.5">{outcomeBadge(row.outcome)}</td>
                         </tr>

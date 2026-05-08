@@ -54,6 +54,10 @@ class PickResult:
     return_pct: Optional[float]
     outcome: str  # "win" | "loss" | "insufficient"
     score: float = 0.0
+    # Trade-levels engine extras (surfaced for diagnostic UI)
+    exit_reason: Optional[str] = None  # stop_loss / trailing_ma10 / stage_break_+12pct / hardcap_+20pct / window_end / ...
+    hold_days: Optional[int] = None
+    strategy_id: Optional[str] = None
 
 
 @dataclass
@@ -151,7 +155,7 @@ class PickerBacktestService:
         strategy_id: str = "buy_pullback",
         stop_loss_pct: float = STOP_LOSS_PCT,    # kept for backward compat (unused)
         take_profit_pct: float = TAKE_PROFIT_PCT,
-    ) -> Tuple[Optional[float], Optional[float]]:
+    ) -> Dict[str, Any]:
         """Fetch daily data and simulate the forward trade with the unified
         trade_levels engine (same rules as production picker / analyzer).
 
@@ -170,14 +174,14 @@ class PickerBacktestService:
                 code, start_date=start_iso, end_date=end_iso, days=80
             )
             if df is None or df.empty:
-                return None, None
+                return {}
             date_col = next((c for c in ["date", "日期"] if c in df.columns), df.columns[0])
             close_col = next((c for c in ["close", "收盘"] if c in df.columns), None)
             high_col = next((c for c in ["high", "最高"] if c in df.columns), None)
             low_col = next((c for c in ["low", "最低"] if c in df.columns), None)
             pct_col = next((c for c in ["pct_chg", "涨跌幅"] if c in df.columns), None)
             if close_col is None:
-                return None, None
+                return {}
 
             df = df.sort_values(date_col).reset_index(drop=True)
             df[date_col] = pd.to_datetime(df[date_col])
@@ -198,10 +202,10 @@ class PickerBacktestService:
             entry_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             entry_mask = df["_date_str"] == entry_str
             if not entry_mask.any():
-                return None, None
+                return {}
             entry_idx = int(df.index[entry_mask].min())
             if entry_price <= 0:
-                return None, None
+                return {}
 
             # Build forward bars (entry day + subsequent days up to exit_date).
             exit_str = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
@@ -227,7 +231,7 @@ class PickerBacktestService:
                 })
 
             if not bars:
-                return None, None
+                return {}
 
             is_kc_cy = code.startswith("688") or code.startswith("30")
             sim = simulate_forward_trade(
@@ -244,11 +248,16 @@ class PickerBacktestService:
                     "[PickerBacktest] %s entry skipped: %s",
                     code, sim.get("skip_reason"),
                 )
-                return None, None
-            return sim.get("exit_price"), sim.get("return_pct")
+                return {}
+            return {
+                "exit_price": sim.get("exit_price"),
+                "return_pct": sim.get("return_pct"),
+                "exit_reason": sim.get("exit_reason"),
+                "hold_days": sim.get("hold_days"),
+            }
         except Exception as e:
             logger.debug(f"[PickerBacktest] Forward return failed {code}: {e}")
-            return None, None
+            return {}
 
     def _get_benchmark_return(self, trade_date: str, exit_date: str) -> Optional[float]:
         """Get benchmark (CSI 300) return over the same period."""
@@ -326,50 +335,33 @@ class PickerBacktestService:
             }
             for fut in as_completed(futures):
                 s = futures[fut]
+                strategy_id = s.strategies[0] if s.strategies else "buy_pullback"
                 try:
-                    exit_price, ret = fut.result()
+                    sim = fut.result() or {}
                 except Exception as e:
                     logger.debug(f"[PickerBacktest] Forward return failed {s.code}: {e}")
-                    results.append(
-                        PickResult(
-                            trade_date=trade_date,
-                            code=s.code,
-                            name=s.name,
-                            entry_price=s.price,
-                            exit_price=None,
-                            return_pct=None,
-                            outcome="insufficient",
-                            score=s.score,
-                        )
+                    sim = {}
+
+                ret = sim.get("return_pct")
+                exit_price = sim.get("exit_price")
+                exit_reason = sim.get("exit_reason")
+                hold_days = sim.get("hold_days")
+                outcome = "insufficient" if ret is None else ("win" if ret > 0 else "loss")
+                results.append(
+                    PickResult(
+                        trade_date=trade_date,
+                        code=s.code,
+                        name=s.name,
+                        entry_price=s.price,
+                        exit_price=exit_price,
+                        return_pct=ret,
+                        outcome=outcome,
+                        score=s.score,
+                        exit_reason=exit_reason,
+                        hold_days=hold_days,
+                        strategy_id=strategy_id,
                     )
-                    continue
-                if ret is None:
-                    results.append(
-                        PickResult(
-                            trade_date=trade_date,
-                            code=s.code,
-                            name=s.name,
-                            entry_price=s.price,
-                            exit_price=exit_price,
-                            return_pct=None,
-                            outcome="insufficient",
-                            score=s.score,
-                        )
-                    )
-                else:
-                    outcome = "win" if ret > 0 else "loss"
-                    results.append(
-                        PickResult(
-                            trade_date=trade_date,
-                            code=s.code,
-                            name=s.name,
-                            entry_price=s.price,
-                            exit_price=exit_price,
-                            return_pct=ret,
-                            outcome=outcome,
-                            score=s.score,
-                        )
-                    )
+                )
         return results
 
     def run(
@@ -540,6 +532,9 @@ class PickerBacktestService:
                     "return_pct": r.return_pct,
                     "outcome": r.outcome,
                     "score": r.score,
+                    "exit_reason": r.exit_reason,
+                    "hold_days": r.hold_days,
+                    "strategy_id": r.strategy_id,
                 }
                 for r in results
             ],

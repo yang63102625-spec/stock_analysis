@@ -458,12 +458,26 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     operation_advice=record.operation_advice,
                     trend_prediction=record.trend_prediction,
                     analysis_summary=record.analysis_summary,
+                    signal_score=getattr(record, 'signal_score', None),
+                    buy_signal=getattr(record, 'buy_signal', None),
+                    pe_ratio=getattr(record, 'pe_ratio', None),
+                    market_environment=getattr(record, 'market_environment', None),
+                    trend_score=getattr(record, 'trend_score', None),
+                    bias_score=getattr(record, 'bias_score', None),
+                    volume_score=getattr(record, 'volume_score', None),
+                    support_score=getattr(record, 'support_score', None),
+                    macd_score=getattr(record, 'macd_score', None),
+                    rsi_score=getattr(record, 'rsi_score', None),
+                    capital_flow_score=getattr(record, 'capital_flow_score', None),
                 ),
                 strategy=ReportStrategy(
                     ideal_buy=str(getattr(record, 'ideal_buy', None)) if getattr(record, 'ideal_buy', None) is not None else None,
                     secondary_buy=str(getattr(record, 'secondary_buy', None)) if getattr(record, 'secondary_buy', None) is not None else None,
                     stop_loss=str(getattr(record, 'stop_loss', None)) if getattr(record, 'stop_loss', None) is not None else None,
                     take_profit=str(getattr(record, 'take_profit', None)) if getattr(record, 'take_profit', None) is not None else None,
+                    position_pct=getattr(record, 'position_pct', None),
+                    risk_reward=getattr(record, 'risk_reward', None),
+                    take_profit_2_rule=getattr(record, 'take_profit_2_rule', None),
                 ),
             ).model_dump()
             return TaskStatus(
@@ -543,7 +557,18 @@ def _build_analysis_report(
         operation_advice=summary_data.get("operation_advice"),
         trend_prediction=summary_data.get("trend_prediction"),
         sentiment_score=summary_data.get("sentiment_score"),
-        sentiment_label=summary_data.get("sentiment_label")
+        sentiment_label=summary_data.get("sentiment_label"),
+        signal_score=summary_data.get("signal_score"),
+        buy_signal=summary_data.get("buy_signal"),
+        pe_ratio=summary_data.get("pe_ratio"),
+        market_environment=summary_data.get("market_environment"),
+        trend_score=summary_data.get("trend_score"),
+        bias_score=summary_data.get("bias_score"),
+        volume_score=summary_data.get("volume_score"),
+        support_score=summary_data.get("support_score"),
+        macd_score=summary_data.get("macd_score"),
+        rsi_score=summary_data.get("rsi_score"),
+        capital_flow_score=summary_data.get("capital_flow_score"),
     )
 
     strategy = None
@@ -552,7 +577,10 @@ def _build_analysis_report(
             ideal_buy=strategy_data.get("ideal_buy"),
             secondary_buy=strategy_data.get("secondary_buy"),
             stop_loss=strategy_data.get("stop_loss"),
-            take_profit=strategy_data.get("take_profit")
+            take_profit=strategy_data.get("take_profit"),
+            position_pct=strategy_data.get("position_pct"),
+            risk_reward=strategy_data.get("risk_reward"),
+            take_profit_2_rule=strategy_data.get("take_profit_2_rule"),
         )
 
     details = None
