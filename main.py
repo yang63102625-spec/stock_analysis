@@ -285,7 +285,18 @@ def _format_picker_report(result_dict: dict) -> str:
             reason = (p.get("reason", "") or "")[:60]
             if len((p.get("reason", "") or "")) > 60:
                 reason = reason.rstrip() + "..."
-            parts.append(f"{dot} {name}({code}) {reason}")
+            res = p.get("resonance", "")
+            badge = " ⭐⭐⭐" if res == "triple" else (" ⭐⭐" if res == "double" else "")
+            parts.append(f"{dot} {name}({code}){badge} {reason}")
+            # Trade levels line (if computed)
+            if p.get("ideal_buy"):
+                pos_pct = (p.get("position_pct") or 0) * 100
+                parts.append(
+                    f"   📐 买入 {p.get('ideal_buy', 0):.2f} | "
+                    f"止损 {p.get('stop_loss', 0):.2f} | "
+                    f"首止盈 {p.get('take_profit_1', 0):.2f} | "
+                    f"R/R {p.get('risk_reward', 0):.2f} | 仓位 {pos_pct:.0f}%"
+                )
     # Append candidate pool grouped by strategy
     strategy_pool = result_dict.get("screened_pool_by_strategy") or {}
     if strategy_pool:

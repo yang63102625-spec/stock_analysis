@@ -261,7 +261,10 @@ class StockAnalysisPipeline:
                         df = self._augment_historical_with_realtime(df, realtime_quote, code)
                     # Get broad market environment for score adjustment
                     market_env = self._get_market_environment()
-                    trend_result = self.trend_analyzer.analyze(df, code, market_environment=market_env)
+                    pe_for_score = getattr(realtime_quote, 'pe_ratio', None) if realtime_quote else None
+                    trend_result = self.trend_analyzer.analyze(
+                        df, code, market_environment=market_env, pe_ratio=pe_for_score,
+                    )
                     logger.info(f"{stock_name}({code}) 趋势分析: {trend_result.trend_status.value}, "
                               f"买入信号={trend_result.buy_signal.value}, 评分={trend_result.signal_score}"
                               f", 大盘={trend_result.market_environment}")
@@ -298,12 +301,22 @@ class StockAnalysisPipeline:
 
                             cap_result = mf_fetcher.analyze_capital_flow(ts_code, days=5)
                             if cap_result and cap_result.get("total_capital_score", 0) > 0:
-                                trend_result.capital_flow_score = cap_result["total_capital_score"]
+                                cf_raw = max(0, min(10, int(cap_result["total_capital_score"])))
+                                trend_result.capital_flow_score = cf_raw
                                 trend_result.main_force_signal = cap_result["main_force_signal"]
                                 trend_result.north_signal = cap_result["north_signal"]
-                                # Update total signal_score (capital_flow_score was 0 when _generate_signal ran)
-                                trend_result.signal_score += trend_result.capital_flow_score
-                                trend_result.dim_capital_flow_score = trend_result.capital_flow_score
+                                # Apply same 0-10 → 0-13 weighting as _generate_signal,
+                                # then re-clamp and re-classify so regime caps stay valid.
+                                cf_weighted = round(cf_raw * 1.3)
+                                trend_result.signal_score = max(
+                                    0, min(100, trend_result.signal_score + cf_weighted)
+                                )
+                                trend_result.dim_capital_flow_score = cf_weighted
+                                trend_result.buy_signal = self.trend_analyzer.classify_buy_signal(
+                                    trend_result.signal_score,
+                                    trend_result.trend_status,
+                                    trend_result.market_environment,
+                                )
                                 # Append capital flow reasons/risks
                                 if trend_result.capital_flow_score >= 6:
                                     trend_result.signal_reasons.append(
@@ -499,6 +512,37 @@ class StockAnalysisPipeline:
                 'chip_status': chip_data.get_chip_status(current_price or 0),
             }
         
+        # Compute trade_levels (system-calculated entry/stop/target points)
+        # Strategy default: buy_pullback (single-stock analysis context).
+        # Caller (e.g. picker) may override by setting context['picker_strategy_id'].
+        try:
+            from src.services.trade_levels import compute_trade_levels
+
+            today = enhanced.get('today') or {}
+            rt = enhanced.get('realtime') or {}
+            current_price = float(rt.get('price') or today.get('close') or 0)
+            ma5 = float((trend_result.ma5 if trend_result else None) or today.get('ma5') or 0)
+            ma10 = float((trend_result.ma10 if trend_result else None) or today.get('ma10') or 0)
+            ma20 = float((trend_result.ma20 if trend_result else None) or today.get('ma20') or 0)
+            atr = float((trend_result.atr_20 if trend_result else None) or 0)
+            total_mv = rt.get('total_mv') or 0
+            market_cap_yi = float(total_mv) / 1e8 if total_mv else 0.0
+            strategy_id = enhanced.get('picker_strategy_id') or 'buy_pullback'
+
+            if current_price > 0:
+                tl = compute_trade_levels(
+                    code=enhanced.get('code', ''),
+                    strategy_id=strategy_id,
+                    current_price=current_price,
+                    ma5=ma5, ma10=ma10, ma20=ma20, atr=atr,
+                    market_cap_yi=market_cap_yi,
+                )
+                tl_dict = tl.to_dict()
+                tl_dict['strategy_id'] = strategy_id
+                enhanced['trade_levels'] = tl_dict
+        except Exception as exc:
+            logger.debug("[trade_levels] enhance_context skipped: %s", exc)
+
         # 添加趋势分析结果
         if trend_result:
             enhanced['trend_analysis'] = {
@@ -710,7 +754,10 @@ class StockAnalysisPipeline:
                         if self.config.enable_realtime_quote and realtime_quote:
                             df = self._augment_historical_with_realtime(df, realtime_quote, code)
                         market_env = self._get_market_environment()
-                        trend_result = self.trend_analyzer.analyze(df, code, market_environment=market_env)
+                        pe_for_score = getattr(realtime_quote, 'pe_ratio', None) if realtime_quote else None
+                        trend_result = self.trend_analyzer.analyze(
+                            df, code, market_environment=market_env, pe_ratio=pe_for_score,
+                        )
                         if trend_result:
                             initial_context["enhanced_context"] = {
                                 "trend_analysis": {

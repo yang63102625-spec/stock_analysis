@@ -9,7 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (Parameter Tuning Wave — Investment-Expert Review)
+- **R/R floor raised 1.8 → 2.0** (`trade_levels.RR_MIN`): A-share round-trip cost (slippage + tax) ~0.5% leaves net 1.5 at 1.8 — insufficient at <50% win rate. New 2.0 keeps positive expectancy at win rates ≥45%.
+- **Trailing trigger lowered +20% → +15%** (`evaluate_trailing_exit`): A-share rallies often start ABC consolidation around +18-22%; entering trailing at +15% locks 3-5% additional profit on average.
+- **Stage stops widened**: 5% / 10% → 6% / 12% to reduce premature stop-outs from intraday noise. New floor at +6% break.
+- **Position baselines tightened** (`_base_position_pct`): small-cap 6% → 5%, large-cap 18% → 15% to cap single-name idiosyncratic blow-ups; mid-cap unchanged at 12%.
+- **Position boost re-shaped**: R/R≥3 boost 1.20×→1.30×, absolute cap 25%→22% — separates "great" signals from "decent" ones while keeping single-name exposure safer.
+- **Small-cap stop loosened** -5% → -6%: small caps need wider stops vs intraday noise.
+- **Breakout tp1 1.06 → 1.08**: first-leg average is +8-12%; trimming at +6% truncated fat-tail winners.
+- **Bottom-reversal hard cap +15% → +20%** with new staged exit (+15% trim half, +20% full clear): real reversals run +18-25% on main leg; +15 single-shot capped winners.
+- **EOD buyback `expected_mult` 1.025 → 1.018**: aligns with realistic next-day median return; previous value inflated R/R and over-sized position.
+- **Picker filters tightened**:
+  - `BUY_PULLBACK.change_60d_min` 5% → 8%
+  - `BREAKOUT.volume_ratio_min` 2.0 → 1.7 (eased; 2.0 over-filtered moderate-volume genuine breakouts)
+  - `BOTTOM_REVERSAL.change_60d_max` -5% → -8%
+  - B-wave fib zone 0.35-0.65 → exact 0.382-0.618
+- **Resonance bonus re-shaped**: double +10 → +8, triple +20 → +25 (widen gap; triple resonance is rare and historically much higher win rate).
+- **Auto-reweight stricter**: lookback 28d → 42d (covers ≥1 style-rotation cycle), bad win-rate floor 40% → 42%, penalty factor 0.7 → 0.6 (more decisive).
+- **Veto thresholds tightened**: pledge ratio 60% → 50% (most A-share pledge blow-ups occur >50%), reduction window 5d/2% → 10d/1% (insider-selling impact persists 2-3 weeks).
+- **Regime-aware position scaling (E1)**: weak market ×0.6, neutral ×0.85, strong ×1.0 applied post-merge in `stock_picker_service.screen()` — complements existing market_guard which only restricts strategies.
+
+### Refactored
+- `trade_levels.py`: collapsed 4 strategy-specific level-builder functions into a single config-table-driven implementation (`_StrategyConfig` + `_resolve_entry_anchor`). Removes ~120 lines of duplicate code; new strategies / parameter tuning now require config-only changes.
+
+### Changed (Scoring Dimension Rebalance — Remove MA5-support Redundancy)
+- **Support dimension 12 → 6**: removed MA5-support (structurally redundant with `bias_ma5` dimension — both measure "close to MA5"; old setup triple-counted "healthy pullback" theme as bias 14 + volume 18 + ma5_support 7 = 40% of total on one signal cluster). Kept MA10-support at 5; added MA20 trend-integrity at 1 (price above rising MA20).
+- **MACD 10 → 13**: re-allocated from support; MACD is genuinely independent alpha but was under-weighted. Smoother ladder (GOLDEN_CROSS_ZERO 13 → BULLISH 8).
+- **Capital flow 10 → 13**: re-allocated from support. External-facing `capital_flow_score` contract stays 0-10 (no upstream change needed); internal contribution is `raw × 1.3`.
+- New dimension shape: Trend 30 / Bias 15 / Volume 18 / Support 6 / MACD 13 / RSI 5 / CapitalFlow 13 = 100.
+
+### Changed (Per-stock Scoring System Hardening — 8 fixes)
+- **Regime-aware classifier** (`classify_buy_signal`): bear / strong_bear bump BUY/STRONG_BUY thresholds by +10 (60→70, 75→85) so a "looks good" 60-score in bear no longer triggers BUY.
+- **Hard score caps by market regime** (`_generate_signal`): strong_bear ×0.85→×0.75 with absolute cap 60; bear ×0.90→×0.85 with cap 75 — defense-in-depth against false-positive BUY signals in down markets.
+- **PE valuation penalty**: PE>100 -8, PE>200 -15, PE<0 (loss) -5 — closes the bubble-stock loophole where 100x-PE names could still score 80+. New `TrendAnalysisResult.pe_ratio` field (optional, 0=skip).
+- **Capital flow score clip**: `[0, 10]` clamp guards against external sources returning out-of-range values that silently inflated total score.
+- **HEAVY_VOLUME_UP demotion in late-acceleration**: when 20d gain >30% or 5+ consecutive up days, score 14→6 (放量上涨 in 加速期 is typically distribution).
+- **SHRINK_VOLUME_UP demotion in strong/bull trends**: 7→3 (滞涨缩量 = top divergence in uptrends).
+- **MACD ladder smoothing**: CROSSING_UP 7→8, BULLISH 5→6 — closes the gap between strongest signal and persistent-bullish.
+- **Bias dead-zone fix**: when MA20 history unavailable for `bias < -5` branch, replace flat 6 with linear interpolation of bias magnitude (avoids step discontinuity).
+
 ### Added
+- **Unified trade levels engine** (`src/services/trade_levels.py`): single source of truth for entry / stop-loss / take-profit / position size / risk-reward across picker, analyzer, and backtest layers. Strategy-aware (buy_pullback / breakout / bottom_reversal / eod_buyback) with ATR-based trailing stop replacing fixed 15% take-profit ceiling for trend strategies — lets winners run on strong trends.
+- **Trailing stop logic** (`evaluate_trailing_exit`): after +20% profit, exit on MA10 break OR ATR×2.5 retrace from peak. Bottom-reversal keeps hard +15% cap (no trailing). Stage-aware exits at +5% (trim 1/3, stop to cost) and +10% (trim again, stop to +5%).
+- **Position tracker service** (`src/services/position_tracker.py`): stateless API for evaluating any held position against unified trailing rules, returning structured action recommendations. Ready for integration into watchlist scans / agent skills.
+- **Picker outputs trade levels**: `ScreenedStock` and `StockPick` now carry `ideal_buy / stop_loss / take_profit_1 / take_profit_2_rule / position_pct / risk_reward`. Notifications and AI-selection prompts display these fields so users have immediate trade-action clarity.
+- **Risk/Reward hard filter**: candidates with R/R < 1.8 are dropped during scoring. R/R is computed against an "expected average exit" (12-13% for trend strategies, 11.5% for reversal, 2.5% for EOD) that accounts for staged trimming + trailing tail.
+- **Multi-strategy resonance bonus**: stocks flagged by 2 strategies get +10 score and `resonance="double"`; 3+ strategies get +20 and `resonance="triple"` (forced inclusion in AI selection prompt with ⭐⭐⭐ badge).
+- **Fundamental hard-veto filter** (`data_provider/fundamentals_fetcher.py`): pre-screening removes candidates with controlling-shareholder pledge >60%, goodwill/total-assets >30%, recent ≥2% holder reductions, or negative earnings forecasts (预亏/预减/首亏/续亏/增亏). Fail-closed when Tushare unavailable. Filter stats recorded in `ScreenStats.veto_reasons`.
+- **Strategy attribution service** (`src/services/strategy_attribution_service.py`): rolling 4-week per-strategy win-rate / profit-factor / max-drawdown computed from historical picker_history, with auto-reweighting (×0.7) for strategies that hit BOTH win-rate <40% AND profit-factor <1. Off by default (`STRATEGY_AUTO_REWEIGHT=true` to enable). Includes weekly report formatter.
+- **Backtest unified with production**: `picker_backtest_service._get_forward_return` now uses the same trade_levels exit rules + 0.3% slippage + limit-up entry filter, eliminating the previous three-way rule mismatch (picker/analyzer/backtest).
+- **Trade levels in analyzer prompt**: `_enhance_context` injects pre-computed `trade_levels` block; SYSTEM_PROMPT instructs LLM to use these numbers directly rather than inventing its own — addresses recurring stop/take confusion bugs.
 - Seven-dimension scoring system (trend 30 + bias 15 + volume 18 + support 12 + MACD 10 + RSI 5 + capital flow 10 = 100)
 - Market environment correction factor based on SSE MA20 direction (strong_bear ×0.85, bear ×0.90, neutral/bull ×1.0, strong_bull ×1.05)
 - Phase-based bias threshold (startup 6%, main-rise 5%, acceleration 3.5%)

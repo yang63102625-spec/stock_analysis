@@ -80,8 +80,8 @@ PICKER_TOP_N_PER_STRATEGY = 30
 # B-wave risk (波浪 ABC): exclude stocks likely in B-wave bounce (fake recovery before C-wave down)
 B_WAVE_LOOKBACK_DAYS = 20
 B_WAVE_MIN_DROOP_PCT = 5.0  # A-wave drop must be at least 5%
-B_WAVE_RETRACE_LO = 0.35    # Fibonacci B-wave zone: 38.2% retracement
-B_WAVE_RETRACE_HI = 0.65    # 61.8% retracement
+B_WAVE_RETRACE_LO = 0.382   # Fibonacci B-wave zone: exact 38.2% retracement
+B_WAVE_RETRACE_HI = 0.618   # exact 61.8% retracement
 B_WAVE_LOW_DAYS_AGO_MIN = 2  # Low must be at least 2 days ago (we've bounced)
 B_WAVE_LOW_DAYS_AGO_MAX = 14  # Low not more than 14 days ago (recent drop)
 
@@ -266,6 +266,15 @@ class ScreenedStock:
     change_pct_60d: float = 0.0      # 60日涨跌幅
     score: float = 0.0               # composite score
     strategies: List[str] = field(default_factory=list)  # strategy IDs that selected this stock
+    # Trade levels (computed via src.services.trade_levels.compute_trade_levels)
+    ideal_buy: float = 0.0
+    stop_loss: float = 0.0
+    take_profit_1: float = 0.0
+    take_profit_2_rule: str = ""
+    position_pct: float = 0.0
+    risk_reward: float = 0.0
+    # Multi-strategy resonance flag: "" / "double" / "triple"
+    resonance: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -281,6 +290,15 @@ class ScreenedStock:
         }
         if self.strategies:
             d["strategies"] = self.strategies
+        if self.ideal_buy > 0:
+            d["ideal_buy"] = round(self.ideal_buy, 3)
+            d["stop_loss"] = round(self.stop_loss, 3)
+            d["take_profit_1"] = round(self.take_profit_1, 3)
+            d["take_profit_2_rule"] = self.take_profit_2_rule
+            d["position_pct"] = round(self.position_pct, 3)
+            d["risk_reward"] = round(self.risk_reward, 2)
+        if self.resonance:
+            d["resonance"] = self.resonance
         return d
 
 
@@ -289,17 +307,21 @@ class ScreenStats:
     """Statistics from the screening process."""
     total_stocks: int = 0
     after_basic: int = 0
+    after_veto: int = 0                  # After fundamental hard-veto filter
     after_momentum: int = 0
     after_volume: int = 0
     final_pool: int = 0
+    veto_reasons: Dict[str, int] = field(default_factory=dict)  # {reason_key: count}
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_stocks": self.total_stocks,
             "after_basic_filter": self.after_basic,
+            "after_veto_filter": self.after_veto,
             "after_momentum_filter": self.after_momentum,
             "after_volume_filter": self.after_volume,
             "final_pool": self.final_pool,
+            "veto_reasons": self.veto_reasons,
         }
 
 
@@ -313,13 +335,34 @@ class StockPick:
     catalyst: str = ""
     attention: str = "medium"
     risk_note: str = ""
+    # Trade levels copied from the underlying ScreenedStock
+    ideal_buy: float = 0.0
+    stop_loss: float = 0.0
+    take_profit_1: float = 0.0
+    take_profit_2_rule: str = ""
+    position_pct: float = 0.0
+    risk_reward: float = 0.0
+    strategies: List[str] = field(default_factory=list)
+    resonance: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "code": self.code, "name": self.name, "sector": self.sector,
             "reason": self.reason, "catalyst": self.catalyst,
             "attention": self.attention, "risk_note": self.risk_note,
         }
+        if self.ideal_buy > 0:
+            d["ideal_buy"] = round(self.ideal_buy, 3)
+            d["stop_loss"] = round(self.stop_loss, 3)
+            d["take_profit_1"] = round(self.take_profit_1, 3)
+            d["take_profit_2_rule"] = self.take_profit_2_rule
+            d["position_pct"] = round(self.position_pct, 3)
+            d["risk_reward"] = round(self.risk_reward, 2)
+        if self.strategies:
+            d["strategies"] = self.strategies
+        if self.resonance:
+            d["resonance"] = self.resonance
+        return d
 
 
 @dataclass
@@ -506,8 +549,10 @@ class StockScreener:
         try:
             # -- Market environment guard --
             cfg = get_config()
+            # Always evaluate market_env (used downstream for regime-aware position
+            # scaling even when picker_market_guard is disabled).
+            market_env = self._check_market_environment()
             if getattr(cfg, "picker_market_guard", True):
-                market_env = self._check_market_environment()
                 if market_env and not market_env.is_strong:
                     raw_action = getattr(cfg, "picker_weak_market_action", "limit")
                     action = (raw_action or "limit").strip().lower()
@@ -580,6 +625,15 @@ class StockScreener:
                     df = self._filter_basic_for_strategies(df)
                     stats.after_basic = len(df)
                     logger.info(f"[Screener] After basic filter: {len(df)}")
+
+                    # Layer 1.2: Fundamental hard-veto (P1-A)
+                    # Pledge / goodwill / reductions / negative forecasts.
+                    # Fail-closed if Tushare unavailable.
+                    df = self._filter_hard_veto(df, stats)
+                    if stats.after_veto == 0:
+                        # When fail-closed (no tushare), after_veto stays 0;
+                        # mirror after_basic so downstream stats remain sensible.
+                        stats.after_veto = stats.after_basic
 
                     # Layer 1.5: Prepare sector strength data
                     _sector_strong_codes: Set[str] = set()
@@ -690,6 +744,55 @@ class StockScreener:
                 return [], stats, {}
 
             candidates = merge_candidates_by_code(candidates_per_strategy)
+
+            # Auto-reweight underperforming strategies (P1-B). Off by default.
+            # cfg already loaded at top of try block.
+            if getattr(cfg, "strategy_auto_reweight", False):
+                try:
+                    from src.services.strategy_attribution_service import (
+                        get_strategy_weights,
+                    )
+                    from src.storage import get_db
+                    weights = get_strategy_weights(
+                        db=get_db(),
+                        data_manager=self._data_manager,
+                    )
+                    if weights:
+                        for s in candidates:
+                            sids = s.strategies or []
+                            if sids:
+                                # Apply the *minimum* weight across hit strategies
+                                # (penalty dominates if any hit strategy is bad).
+                                w = min((weights.get(sid, 1.0) for sid in sids), default=1.0)
+                                if w < 1.0:
+                                    s.score *= w
+                        candidates.sort(key=lambda s: s.score, reverse=True)
+                        bad = [sid for sid, w in weights.items() if w < 1.0]
+                        if bad:
+                            logger.info(
+                                "[Screener] Auto-reweight applied. Penalised strategies: %s",
+                                bad,
+                            )
+                except Exception as exc:
+                    logger.warning("[Screener] Auto-reweight failed (skipped): %s", exc)
+
+            # -- Regime-aware position scaling (E1) --
+            # Down-scale all candidate positions in weak/neutral markets; in strong
+            # markets keep as-is. This complements market_guard which only restricts
+            # which strategies run.
+            if market_env is not None and candidates:
+                regime_scale = {"weak": 0.6, "neutral": 0.85, "strong": 1.0}.get(
+                    market_env.regime, 1.0
+                )
+                if regime_scale < 1.0:
+                    for s in candidates:
+                        if getattr(s, "position_pct", 0) > 0:
+                            s.position_pct = round(s.position_pct * regime_scale, 3)
+                    logger.info(
+                        "[Screener] Regime=%s, position scaled ×%.2f",
+                        market_env.regime, regime_scale,
+                    )
+
             stats.final_pool = len(candidates)
             logger.info(f"[Screener] Merged {stats.final_pool} candidates from {len(candidates_per_strategy)} strategies")
             return candidates, stats, candidates_per_strategy
@@ -2212,6 +2315,91 @@ class StockScreener:
         pe_max = pe_max if pe_max is not None else PickerModeParams.for_mode(self._picker_mode).pe_max
         return self._filter_basic_impl(df, pe_max)
 
+    def _filter_hard_veto(
+        self, df: pd.DataFrame, stats: Optional["ScreenStats"] = None
+    ) -> pd.DataFrame:
+        """Apply fundamental hard-veto filter using fundamentals_fetcher.
+
+        Removes candidates with:
+        - Controlling shareholder pledge ratio > 60%
+        - Goodwill / total assets > 30%
+        - Recent (>=2%) large reductions in last 5 days
+        - Recent earnings forecast 预亏/预减/首亏/续亏/增亏
+
+        Fail-closed: if Tushare API is unavailable or any lookup fails,
+        candidates pass through unchanged (logged at warning level). This
+        protects production reliability.
+
+        Stats are recorded into `stats.after_veto` and `stats.veto_reasons`.
+        """
+        if df is None or df.empty:
+            return df
+
+        try:
+            from data_provider.fundamentals_fetcher import (
+                evaluate_vetoes,
+                get_veto_summary,
+            )
+        except Exception as exc:
+            logger.debug("[Screener] fundamentals_fetcher unavailable: %s", exc)
+            return df
+
+        api = get_tushare_api(self._data_manager)
+        if api is None:
+            # No tushare, skip veto silently (don't block production).
+            return df
+
+        # Build ts_codes (e.g. "600519.SH" or "000001.SZ"). Some rows already
+        # have ts_code; otherwise infer from "代码" column.
+        if "ts_code" in df.columns:
+            ts_codes = df["ts_code"].astype(str).tolist()
+        elif "代码" in df.columns:
+            def _to_ts_code(c: str) -> str:
+                c = str(c).strip()
+                if "." in c:
+                    return c
+                if c.startswith("6"):
+                    return f"{c}.SH"
+                if c.startswith(("4", "8")):
+                    return f"{c}.BJ"
+                return f"{c}.SZ"
+            ts_codes = [_to_ts_code(c) for c in df["代码"]]
+            df = df.copy()
+            df["_veto_ts_code"] = ts_codes
+        else:
+            return df
+
+        try:
+            verdicts = evaluate_vetoes(api, ts_codes)
+        except Exception as exc:
+            logger.warning("[Screener] hard-veto evaluation failed: %s", exc)
+            return df
+
+        vetoed_codes = {ts for ts, v in verdicts.items() if v.is_vetoed}
+        if not vetoed_codes:
+            if stats is not None:
+                stats.after_veto = len(df)
+            return df
+
+        # Filter
+        if "ts_code" in df.columns:
+            mask = ~df["ts_code"].astype(str).isin(vetoed_codes)
+        else:
+            mask = ~df["_veto_ts_code"].isin(vetoed_codes)
+        filtered = df[mask].copy()
+        if "_veto_ts_code" in filtered.columns:
+            filtered = filtered.drop(columns=["_veto_ts_code"])
+
+        if stats is not None:
+            stats.after_veto = len(filtered)
+            stats.veto_reasons = get_veto_summary(verdicts)
+        logger.info(
+            "[Screener] Hard-veto filter: %d → %d (removed %d). Reasons: %s",
+            len(df), len(filtered), len(vetoed_codes),
+            get_veto_summary(verdicts),
+        )
+        return filtered
+
     def _filter_basic_for_strategies(self, df: pd.DataFrame) -> pd.DataFrame:
         """Basic filter for multi-strategy (shared pe_max=100)."""
         return self._filter_basic_impl(df, pe_max=100.0)
@@ -2510,12 +2698,20 @@ class StockPickerService:
                     StockPick(
                         code=s.code,
                         name=s.name,
-                        sector=s.sector,
+                        sector=getattr(s, "sector", ""),
                         reason=f"量化评分 {s.score:.1f}（换手率 {s.turnover_rate:.1f}%，"
                                f"涨跌 {s.change_pct:+.1f}%）",
                         catalyst="",
                         attention="medium",
                         risk_note="仅量化筛选，未经 AI 深度分析",
+                        ideal_buy=s.ideal_buy,
+                        stop_loss=s.stop_loss,
+                        take_profit_1=s.take_profit_1,
+                        take_profit_2_rule=s.take_profit_2_rule,
+                        position_pct=s.position_pct,
+                        risk_reward=s.risk_reward,
+                        strategies=list(s.strategies or []),
+                        resonance=s.resonance,
                     )
                     for s in candidates[:10]
                 ]
@@ -3041,24 +3237,38 @@ class StockPickerService:
 
         # ── Quant pool ──
         if candidates:
-            parts.append(f"## 量化筛选池（从全市场筛选出的 {len(candidates)} 只候选）")
+            # Resonance summary: how many triples / doubles in pool
+            n_triple = sum(1 for s in candidates if getattr(s, "resonance", "") == "triple")
+            n_double = sum(1 for s in candidates if getattr(s, "resonance", "") == "double")
+            resonance_note = ""
+            if n_triple or n_double:
+                resonance_note = (
+                    f"\n> 多策略共振统计：3 策略共振 {n_triple} 只 ⭐⭐⭐，"
+                    f"2 策略共振 {n_double} 只 ⭐⭐（共振票应优先选入）"
+                )
+            parts.append(
+                f"## 量化筛选池（从全市场筛选出的 {len(candidates)} 只候选）{resonance_note}"
+            )
             has_chip = any(s.code in chip_map for s in candidates)
             has_strategies = len(strategies) > 1 and any(getattr(s, "strategies", []) for s in candidates)
+            has_levels = any(getattr(s, "ideal_buy", 0) > 0 for s in candidates)
             strat_col = "| 策略 |" if has_strategies else ""
             strat_sep = "|------|" if has_strategies else ""
+            level_col = "| 买入价 | 止损 | 首止盈 | R/R | 仓位% |" if has_levels else ""
+            level_sep = "|--------|------|--------|-----|-------|" if has_levels else ""
             if has_chip:
                 parts.append(
-                    f"| 代码 | 名称 | 现价 | 涨跌% | 量比 | 换手% | PE | 市值(亿) | 60日% | 筹码90% | 获利% |{strat_col} 评分 |"
+                    f"| 代码 | 名称 | 现价 | 涨跌% | 量比 | 换手% | PE | 市值(亿) | 60日% | 筹码90% | 获利% |{strat_col}{level_col} 评分 |"
                 )
                 parts.append(
-                    f"|------|------|------|-------|------|-------|-----|---------|-------|---------|-------|{strat_sep}------|"
+                    f"|------|------|------|-------|------|-------|-----|---------|-------|---------|-------|{strat_sep}{level_sep}------|"
                 )
             else:
                 parts.append(
-                    f"| 代码 | 名称 | 现价 | 涨跌% | 量比 | 换手% | PE | 市值(亿) | 60日% |{strat_col} 评分 |"
+                    f"| 代码 | 名称 | 现价 | 涨跌% | 量比 | 换手% | PE | 市值(亿) | 60日% |{strat_col}{level_col} 评分 |"
                 )
                 parts.append(
-                    f"|------|------|------|-------|------|-------|-----|---------|-------|{strat_sep}------|"
+                    f"|------|------|------|-------|------|-------|-----|---------|-------|{strat_sep}{level_sep}------|"
                 )
             for s in candidates:
                 row = (
@@ -3077,10 +3287,30 @@ class StockPickerService:
                 if has_strategies:
                     strat_tags = getattr(s, "strategies", []) or []
                     strat_labels = ",".join(STRATEGY_DISPLAY_NAMES.get(x, x) for x in strat_tags[:3])
-                    row += f" {strat_labels} |"
+                    res = getattr(s, "resonance", "")
+                    badge = "⭐⭐⭐" if res == "triple" else ("⭐⭐" if res == "double" else "")
+                    row += f" {strat_labels}{badge} |"
+                if has_levels:
+                    if getattr(s, "ideal_buy", 0) > 0:
+                        row += (
+                            f" {s.ideal_buy:.2f} | {s.stop_loss:.2f} | "
+                            f"{s.take_profit_1:.2f} | {s.risk_reward:.2f} | "
+                            f"{s.position_pct * 100:.0f}% |"
+                        )
+                    else:
+                        row += " - | - | - | - | - |"
                 row += f" {s.score:.0f} |"
                 parts.append(row)
             parts.append("")
+            if has_levels:
+                parts.append(
+                    "> 📐 上表中的【买入价 / 止损 / 首止盈 / R/R / 仓位】由系统统一计算，"
+                    "**严禁 LLM 修改**。AI 仅负责"
+                    "（1）从池中精选 1-5 只优质标的；"
+                    "（2）判断现价是否仍在【买入价】附近（偏离 >2% 视为已错过买点）；"
+                    "（3）补充行业 / 催化剂 / 风险描述。"
+                )
+                parts.append("")
         else:
             parts.append(
                 "## 量化筛选池\n（今日筛选未产出候选，请返回空推荐列表，不要自行选股）\n"
@@ -3211,18 +3441,35 @@ class StockPickerService:
             result.sectors_to_watch = data.get("sectors_to_watch", [])
             result.risk_warning = data.get("risk_warning", "")
 
+            # Build a lookup so AI picks inherit trade_levels from the
+            # underlying ScreenedStock (LLM does not generate point levels).
+            candidate_by_code: Dict[str, ScreenedStock] = {
+                s.code: s for s in (result.screened_pool or [])
+            }
+
             for p in data.get("picks", []):
                 code = str(p.get("code", "")).strip()
                 name = str(p.get("name", "")).strip()
                 if code and name:
-                    result.picks.append(StockPick(
+                    cand = candidate_by_code.get(code)
+                    pick = StockPick(
                         code=code, name=name,
                         sector=p.get("sector", ""),
                         reason=p.get("reason", ""),
                         catalyst=p.get("catalyst", ""),
                         attention=p.get("attention", "medium"),
                         risk_note=p.get("risk_note", ""),
-                    ))
+                    )
+                    if cand:
+                        pick.ideal_buy = cand.ideal_buy
+                        pick.stop_loss = cand.stop_loss
+                        pick.take_profit_1 = cand.take_profit_1
+                        pick.take_profit_2_rule = cand.take_profit_2_rule
+                        pick.position_pct = cand.position_pct
+                        pick.risk_reward = cand.risk_reward
+                        pick.strategies = list(cand.strategies or [])
+                        pick.resonance = cand.resonance
+                    result.picks.append(pick)
 
             logger.info(f"[StockPicker] Parsed {len(result.picks)} stock picks")
 

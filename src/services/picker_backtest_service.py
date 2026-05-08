@@ -25,15 +25,22 @@ from src.services.stock_picker_service import (
     get_tushare_api,
     ScreenedStock,
 )
+from src.services.trade_levels import (
+    DEFAULT_SLIPPAGE_PCT,
+    LIMIT_UP_KCCY,
+    LIMIT_UP_MAIN,
+    simulate_forward_trade,
+)
 
 logger = logging.getLogger(__name__)
 
 BENCHMARK_CODE = "000300.SH"  # CSI 300
 
-# Stop-loss / take-profit (买卖点规则: 跌破 MA20 或一定跌幅；目标位 前高、整数关口)
-STOP_LOSS_PCT = -8.0   # 止损：跌幅超过 8%（一定跌幅）
-TAKE_PROFIT_PCT = 15.0  # 止盈：涨幅超过 15%（兜底，主用前高/整数关口）
-GATEWAY_LEVELS = (5, 10, 20, 50, 100, 200, 500, 1000)  # 整数关口
+# Legacy fallback constants (kept for backward compat where callers still
+# reference them; new code should use simulate_forward_trade with unified rules).
+STOP_LOSS_PCT = -8.0
+TAKE_PROFIT_PCT = 15.0
+GATEWAY_LEVELS = (5, 10, 20, 50, 100, 200, 500, 1000)
 
 
 @dataclass
@@ -141,14 +148,21 @@ class PickerBacktestService:
         trade_date: str,
         exit_date: str,
         entry_price: float,
-        stop_loss_pct: float = STOP_LOSS_PCT,
+        strategy_id: str = "buy_pullback",
+        stop_loss_pct: float = STOP_LOSS_PCT,    # kept for backward compat (unused)
         take_profit_pct: float = TAKE_PROFIT_PCT,
     ) -> Tuple[Optional[float], Optional[float]]:
-        """Fetch daily data and compute return with stop-loss/take-profit per 买卖点规则.
-        Stop-loss: 跌破 MA20 or 一定跌幅; Take-profit: 前高, 整数关口, or fallback 15%.
-        Returns (exit_price, return_pct)."""
+        """Fetch daily data and simulate the forward trade with the unified
+        trade_levels engine (same rules as production picker / analyzer).
+
+        Adds slippage (0.3% one-way) and limit-up entry filter (cannot fill at
+        limit-up board). Returns (exit_price, return_pct).
+
+        stop_loss_pct/take_profit_pct kwargs are kept only for backward-compat
+        with older callers; the actual exits are governed by
+        trade_levels.evaluate_trailing_exit.
+        """
         try:
-            # Need ~25 trading days before entry for MA20 and 前高
             start_dt = pd.Timestamp(trade_date) - pd.Timedelta(days=45)
             start_iso = start_dt.strftime("%Y-%m-%d")
             end_iso = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
@@ -160,17 +174,27 @@ class PickerBacktestService:
             date_col = next((c for c in ["date", "日期"] if c in df.columns), df.columns[0])
             close_col = next((c for c in ["close", "收盘"] if c in df.columns), None)
             high_col = next((c for c in ["high", "最高"] if c in df.columns), None)
+            low_col = next((c for c in ["low", "最低"] if c in df.columns), None)
+            pct_col = next((c for c in ["pct_chg", "涨跌幅"] if c in df.columns), None)
             if close_col is None:
                 return None, None
+
             df = df.sort_values(date_col).reset_index(drop=True)
             df[date_col] = pd.to_datetime(df[date_col])
             df["_date_str"] = df[date_col].dt.strftime("%Y-%m-%d")
 
-            # MA20 (base fetcher may add it; compute if missing)
-            if "ma20" not in df.columns:
-                df["ma20"] = df[close_col].rolling(window=20, min_periods=1).mean()
+            # MA10/MA20/ATR (compute if absent)
+            for ma_col, win in (("ma10", 10), ("ma20", 20)):
+                if ma_col not in df.columns:
+                    df[ma_col] = df[close_col].rolling(window=win, min_periods=1).mean()
+            if "atr" not in df.columns and high_col and low_col:
+                tr = pd.concat([
+                    (df[high_col] - df[low_col]).abs(),
+                    (df[high_col] - df[close_col].shift()).abs(),
+                    (df[low_col] - df[close_col].shift()).abs(),
+                ], axis=1).max(axis=1)
+                df["atr"] = tr.rolling(window=14, min_periods=1).mean()
 
-            # Find entry row (trade_date) and subsequent rows
             entry_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             entry_mask = df["_date_str"] == entry_str
             if not entry_mask.any():
@@ -179,46 +203,49 @@ class PickerBacktestService:
             if entry_price <= 0:
                 return None, None
 
-            # 前高: max high in 20 trading days before entry (exclusive)
-            prior_high: Optional[float] = None
-            if high_col and entry_idx >= 20:
-                prior_high = float(df.iloc[entry_idx - 20 : entry_idx][high_col].max())
-
-            # 整数关口: next level above entry
-            next_gateway: Optional[float] = None
-            for g in GATEWAY_LEVELS:
-                if g > entry_price:
-                    next_gateway = float(g)
-                    break
-
-            # Iterate days after entry: stop-loss (跌破 MA20 or 一定跌幅) / take-profit (前高, 整数关口, fallback)
-            for i in range(entry_idx + 1, len(df)):
-                close = float(df.iloc[i][close_col])
-                ret = (close - entry_price) / entry_price * 100
-
-                # Stop-loss: 跌破 MA20 or 一定跌幅
-                ma20_val = df.iloc[i].get("ma20")
-                if pd.notna(ma20_val) and close < float(ma20_val):
-                    return close, ret  # 跌破 MA20
-                if ret <= stop_loss_pct:
-                    return close, ret  # 一定跌幅
-
-                # Take-profit: 前高, 整数关口, or fallback
-                if prior_high is not None and close >= prior_high:
-                    return close, ret  # 前高
-                if next_gateway is not None and close >= next_gateway:
-                    return close, ret  # 整数关口
-                if ret >= take_profit_pct:
-                    return close, ret  # Fallback 15%
-
-            # No trigger: exit at planned exit_date
+            # Build forward bars (entry day + subsequent days up to exit_date).
             exit_str = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
             exit_mask = df["_date_str"] == exit_str
-            if not exit_mask.any():
+            end_idx = int(df.index[exit_mask].max()) if exit_mask.any() else len(df) - 1
+
+            # Forward bars = entry_idx (for limit-up check via pct_chg) +
+            # subsequent days that drive the exit decision.
+            bars: List[Dict[str, Any]] = []
+            for i in range(entry_idx, end_idx + 1):
+                row = df.iloc[i]
+                close = float(row[close_col]) if pd.notna(row[close_col]) else None
+                if close is None:
+                    continue
+                bars.append({
+                    "close": close,
+                    "high": float(row[high_col]) if high_col and pd.notna(row[high_col]) else close,
+                    "low": float(row[low_col]) if low_col and pd.notna(row[low_col]) else close,
+                    "ma10": float(row["ma10"]) if pd.notna(row.get("ma10")) else 0.0,
+                    "ma20": float(row["ma20"]) if pd.notna(row.get("ma20")) else 0.0,
+                    "atr": float(row["atr"]) if "atr" in df.columns and pd.notna(row.get("atr")) else 0.0,
+                    "pct_chg": float(row[pct_col]) if pct_col and pd.notna(row[pct_col]) else None,
+                })
+
+            if not bars:
                 return None, None
-            exit_price = float(df.loc[exit_mask, close_col].iloc[-1])
-            ret = (exit_price - entry_price) / entry_price * 100
-            return exit_price, ret
+
+            is_kc_cy = code.startswith("688") or code.startswith("30")
+            sim = simulate_forward_trade(
+                strategy_id=strategy_id,
+                entry_price=entry_price,
+                market_cap_yi=0.0,  # Picker pipeline doesn't pass market cap here; rules degrade gracefully
+                bars=bars,
+                apply_slippage=True,
+                apply_limit_up_filter=True,
+                is_kc_cy=is_kc_cy,
+            )
+            if sim.get("skipped"):
+                logger.debug(
+                    "[PickerBacktest] %s entry skipped: %s",
+                    code, sim.get("skip_reason"),
+                )
+                return None, None
+            return sim.get("exit_price"), sim.get("return_pct")
         except Exception as e:
             logger.debug(f"[PickerBacktest] Forward return failed {code}: {e}")
             return None, None
@@ -292,7 +319,8 @@ class PickerBacktestService:
         with ThreadPoolExecutor(max_workers=5, thread_name_prefix="fwd") as pool:
             futures = {
                 pool.submit(
-                    self._get_forward_return, s.code, trade_date, exit_date, s.price
+                    self._get_forward_return, s.code, trade_date, exit_date, s.price,
+                    (s.strategies[0] if s.strategies else "buy_pullback"),
                 ): s
                 for s in picks
             }

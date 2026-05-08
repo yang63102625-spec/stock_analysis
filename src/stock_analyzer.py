@@ -18,7 +18,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from enum import Enum
 
 import pandas as pd
@@ -138,6 +138,9 @@ class TrendAnalysisResult:
     main_force_signal: str = ""       # Main force activity description
     north_signal: str = ""            # North-bound capital description
 
+    # Valuation (optional, filled by caller for PE penalty)
+    pe_ratio: float = 0.0             # 0 or NaN = unavailable, no penalty applied
+
     # 买入信号
     buy_signal: BuySignal = BuySignal.WAIT
     signal_score: int = 0            # 综合评分 0-100
@@ -151,10 +154,10 @@ class TrendAnalysisResult:
     dim_trend_score: int = 0           # 0-30
     dim_bias_score: int = 0            # 0-15
     dim_volume_score: int = 0          # 0-18
-    dim_support_score: int = 0         # 0-12
-    dim_macd_score: int = 0            # 0-10
+    dim_support_score: int = 0         # 0-6   (was 0-12; removed redundant MA5-support, kept MA10 + MA20-integrity)
+    dim_macd_score: int = 0            # 0-13  (was 0-10; re-allocated from support)
     dim_rsi_score: int = 0             # 0-5
-    dim_capital_flow_score: int = 0    # 0-10
+    dim_capital_flow_score: int = 0    # 0-13  (was 0-10; re-allocated from support; external source still 0-10)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -243,19 +246,34 @@ class StockTrendAnalyzer:
         """初始化分析器"""
         pass
     
-    def analyze(self, df: pd.DataFrame, code: str, market_environment: str = "neutral") -> TrendAnalysisResult:
+    def analyze(
+        self,
+        df: pd.DataFrame,
+        code: str,
+        market_environment: str = "neutral",
+        pe_ratio: Optional[float] = None,
+    ) -> TrendAnalysisResult:
         """
         Analyze stock trend.
-        
+
         Args:
             df: DataFrame containing OHLCV data
             code: Stock code
             market_environment: Broad market condition ('strong_bull'/'bull'/'neutral'/'bear'/'strong_bear')
-            
+            pe_ratio: Optional PE for valuation penalty (None / 0 / NaN = skip).
+
         Returns:
             TrendAnalysisResult analysis result
         """
         result = TrendAnalysisResult(code=code)
+        if pe_ratio is not None:
+            try:
+                pe_val = float(pe_ratio)
+                # Reject NaN/inf; keep 0 as "unavailable" sentinel.
+                if pe_val == pe_val and pe_val not in (float("inf"), float("-inf")):
+                    result.pe_ratio = pe_val
+            except (TypeError, ValueError):
+                pass
         
         if df is None or df.empty or len(df) < 20:
             logger.warning(f"{code} 数据不足，无法进行趋势分析")
@@ -678,11 +696,19 @@ class StockTrendAnalyzer:
                 result.rsi_signal = f"⚠️ RSI超卖({rsi_mid:.1f}<30)，数据不足判断企稳"
 
     @staticmethod
-    def classify_buy_signal(score: int, trend_status: 'TrendStatus') -> 'BuySignal':
-        """Unified buy signal classification based on score and trend status."""
-        if score >= 75 and trend_status in (TrendStatus.STRONG_BULL, TrendStatus.BULL):
+    def classify_buy_signal(
+        score: int, trend_status: 'TrendStatus', market_environment: str = "neutral"
+    ) -> 'BuySignal':
+        """Unified buy signal classification based on score, trend, and market regime.
+
+        Regime-aware thresholds (Fix #2): bear / strong_bear lift the BUY/STRONG_BUY
+        bar by 10 points so a 60-score in a bear is no longer a BUY (which has
+        historically led to "looks-good but loses-money" signals).
+        """
+        bump = 10 if market_environment in ("bear", "strong_bear") else 0
+        if score >= 75 + bump and trend_status in (TrendStatus.STRONG_BULL, TrendStatus.BULL):
             return BuySignal.STRONG_BUY
-        if score >= 60 and trend_status in (
+        if score >= 60 + bump and trend_status in (
             TrendStatus.STRONG_BULL, TrendStatus.BULL, TrendStatus.WEAK_BULL
         ):
             return BuySignal.BUY
@@ -698,14 +724,15 @@ class StockTrendAnalyzer:
         """
         Generate buy signal based on comprehensive scoring system.
 
-        Scoring dimensions (total 100):
+        Scoring dimensions (total 100, rebalanced to remove MA5-support
+        redundancy with bias dimension):
         - Trend (30): bullish alignment scores high
-        - Bias (15): close to MA5 scores high
+        - Bias (15): close to MA5 scores high (already captures "MA5 support")
         - Volume (18): shrink pullback scores high
-        - Support (12): MA support scores high
-        - MACD (10): golden cross scores high
+        - Support (6): MA10 support (5) + MA20 trend integrity (1)
+        - MACD (13): golden cross scores high (re-allocated from support)
         - RSI (5): oversold with stabilization scores high
-        - Capital flow (10): main force + north-bound inflow scores high
+        - Capital flow (13): main force + north-bound inflow (re-allocated from support)
         """
         score = 0
         reasons = []
@@ -804,8 +831,12 @@ class StockTrendAnalyzer:
                         score += 4
                         risks.append(f"⚠️ 乖离率大({bias:.1f}%)且MA20下行，趋势可能破坏")
                 else:
-                    score += 6
-                    risks.append(f"⚠️ 乖离率过大({bias:.1f}%)，可能破位")
+                    # Fix #7: linear interp instead of flat 6 (avoids dead-zone
+                    # discontinuity when MA20 history unavailable). bias=-5 → 9,
+                    # bias=-10 → 4, bias <= -15 → 2.
+                    fallback = max(2, int(round(9 + (bias + 5) * 1.0)))
+                    score += min(11, fallback)
+                    risks.append(f"⚠️ 乖离率过大({bias:.1f}%)，缺 MA20 数据兜底")
         elif bias < 2:
             score += 14
             reasons.append(f"✅ 价格贴近MA5({bias:.1f}%)，介入好时机")
@@ -866,6 +897,24 @@ class StockTrendAnalyzer:
         else:
             vol_score = volume_scores.get(result.volume_status, 9)
 
+        # Fix #5: HEAVY_VOLUME_UP in late-acceleration phase is often distribution,
+        # not real demand. Demote 14 → 6 when gain_20d>30 or 5+ consecutive up days.
+        if (
+            result.volume_status == VolumeStatus.HEAVY_VOLUME_UP
+            and (gain_20d > 30 or consecutive_up_days >= 5)
+        ):
+            vol_score = 6
+            risks.append("⚠️ 加速期放量上涨可能是出货，谨慎对待")
+
+        # Fix #6: SHRINK_VOLUME_UP in strong/bull trends is 滞涨缩量 (top divergence),
+        # not bullish. Demote 7 → 3.
+        if (
+            result.volume_status == VolumeStatus.SHRINK_VOLUME_UP
+            and result.trend_status in (TrendStatus.STRONG_BULL, TrendStatus.BULL)
+        ):
+            vol_score = 3
+            risks.append("⚠️ 强势趋势中缩量上涨为滞涨信号")
+
         # Penalty for volume exhaustion and abnormal volume
         if result.volume_exhaustion:
             vol_score = max(0, vol_score - 5)  # Volume exhaustion penalty
@@ -881,27 +930,42 @@ class StockTrendAnalyzer:
         elif result.volume_status == VolumeStatus.HEAVY_VOLUME_DOWN:
             risks.append("⚠️ 放量下跌，注意风险")
 
-        # === Support scoring (12 pts) ===
+        # === Support scoring (6 pts, was 12) ===
+        # Issue-fix: MA5 support is structurally redundant with bias_ma5 dimension
+        # (both measure "close to MA5"). Removed to avoid triple-counting "healthy
+        # pullback" theme (bias 14 + volume 18 + ma5_support 7 = 40% of score on
+        # one signal cluster). MA10 + MA20 retained as genuinely independent
+        # multi-timeframe checks. 6 freed points redistributed to MACD and capital
+        # flow (the two genuinely-independent under-weighted dimensions).
         score_before_support = score
-        if result.support_ma5:
-            score += 7  # MA5 support more important
-            reasons.append("✅ MA5支撑有效")
         if result.support_ma10:
             score += 5
             reasons.append("✅ MA10支撑有效")
+        # MA20 trend-integrity: price above rising MA20 = trend still intact.
+        if df is not None and len(df) >= 5 and 'MA20' in df.columns:
+            try:
+                ma20_now = float(df.iloc[-1]['MA20'])
+                ma20_prev = float(df.iloc[-5]['MA20'])
+                if result.current_price > ma20_now and ma20_now > ma20_prev:
+                    score += 1
+                    reasons.append("✅ 价格站上上行 MA20，趋势完整")
+            except (ValueError, KeyError):
+                pass
         support_score_local = score - score_before_support
 
         # === MACD scoring (10 pts) ===
+        # MACD ladder rescaled 10→13 (re-allocated from removed MA5-support).
+        # Smoother gap: GOLDEN_CROSS_ZERO 13 → BULLISH 8 (was 10→6).
         macd_scores = {
-            MACDStatus.GOLDEN_CROSS_ZERO: 10,  # Golden cross above zero - strongest
-            MACDStatus.GOLDEN_CROSS: 8,        # Golden cross
-            MACDStatus.CROSSING_UP: 7,         # Crossing above zero
-            MACDStatus.BULLISH: 5,             # DIF>DEA>0
+            MACDStatus.GOLDEN_CROSS_ZERO: 13,  # Golden cross above zero - strongest
+            MACDStatus.GOLDEN_CROSS: 11,       # Golden cross
+            MACDStatus.CROSSING_UP: 10,        # Crossing above zero
+            MACDStatus.BULLISH: 8,             # DIF>DEA>0
             MACDStatus.BEARISH: 1,             # Bearish
             MACDStatus.CROSSING_DOWN: 0,       # Crossing below zero
             MACDStatus.DEATH_CROSS: 0,         # Death cross
         }
-        macd_score = macd_scores.get(result.macd_status, 3)
+        macd_score = macd_scores.get(result.macd_status, 4)
         score += macd_score
 
         if result.macd_status in [MACDStatus.GOLDEN_CROSS_ZERO, MACDStatus.GOLDEN_CROSS]:
@@ -929,8 +993,14 @@ class StockTrendAnalyzer:
         else:
             reasons.append(result.rsi_signal)
 
-        # === Capital flow scoring (10 pts) — score comes from external analysis ===
-        score += result.capital_flow_score
+        # === Capital flow scoring (13 pts, was 10) — score comes from external analysis ===
+        # External contract stays 0-10 (no upstream change needed); we rescale ×1.3
+        # internally to reflect higher weight in total score (re-allocated from
+        # removed MA5-support). Fix #4 clip retained to defend against bad inputs.
+        cf_raw = max(0, min(10, int(result.capital_flow_score or 0)))
+        result.capital_flow_score = cf_raw   # Keep external-facing field at 0-10
+        cf_score = round(cf_raw * 1.3)        # Internal weighted contribution 0-13
+        score += cf_score
         if result.main_force_signal:
             if result.capital_flow_score >= 6:
                 reasons.append(f"✅ {result.main_force_signal}")
@@ -948,28 +1018,50 @@ class StockTrendAnalyzer:
         result.dim_support_score = support_score_local
         result.dim_macd_score = macd_score
         result.dim_rsi_score = rsi_score
-        result.dim_capital_flow_score = result.capital_flow_score
+        result.dim_capital_flow_score = cf_score   # Weighted 0-13 (raw 0-10 stays in result.capital_flow_score)
 
-        # === Market environment adjustment (modifier, not an independent dimension) ===
+        # === Fix #3: Valuation penalty (PE) ===
+        pe = float(result.pe_ratio or 0)
+        if pe < 0:
+            score -= 5
+            risks.append(f"⚠️ 亏损股(PE={pe:.0f})，估值惩罚 -5")
+        elif pe > 200:
+            score -= 15
+            risks.append(f"🚫 估值泡沫(PE={pe:.0f}>200)，惩罚 -15")
+        elif pe > 100:
+            score -= 8
+            risks.append(f"⚠️ 估值偏高(PE={pe:.0f}>100)，惩罚 -8")
+
+        # === Fix #1: Market environment adjustment with HARD CAPS ===
+        # Multipliers tightened (strong_bear 0.85→0.75) AND hard score caps added so
+        # a "perfect" stock in a bear market cannot trigger BUY signals via the
+        # classifier (defense-in-depth alongside Fix #2 threshold bumps).
         market_env = result.market_environment
         if market_env == 'strong_bear':
-            score = int(score * 0.85)  # Was 0.75, adjusted to avoid missing bear market rebounds
+            score = int(score * 0.75)
+            score = min(score, 60)   # Hard cap: never reach BUY/STRONG_BUY in strong bear
             risks.append("⚠️ 大盘环境极弱，个股做多难度极大")
         elif market_env == 'bear':
-            score = int(score * 0.90)  # Was 0.85, slightly relaxed for individual stock opportunities
+            score = int(score * 0.85)
+            score = min(score, 75)   # Hard cap: rarely reach STRONG_BUY in bear
             risks.append("⚠️ 大盘环境偏弱，个股做多难度加大")
         elif market_env == 'strong_bull':
             score = min(100, int(score * 1.05))
             reasons.append("✅ 大盘环境强势，顺势做多概率更高")
         # bull / neutral: no adjustment
 
+        # Final clamp to [0, 100] (PE penalty may push below 0).
+        score = max(0, min(100, score))
+
         # === 综合判断 ===
         result.signal_score = score
         result.signal_reasons = reasons
         result.risk_factors = risks
 
-        # Classify buy signal using unified logic
-        result.buy_signal = self.classify_buy_signal(score, result.trend_status)
+        # Classify buy signal using regime-aware unified logic (Fix #2)
+        result.buy_signal = self.classify_buy_signal(
+            score, result.trend_status, market_env
+        )
     
     def format_analysis(self, result: TrendAnalysisResult) -> str:
         """

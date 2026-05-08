@@ -569,15 +569,25 @@ class GeminiAnalyzer:
 
 ## 止盈止损规则（必须在作战计划中体现）
 
-### 止盈策略（阶梯止盈）
-- 盈利5%：减半仓锁定利润，剩余仓位上移止损至成本价
-- 盈利10%：全部止盈离场，除非趋势极强（STRONG_BULL+放量突破新高）
-- 盈利15%以上：必须止盈，任何趋势都不例外
+### ⚠️ 重要：点位由系统计算，禁止 LLM 自行编造数字
 
-### 止损规则（按市值差异化）
-- 小盘股(总市值<50亿)：跌破MA20下方2%或亏损5%，立即止损
-- 中盘股(50-300亿)：跌破MA20下方3%或亏损6%，立即止损
-- 大盘股(>300亿)：跌破MA20或亏损7%，立即止损
+当输入上下文包含 `📐 系统计算的交易点位（trade_levels）` 段时：
+- **必须**直接采用其中的 `ideal_buy / stop_loss / take_profit_1 / take_profit_2_rule / position_pct / risk_reward` 数值
+- **严禁**自己根据百分比另算一套数字
+- 仅可在解释/说明中复述这些数字，不可篡改
+
+### 止盈策略（阶梯式 + Trailing）
+- **浮盈 5%**：减仓 1/3，止损上移至成本价
+- **浮盈 10%**：再减 1/3，剩余 1/3 改为 trailing（移动止损）
+- **浮盈 >20%（trailing 区）**：跌破 MA10 或回撤 ATR×2.5 才卖出，让趋势走完
+- **不再设"15% 必须止盈"硬规则**：让强势股的利润奔跑是收益率最大来源
+- 反转策略例外：浮盈 +15% 全部止盈（反转不让利润奔跑）
+- 尾盘买入策略例外：次日尾盘前必须清仓
+
+### 止损规则（按市值差异化，与 trade_levels 一致）
+- 小盘股(总市值<50亿)：跌破MA20下方0.5%或亏损5%，立即止损
+- 中盘股(50-300亿)：亏损6%或 trade_levels.stop_loss，立即止损
+- 大盘股(>300亿)：亏损7%或 trade_levels.stop_loss，立即止损
 - 原则：小盘波动大，止损要更严格；大盘相对稳定，可给更多容忍空间
 - 放量跌破前期支撑位：立即止损
 
@@ -1089,6 +1099,29 @@ class GeminiAnalyzer:
 {chr(10).join('- ' + r for r in trend.get('risk_factors', ['无'])) if trend.get('risk_factors') else '- 无'}
 """
         
+        # 添加系统计算的交易点位（trade_levels），LLM 必须直接采用，不得篡改
+        tl = context.get('trade_levels')
+        if tl:
+            try:
+                prompt += f"""
+### 📐 系统计算的交易点位（trade_levels，**LLM 必须直接采用**）
+| 字段 | 值 | 说明 |
+|------|-----|-----|
+| 理想买入 | {tl.get('ideal_buy', 'N/A')} | 直接使用，不要另算 |
+| 次优买入 | {tl.get('secondary_buy', 'N/A')} | 回踩区位 |
+| 止损位 | {tl.get('stop_loss', 'N/A')} | 必须严格执行 |
+| 首止盈位 | {tl.get('take_profit_1', 'N/A')} | 减仓 1/3 触发位 |
+| 第二段规则 | {tl.get('take_profit_2_rule', 'N/A')} | trailing 或硬上限 |
+| 建议仓位 | {tl.get('position_pct', 0) * 100:.1f}% | 已结合市值/盈亏比 |
+| 盈亏比(R/R) | {tl.get('risk_reward', 0):.2f} | < 1.8 应判观望 |
+| 推荐策略 | {tl.get('strategy_id', 'N/A')} | 点位生成依据 |
+
+⚠️ 上述数字由系统统一计算（trade_levels 引擎），**严禁**在 dashboard.battle_plan 中篡改；
+仅可补充自然语言解释。若 R/R < 1.8，operation_advice 应判为"观望"。
+"""
+            except Exception as exc:
+                logger.debug("[trade_levels] prompt injection skipped: %s", exc)
+
         # 添加昨日对比数据
         if 'yesterday' in context:
             volume_change = context.get('volume_change_ratio', 'N/A')

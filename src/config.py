@@ -262,6 +262,11 @@ class Config:
     picker_turnover_max: float = 15.0
     # B 浪风险过滤：排除疑似 B 浪反弹（反弹 35-65% 且低点 2-14 日前）
     picker_enable_b_wave_filter: bool = True
+    # Auto-reweight strategies based on rolling 4-week attribution metrics
+    # (P1-B): when a strategy has win-rate <40% AND profit-factor <1 over the
+    # window, its score is multiplied by 0.7 in merge stage. Default off to
+    # avoid surprise behavior; enable in production once data has accumulated.
+    strategy_auto_reweight: bool = False
     # 是否允许亏损股进入选股池（PE<=0）；默认 false 排除亏损股
     picker_allow_loss: bool = False
     # 选股全市场行情拉取超时(秒)，AkShare/efinance 东财接口较慢时可适当增大
@@ -749,6 +754,7 @@ class Config:
             picker_turnover_min=float(os.getenv('PICKER_TURNOVER_MIN', '1.0')),
             picker_turnover_max=float(os.getenv('PICKER_TURNOVER_MAX', '15.0')),
             picker_enable_b_wave_filter=os.getenv('PICKER_ENABLE_B_WAVE_FILTER', 'true').lower() == 'true',
+            strategy_auto_reweight=os.getenv('STRATEGY_AUTO_REWEIGHT', 'false').lower() == 'true',
             picker_allow_loss=os.getenv('PICKER_ALLOW_LOSS', 'false').lower() == 'true',
             picker_spot_timeout=int(os.getenv('PICKER_SPOT_TIMEOUT', '30')),
             picker_enable_realtime_filter=os.getenv('PICKER_ENABLE_REALTIME_FILTER', 'true').lower() == 'true',

@@ -22,6 +22,10 @@ from src.services.stock_picker_service import (
     AMOUNT_MIN_LARGE_CAP,
     MARKET_CAP_TIER_YI,
 )
+from src.services.trade_levels import (
+    RR_MIN,
+    compute_trade_levels,
+)
 
 # Strategy IDs (used in config)
 BUY_PULLBACK = "buy_pullback"
@@ -114,7 +118,8 @@ BUY_PULLBACK_PARAMS = StrategyParams(
     require_volume_shrink=True,      # Core: healthy pullback = shrinking volume
     require_ma_bullish=True,         # MA alignment confirms uptrend
     max_retracement_pct=0.4,         # Stricter retracement limit
-    change_60d_min=5.0,              # Require established uptrend
+    change_60d_min=8.0,              # Require established uptrend (raised 5→8: weak
+                                      # 5% trends often fail at pullback support)
     change_60d_max=50.0,             # Don't miss strong stock pullbacks
     volume_ratio_min=0.7,            # Allow shrinking volume to pass
     min_pullback_from_high_pct=2.0,  # 1-3% pullback is valid entry
@@ -137,7 +142,8 @@ BREAKOUT_PARAMS = StrategyParams(
     max_retracement_pct=0.618,
     change_60d_min=-10.0,  # Allow some downtrend before breakout
     change_60d_max=50.0,  # Tightened to avoid parabolic (was 80.0)
-    volume_ratio_min=2.0,  # Raised threshold to filter false breakouts (was 1.5)
+    volume_ratio_min=1.7,  # Eased 2.0→1.7: 2.0 over-filters healthy "moderate-volume
+                            # genuine breakouts"; 1.7 is empirical sweet spot.
     breakout_lookback_days=20,       # 20-day resistance level lookback
     max_upper_shadow_ratio=2.0,      # Upper shadow > 2x body = fake breakout
 )
@@ -156,7 +162,8 @@ BOTTOM_REVERSAL_PARAMS = StrategyParams(
     require_ma_bullish=False,  # Bottom stocks often not MA bullish
     max_retracement_pct=0.618,  # Fibonacci 61.8% B-wave rebound filter
     change_60d_min=-25.0,
-    change_60d_max=-5.0,  # Only stocks still in decline — exclude already-rebounded
+    change_60d_max=-8.0,  # Tightened -5→-8: shallow -5% drops are usually pullbacks,
+                          # not reversals; need real decline before "reversal" applies.
     volume_ratio_min=0.7,  # Allow low volume ratio (stabilisation = shrinking volume)
 )
 
@@ -575,6 +582,24 @@ def score_and_rank(
             row_dict = row.to_dict() if hasattr(row, "to_dict") else dict(row)
             score = scorer_fn(row_dict, params)
 
+            # Compute unified trade levels (best-effort; missing MA → fallback inside)
+            ma5 = float(pd.to_numeric(row.get("MA5", row.get("ma5", 0)), errors="coerce") or 0)
+            ma10 = float(pd.to_numeric(row.get("MA10", row.get("ma10", 0)), errors="coerce") or 0)
+            ma20 = float(pd.to_numeric(row.get("MA20", row.get("ma20", 0)), errors="coerce") or 0)
+            atr = float(pd.to_numeric(row.get("ATR_20", row.get("atr_20", 0)), errors="coerce") or 0)
+            tl = compute_trade_levels(
+                code=code, strategy_id=strategy_id,
+                current_price=price, ma5=ma5, ma10=ma10, ma20=ma20, atr=atr,
+                market_cap_yi=total_mv / 1e8 if total_mv else 0.0,
+            )
+
+            # R/R hard filter: drop candidates with risk-reward below RR_MIN.
+            # Skip filter when MA inputs unavailable (tl.ideal_buy=0 means the
+            # engine couldn't compute meaningful levels — keep the row so the
+            # AI/realtime layer can still evaluate).
+            if tl.ideal_buy > 0 and tl.risk_reward > 0 and tl.risk_reward < RR_MIN:
+                continue
+
             records.append(
                 ScreenedStock(
                     code=code,
@@ -590,6 +615,12 @@ def score_and_rank(
                     change_pct_60d=pct_60d,
                     score=score,
                     strategies=[strategy_id],
+                    ideal_buy=tl.ideal_buy,
+                    stop_loss=tl.stop_loss,
+                    take_profit_1=tl.take_profit_1,
+                    take_profit_2_rule=tl.take_profit_2_rule,
+                    position_pct=tl.position_pct,
+                    risk_reward=tl.risk_reward,
                 )
             )
         except Exception:
@@ -600,7 +631,16 @@ def score_and_rank(
 
 
 def merge_candidates_by_code(candidates_per_strategy: Dict[str, List[ScreenedStock]]) -> List[ScreenedStock]:
-    """Merge candidates from multiple strategies. Dedupe by code, union strategies, max score."""
+    """Merge candidates from multiple strategies.
+
+    - Dedupe by code, union strategies list.
+    - Score = max single score across strategies + multi-strategy resonance bonus
+      (2 strategies hit: +10; 3+ strategies hit: +20). Triple resonance also
+      flags resonance="triple" so AI selection layer can mandatory-include them.
+    - Trade levels: prefer the entry from the strategy that flagged it first
+      (already populated on each candidate); on conflict pick the highest R/R
+      so the merged record reflects the best risk-adjusted setup.
+    """
     by_code: Dict[str, ScreenedStock] = {}
     for strategy_id, cands in candidates_per_strategy.items():
         for s in cands:
@@ -620,6 +660,12 @@ def merge_candidates_by_code(candidates_per_strategy: Dict[str, List[ScreenedSto
                     change_pct_60d=s.change_pct_60d,
                     score=max(s.score, 0),
                     strategies=[strategy_id],
+                    ideal_buy=s.ideal_buy,
+                    stop_loss=s.stop_loss,
+                    take_profit_1=s.take_profit_1,
+                    take_profit_2_rule=s.take_profit_2_rule,
+                    position_pct=s.position_pct,
+                    risk_reward=s.risk_reward,
                 )
             else:
                 strategies = getattr(existing, "strategies", []) or []
@@ -627,6 +673,26 @@ def merge_candidates_by_code(candidates_per_strategy: Dict[str, List[ScreenedSto
                     strategies = list(strategies) + [strategy_id]
                 existing.score = max(existing.score, s.score)
                 existing.strategies = strategies
+                # Prefer the trade levels with the higher R/R (best setup).
+                if s.risk_reward > existing.risk_reward and s.ideal_buy > 0:
+                    existing.ideal_buy = s.ideal_buy
+                    existing.stop_loss = s.stop_loss
+                    existing.take_profit_1 = s.take_profit_1
+                    existing.take_profit_2_rule = s.take_profit_2_rule
+                    existing.position_pct = s.position_pct
+                    existing.risk_reward = s.risk_reward
+
+    # Multi-strategy resonance bonus.
+    # Tuned: double +8 (was +10), triple +25 (was +20). Triple-resonance is
+    # rare and historically much higher win rate, so widen the gap.
+    for s in by_code.values():
+        n_strategies = len(s.strategies or [])
+        if n_strategies >= 3:
+            s.score += 25.0
+            s.resonance = "triple"
+        elif n_strategies == 2:
+            s.score += 8.0
+            s.resonance = "double"
 
     merged = list(by_code.values())
     merged.sort(key=lambda s: s.score, reverse=True)
