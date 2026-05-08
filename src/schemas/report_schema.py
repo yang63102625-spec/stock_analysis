@@ -140,23 +140,6 @@ class AnalysisReportSchema(BaseModel):
     dashboard: Optional[Dashboard] = None
 
     analysis_summary: Optional[str] = None
-    key_points: Optional[str] = None
-    risk_warning: Optional[str] = None
-    buy_reason: Optional[str] = None
-
-    trend_analysis: Optional[str] = None
-    short_term_outlook: Optional[str] = None
-    medium_term_outlook: Optional[str] = None
-    technical_analysis: Optional[str] = None
-    ma_analysis: Optional[str] = None
-    volume_analysis: Optional[str] = None
-    pattern_analysis: Optional[str] = None
-    fundamental_analysis: Optional[str] = None
-    sector_position: Optional[str] = None
-    company_highlights: Optional[str] = None
-    news_summary: Optional[str] = None
-    market_sentiment: Optional[str] = None
-    hot_topics: Optional[str] = None
 
     search_performed: Optional[bool] = None
     data_sources: Optional[str] = None

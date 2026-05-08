@@ -203,6 +203,15 @@ class AnalysisHistory(Base):
     trend_prediction = Column(String(50))
     analysis_summary = Column(Text)
 
+    # Per-dimension scores for backtesting effectiveness analysis
+    trend_score = Column(Integer, default=0)           # 0-30
+    bias_score = Column(Integer, default=0)            # 0-15
+    volume_score = Column(Integer, default=0)          # 0-18
+    support_score = Column(Integer, default=0)         # 0-12
+    macd_score = Column(Integer, default=0)            # 0-10
+    rsi_score = Column(Integer, default=0)             # 0-5
+    capital_flow_score = Column(Integer, default=0)    # 0-10
+
     # 详细数据
     raw_result = Column(Text)
     news_content = Column(Text)
@@ -232,6 +241,13 @@ class AnalysisHistory(Base):
             'operation_advice': self.operation_advice,
             'trend_prediction': self.trend_prediction,
             'analysis_summary': self.analysis_summary,
+            'trend_score': self.trend_score,
+            'bias_score': self.bias_score,
+            'volume_score': self.volume_score,
+            'support_score': self.support_score,
+            'macd_score': self.macd_score,
+            'rsi_score': self.rsi_score,
+            'capital_flow_score': self.capital_flow_score,
             'raw_result': self.raw_result,
             'news_content': self.news_content,
             'context_snapshot': self.context_snapshot,
@@ -578,6 +594,14 @@ class DatabaseManager:
                     "ALTER TABLE picker_history ADD COLUMN picker_strategies_json TEXT",
                     "ALTER TABLE picker_history ADD COLUMN screened_pool_by_strategy_json TEXT",
                     "ALTER TABLE picker_backtest_history ADD COLUMN picker_strategies_json TEXT",
+                    # Analysis history score dimension columns
+                    "ALTER TABLE analysis_history ADD COLUMN trend_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN bias_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN volume_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN support_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN macd_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN rsi_score INTEGER DEFAULT 0",
+                    "ALTER TABLE analysis_history ADD COLUMN capital_flow_score INTEGER DEFAULT 0",
                 ]:
                     try:
                         conn.execute(text(sql))
@@ -922,6 +946,9 @@ class DatabaseManager:
         if save_snapshot and context_snapshot is not None:
             context_text = self._safe_json_dumps(context_snapshot)
 
+        # Extract per-dimension scores from context_snapshot
+        dim_scores = self._extract_dimension_scores(context_snapshot)
+
         record = AnalysisHistory(
             query_id=query_id,
             code=result.code,
@@ -931,6 +958,13 @@ class DatabaseManager:
             operation_advice=result.operation_advice,
             trend_prediction=result.trend_prediction,
             analysis_summary=result.analysis_summary,
+            trend_score=dim_scores.get('dim_trend_score', 0),
+            bias_score=dim_scores.get('dim_bias_score', 0),
+            volume_score=dim_scores.get('dim_volume_score', 0),
+            support_score=dim_scores.get('dim_support_score', 0),
+            macd_score=dim_scores.get('dim_macd_score', 0),
+            rsi_score=dim_scores.get('dim_rsi_score', 0),
+            capital_flow_score=dim_scores.get('dim_capital_flow_score', 0),
             raw_result=self._safe_json_dumps(raw_result),
             news_content=news_content,
             context_snapshot=context_text,
@@ -1153,6 +1187,19 @@ class DatabaseManager:
             result = session.execute(delete(PickerHistory))
             session.commit()
             return result.rowcount or 0
+
+    def clear_analysis_history(self) -> int:
+        """Delete all analysis history records and related backtest results. Returns deleted count."""
+        with self.get_session() as session:
+            try:
+                session.execute(delete(BacktestResult))
+                result = session.execute(delete(AnalysisHistory))
+                session.commit()
+                return result.rowcount or 0
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Failed to clear analysis history: {e}")
+                return 0
 
     # ── Picker Backtest History ────────────────────────────────────
 
@@ -1501,12 +1548,11 @@ class DatabaseManager:
     @staticmethod
     def _build_raw_result(result: Any) -> Dict[str, Any]:
         """
-        生成完整分析结果字典
+        Build complete analysis result dict.
         """
         data = result.to_dict() if hasattr(result, "to_dict") else {}
         data.update({
             'data_sources': getattr(result, 'data_sources', ''),
-            'raw_response': getattr(result, 'raw_response', None),
         })
         return data
 
@@ -1582,6 +1628,29 @@ class DatabaseManager:
                 pass
         return None
 
+    def _extract_dimension_scores(self, context_snapshot: Optional[Dict[str, Any]]) -> Dict[str, int]:
+        """Extract per-dimension scores from context_snapshot -> enhanced_context -> trend_analysis."""
+        if not context_snapshot:
+            return {}
+        enhanced = context_snapshot.get("enhanced_context")
+        if not isinstance(enhanced, dict):
+            return {}
+        trend_analysis = enhanced.get("trend_analysis")
+        if not isinstance(trend_analysis, dict):
+            return {}
+        keys = (
+            'dim_trend_score', 'dim_bias_score', 'dim_volume_score',
+            'dim_support_score', 'dim_macd_score', 'dim_rsi_score', 'dim_capital_flow_score',
+        )
+        result = {}
+        for k in keys:
+            v = trend_analysis.get(k)
+            try:
+                result[k] = int(v or 0)
+            except (TypeError, ValueError):
+                result[k] = 0
+        return result
+
     def _extract_sniper_points(self, result: Any) -> Dict[str, Optional[float]]:
         """
         Extract sniper point values from an AnalysisResult.
@@ -1589,7 +1658,6 @@ class DatabaseManager:
         Tries multiple extraction paths to handle different dashboard structures:
         1. result.get_sniper_points() (standard path)
         2. Direct dashboard dict traversal with various nesting levels
-        3. Fallback from raw_result dict if available
         """
         raw_points = {}
 
@@ -1602,12 +1670,6 @@ class DatabaseManager:
             dashboard = getattr(result, "dashboard", None)
             if isinstance(dashboard, dict):
                 raw_points = self._find_sniper_in_dashboard(dashboard) or raw_points
-
-        # Path 3: try raw_result for agent mode results
-        if not any(raw_points.get(k) for k in ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")):
-            raw_response = getattr(result, "raw_response", None)
-            if isinstance(raw_response, dict):
-                raw_points = self._find_sniper_in_dashboard(raw_response) or raw_points
 
         return {
             "ideal_buy": self._parse_sniper_value(raw_points.get("ideal_buy")),

@@ -70,11 +70,6 @@ SAMPLE_DASHBOARD = {
         },
     },
     "analysis_summary": "Overall bullish trend",
-    "key_points": "Strong revenue growth",
-    "risk_warning": "High valuation",
-    "buy_reason": "Sector leader",
-    "trend_analysis": "Upward trend",
-    "technical_analysis": "MACD golden cross",
 }
 
 

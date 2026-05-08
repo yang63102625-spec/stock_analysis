@@ -562,100 +562,11 @@ class NotificationService(
 
                 self._append_market_snapshot(report_lines, result)
                 
-                # 核心看点
-                if hasattr(result, 'key_points') and result.key_points:
-                    report_lines.extend([
-                        f"**🎯 核心看点**：{result.key_points}",
-                        "",
-                    ])
-                
-                # 买入/卖出理由
-                if hasattr(result, 'buy_reason') and result.buy_reason:
-                    report_lines.extend([
-                        f"**💡 操作理由**：{result.buy_reason}",
-                        "",
-                    ])
-                
-                # 走势分析
-                if hasattr(result, 'trend_analysis') and result.trend_analysis:
-                    report_lines.extend([
-                        "#### 📉 走势分析",
-                        f"{result.trend_analysis}",
-                        "",
-                    ])
-                
-                # 短期/中期展望
-                outlook_lines = []
-                if hasattr(result, 'short_term_outlook') and result.short_term_outlook:
-                    outlook_lines.append(f"- **短期（1-3日）**：{result.short_term_outlook}")
-                if hasattr(result, 'medium_term_outlook') and result.medium_term_outlook:
-                    outlook_lines.append(f"- **中期（1-2周）**：{result.medium_term_outlook}")
-                if outlook_lines:
-                    report_lines.extend([
-                        "#### 🔮 市场展望",
-                        *outlook_lines,
-                        "",
-                    ])
-                
-                # 技术面分析
-                tech_lines = []
-                if result.technical_analysis:
-                    tech_lines.append(f"**综合**：{result.technical_analysis}")
-                if hasattr(result, 'ma_analysis') and result.ma_analysis:
-                    tech_lines.append(f"**均线**：{result.ma_analysis}")
-                if hasattr(result, 'volume_analysis') and result.volume_analysis:
-                    tech_lines.append(f"**量能**：{result.volume_analysis}")
-                if hasattr(result, 'pattern_analysis') and result.pattern_analysis:
-                    tech_lines.append(f"**形态**：{result.pattern_analysis}")
-                if tech_lines:
-                    report_lines.extend([
-                        "#### 📊 技术面分析",
-                        *tech_lines,
-                        "",
-                    ])
-                
-                # 基本面分析
-                fund_lines = []
-                if hasattr(result, 'fundamental_analysis') and result.fundamental_analysis:
-                    fund_lines.append(result.fundamental_analysis)
-                if hasattr(result, 'sector_position') and result.sector_position:
-                    fund_lines.append(f"**板块地位**：{result.sector_position}")
-                if hasattr(result, 'company_highlights') and result.company_highlights:
-                    fund_lines.append(f"**公司亮点**：{result.company_highlights}")
-                if fund_lines:
-                    report_lines.extend([
-                        "#### 🏢 基本面分析",
-                        *fund_lines,
-                        "",
-                    ])
-                
-                # 消息面/情绪面
-                news_lines = []
-                if result.news_summary:
-                    news_lines.append(f"**新闻摘要**：{result.news_summary}")
-                if hasattr(result, 'market_sentiment') and result.market_sentiment:
-                    news_lines.append(f"**市场情绪**：{result.market_sentiment}")
-                if hasattr(result, 'hot_topics') and result.hot_topics:
-                    news_lines.append(f"**相关热点**：{result.hot_topics}")
-                if news_lines:
-                    report_lines.extend([
-                        "#### 📰 消息面/情绪面",
-                        *news_lines,
-                        "",
-                    ])
-                
                 # 综合分析
                 if result.analysis_summary:
                     report_lines.extend([
                         "#### 📝 综合分析",
                         result.analysis_summary,
-                        "",
-                    ])
-                
-                # 风险提示
-                if hasattr(result, 'risk_warning') and result.risk_warning:
-                    report_lines.extend([
-                        f"⚠️ **风险提示**：{result.risk_warning}",
                         "",
                     ])
                 
@@ -988,38 +899,9 @@ class NotificationService(
                             report_lines.append(f"- {item}")
                         report_lines.append("")
                 
-                # 如果没有 dashboard，显示传统格式
+                # If no dashboard, show basic summary
                 if not dashboard:
-                    # 操作理由
-                    if result.buy_reason:
-                        report_lines.extend([
-                            f"**💡 操作理由**: {result.buy_reason}",
-                            "",
-                        ])
-                    # 风险提示
-                    if result.risk_warning:
-                        report_lines.extend([
-                            f"**⚠️ 风险提示**: {result.risk_warning}",
-                            "",
-                        ])
-                    # 技术面分析
-                    if result.ma_analysis or result.volume_analysis:
-                        report_lines.extend([
-                            "### 📊 技术面",
-                            "",
-                        ])
-                        if result.ma_analysis:
-                            report_lines.append(f"**均线**: {result.ma_analysis}")
-                        if result.volume_analysis:
-                            report_lines.append(f"**量能**: {result.volume_analysis}")
-                        report_lines.append("")
-                    # 消息面
-                    if result.news_summary:
-                        report_lines.extend([
-                            "### 📰 消息面",
-                            f"{result.news_summary}",
-                            "",
-                        ])
+                    pass
                 
                 report_lines.extend([
                     "---",
@@ -1227,21 +1109,6 @@ class NotificationService(
             # 核心信息行
             lines.append(f"### {emoji} {result.name}({result.code})")
             lines.append(f"**{result.operation_advice}** | 评分:{result.sentiment_score} | {result.trend_prediction}")
-            
-            # 操作理由（截断）
-            if hasattr(result, 'buy_reason') and result.buy_reason:
-                reason = result.buy_reason[:80] + "..." if len(result.buy_reason) > 80 else result.buy_reason
-                lines.append(f"💡 {reason}")
-            
-            # 核心看点
-            if hasattr(result, 'key_points') and result.key_points:
-                points = result.key_points[:60] + "..." if len(result.key_points) > 60 else result.key_points
-                lines.append(f"🎯 {points}")
-            
-            # 风险提示（截断）
-            if hasattr(result, 'risk_warning') and result.risk_warning:
-                risk = result.risk_warning[:50] + "..." if len(result.risk_warning) > 50 else result.risk_warning
-                lines.append(f"⚠️ {risk}")
             
             lines.append("")
         

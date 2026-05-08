@@ -300,6 +300,76 @@ get_stock_info_tool = ToolDefinition(
 
 
 # ============================================================
+# get_capital_flow
+# ============================================================
+
+_TUSHARE_PRO = None
+
+def _get_tushare_pro():
+    """Lazy import for Tushare pro API instance."""
+    global _TUSHARE_PRO
+    if _TUSHARE_PRO is not None:
+        return _TUSHARE_PRO
+
+    import os
+    try:
+        import tushare as ts
+        token = os.environ.get("TUSHARE_TOKEN", "")
+        if not token:
+            return None
+        _TUSHARE_PRO = ts.pro_api(token)
+        return _TUSHARE_PRO
+    except Exception as e:
+        logger.warning(f"Failed to initialize Tushare pro API: {e}")
+        return None
+
+
+def _handle_get_capital_flow(stock_code: str, days: int = 5) -> dict:
+    """Get capital flow analysis (main force + north-bound) for a stock."""
+    pro = _get_tushare_pro()
+    if pro is None:
+        return {"error": "Tushare API not available (TUSHARE_TOKEN not configured)"}
+
+    from data_provider.moneyflow_fetcher import MoneyflowFetcher
+    fetcher = MoneyflowFetcher(pro)
+
+    # Convert 6-digit code to ts_code format (e.g. 600519 -> 600519.SH)
+    ts_code = stock_code
+    if len(stock_code) == 6 and stock_code.isdigit():
+        if stock_code.startswith(('6', '9')):
+            ts_code = f"{stock_code}.SH"
+        else:
+            ts_code = f"{stock_code}.SZ"
+
+    result = fetcher.analyze_capital_flow(ts_code, days=days)
+    return result
+
+
+get_capital_flow_tool = ToolDefinition(
+    name="get_capital_flow",
+    description="Get capital flow analysis: main force (large+xlarge order) net inflow trend "
+                "and north-bound capital (HSGT) flow. Returns scores (0-10) and signal descriptions. "
+                "Use after technical analysis to add capital flow dimension to scoring.",
+    parameters=[
+        ToolParameter(
+            name="stock_code",
+            type="string",
+            description="A-share stock code, e.g., '600519'",
+        ),
+        ToolParameter(
+            name="days",
+            type="integer",
+            description="Number of recent trading days to analyze (default: 5)",
+            required=False,
+            default=5,
+        ),
+    ],
+    handler=_handle_get_capital_flow,
+    category="data",
+)
+
+
+# ============================================================
 # Export all data tools
 # ============================================================
 
@@ -309,4 +379,5 @@ ALL_DATA_TOOLS = [
     get_chip_distribution_tool,
     get_analysis_context_tool,
     get_stock_info_tool,
+    get_capital_flow_tool,
 ]

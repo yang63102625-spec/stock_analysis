@@ -258,36 +258,11 @@ class AnalysisResult:
     # ========== 决策仪表盘 (新增) ==========
     dashboard: Optional[Dict[str, Any]] = None  # 完整的决策仪表盘数据
 
-    # ========== 走势分析 ==========
-    trend_analysis: str = ""  # 走势形态分析（支撑位、压力位、趋势线等）
-    short_term_outlook: str = ""  # 短期展望（1-3日）
-    medium_term_outlook: str = ""  # 中期展望（1-2周）
-
-    # ========== 技术面分析 ==========
-    technical_analysis: str = ""  # 技术指标综合分析
-    ma_analysis: str = ""  # 均线分析（多头/空头排列，金叉/死叉等）
-    volume_analysis: str = ""  # 量能分析（放量/缩量，主力动向等）
-    pattern_analysis: str = ""  # K线形态分析
-
-    # ========== 基本面分析 ==========
-    fundamental_analysis: str = ""  # 基本面综合分析
-    sector_position: str = ""  # 板块地位和行业趋势
-    company_highlights: str = ""  # 公司亮点/风险点
-
-    # ========== 情绪面/消息面分析 ==========
-    news_summary: str = ""  # 近期重要新闻/公告摘要
-    market_sentiment: str = ""  # 市场情绪分析
-    hot_topics: str = ""  # 相关热点话题
-
     # ========== 综合分析 ==========
-    analysis_summary: str = ""  # 综合分析摘要
-    key_points: str = ""  # 核心看点（3-5个要点）
-    risk_warning: str = ""  # 风险提示
-    buy_reason: str = ""  # 买入/卖出理由
+    analysis_summary: str = ""  # analysis summary text
 
     # ========== 元数据 ==========
-    market_snapshot: Optional[Dict[str, Any]] = None  # 当日行情快照（展示用）
-    raw_response: Optional[str] = None  # 原始响应（调试用）
+    market_snapshot: Optional[Dict[str, Any]] = None  # market snapshot at analysis time
     search_performed: bool = False  # 是否执行了联网搜索
     data_sources: str = ""  # 数据来源说明
     success: bool = True
@@ -313,24 +288,8 @@ class AnalysisResult:
             'operation_advice': self.operation_advice,
             'decision_type': self.decision_type,
             'confidence_level': self.confidence_level,
-            'dashboard': self.dashboard,  # 决策仪表盘数据
-            'trend_analysis': self.trend_analysis,
-            'short_term_outlook': self.short_term_outlook,
-            'medium_term_outlook': self.medium_term_outlook,
-            'technical_analysis': self.technical_analysis,
-            'ma_analysis': self.ma_analysis,
-            'volume_analysis': self.volume_analysis,
-            'pattern_analysis': self.pattern_analysis,
-            'fundamental_analysis': self.fundamental_analysis,
-            'sector_position': self.sector_position,
-            'company_highlights': self.company_highlights,
-            'news_summary': self.news_summary,
-            'market_sentiment': self.market_sentiment,
-            'hot_topics': self.hot_topics,
+            'dashboard': self.dashboard,
             'analysis_summary': self.analysis_summary,
-            'key_points': self.key_points,
-            'risk_warning': self.risk_warning,
-            'buy_reason': self.buy_reason,
             'market_snapshot': self.market_snapshot,
             'search_performed': self.search_performed,
             'success': self.success,
@@ -475,9 +434,11 @@ class GeminiAnalyzer:
 - PE 明显偏高时（如远超行业平均或历史均值），需在风险点中说明
 - 高成长股可适当容忍较高 PE，但需有业绩支撑
 
-### 7. 强势趋势股放宽
-- 强势趋势股（多头排列且趋势强度高、量能配合）可适当放宽乖离率要求
-- 此类股票可轻仓追踪，但仍需设置止损，不盲目追高
+### 7. 强势趋势股乖离率规则（阶段化）
+- 趋势启动期（20日涨幅<15%）：乖离率≤6%可轻仓追踪，设严格止损
+- 趋势主升期（20日涨幅15-30%）：乖离率≤5%正常风控
+- 趋势加速期（20日涨幅>30%或连涨≥5日）：乖离率≤3.5%，超过即严禁追高，已持仓应考虑止盈
+- 核心原则：涨得越多越要谨慎，不是“强势就能追”
 
 ## 输出格式：决策仪表盘 JSON
 
@@ -565,28 +526,20 @@ class GeminiAnalyzer:
     },
 
     "analysis_summary": "100字综合分析摘要",
-    "key_points": "3-5个核心看点，逗号分隔",
-    "risk_warning": "风险提示",
-    "buy_reason": "操作理由，引用交易理念",
-
-    "trend_analysis": "走势形态分析",
-    "short_term_outlook": "短期1-3日展望",
-    "medium_term_outlook": "中期1-2周展望",
-    "technical_analysis": "技术面综合分析",
-    "ma_analysis": "均线系统分析",
-    "volume_analysis": "量能分析",
-    "pattern_analysis": "K线形态分析",
-    "fundamental_analysis": "基本面分析",
-    "sector_position": "板块行业分析",
-    "company_highlights": "公司亮点/风险",
-    "news_summary": "新闻摘要",
-    "market_sentiment": "市场情绪",
-    "hot_topics": "相关热点",
 
     "search_performed": true/false,
     "data_sources": "数据来源说明"
 }
 ```
+
+## 评分体系（总分100分）
+- 趋势（30分）：均线排列方向
+- 乖离率（15分）：偏离均线程度（动态阈值）
+- 量能（18分）：量价关系判断
+- 支撑位（12分）：关键均线支撑
+- MACD（10分）：趋势确认辅助
+- RSI（5分）：超买超卖参考
+- 资金面（10分）：主力资金+北向资金趋势
 
 ## 评分标准
 
@@ -613,6 +566,47 @@ class GeminiAnalyzer:
 - ❌ 跌破MA20
 - ❌ 放量下跌
 - ❌ 重大利空
+
+## 止盈止损规则（必须在作战计划中体现）
+
+### 止盈策略（阶梯止盈）
+- 盈利5%：减半仓锁定利润，剩余仓位上移止损至成本价
+- 盈利10%：全部止盈离场，除非趋势极强（STRONG_BULL+放量突破新高）
+- 盈利15%以上：必须止盈，任何趋势都不例外
+
+### 止损规则（按市值差异化）
+- 小盘股(总市值<50亿)：跌破MA20下方2%或亏损5%，立即止损
+- 中盘股(50-300亿)：跌破MA20下方3%或亏损6%，立即止损
+- 大盘股(>300亿)：跌破MA20或亏损7%，立即止损
+- 原则：小盘波动大，止损要更严格；大盘相对稳定，可给更多容忍空间
+- 放量跌破前期支撑位：立即止损
+
+### 持仓管理
+- 评分<40分的持仓：建议减仓至半仓
+- 评分<30分的持仓：建议清仓
+- 连续3日缩量阴跌（无量空跌）：减仓观望
+
+## 输出一致性校验规则
+- 止盈价 > 当前价（上方目标），止损价 < 当前价（下方防线）
+- analysis_summary 中提到的任何价位，必须与 dashboard.battle_plan 中的数据完全一致
+- 严禁在摘要中将止盈价误称为止损价，或将止损价误称为止盈价
+
+## 量能深度解读要求
+
+分析时必须关注以下量能信号：
+1. **天量见顶**：单日成交量超过20日均量5倍，大概率短期见顶，应提示"天量风险"
+2. **缩量回调健康度**：缩量回调（量比<0.7）且跌幅<3%为健康洗盘；缩量但跌幅>5%为主力撤退
+3. **量价背离**：价格创新高但成交量萎缩 → 上涨动能衰竭，应提示风险
+4. **量能衰竭**：近3日均量 < 10日均量的60% → 多头力竭，谨慎追高
+5. **底部放量**：股价在低位（偏离MA20>-10%）突然放量>2倍 → 可能是资金抄底信号
+
+## 资金面数据解读
+
+当提供了资金流向数据时，请结合以下规则分析：
+1. **主力连续净流入**：大单+特大单连续3日以上净流入 → 机构看好，加分
+2. **主力集中出逃**：单日大单净流出超过流通市值0.5% → 严重风险信号
+3. **北向资金方向**：北向连续流入代表外资看好A股整体，对个股有情绪提振
+4. **量价资金三角验证**：放量上涨+主力净流入+北向流入 = 最强信号；任一背离需警惕
 
 ## 决策仪表盘核心原则
 
@@ -877,7 +871,6 @@ class GeminiAnalyzer:
                 operation_advice='持有',
                 confidence_level='低',
                 analysis_summary='AI 分析功能未启用（未配置 API Key）',
-                risk_warning='请配置 LLM API Key（GEMINI_API_KEY/ANTHROPIC_API_KEY/OPENAI_API_KEY）后重试',
                 success=False,
                 error_message='LLM API Key 未配置',
                 model_used=None,
@@ -929,7 +922,6 @@ class GeminiAnalyzer:
 
                 # 解析响应
                 result = self._parse_response(response_text, code, name)
-                result.raw_response = response_text
                 result.search_performed = bool(news_context)
                 result.market_snapshot = self._build_market_snapshot(context)
                 result.model_used = model_used
@@ -976,7 +968,6 @@ class GeminiAnalyzer:
                 operation_advice='持有',
                 confidence_level='低',
                 analysis_summary=f'分析过程出错: {str(e)[:100]}',
-                risk_warning='分析失败，请稍后重试或手动分析',
                 success=False,
                 error_message=str(e),
                 model_used=None,
@@ -1380,29 +1371,9 @@ class GeminiAnalyzer:
                     confidence_level=data.get('confidence_level', '中'),
                     # 决策仪表盘
                     dashboard=dashboard,
-                    # 走势分析
-                    trend_analysis=data.get('trend_analysis', ''),
-                    short_term_outlook=data.get('short_term_outlook', ''),
-                    medium_term_outlook=data.get('medium_term_outlook', ''),
-                    # 技术面
-                    technical_analysis=data.get('technical_analysis', ''),
-                    ma_analysis=data.get('ma_analysis', ''),
-                    volume_analysis=data.get('volume_analysis', ''),
-                    pattern_analysis=data.get('pattern_analysis', ''),
-                    # 基本面
-                    fundamental_analysis=data.get('fundamental_analysis', ''),
-                    sector_position=data.get('sector_position', ''),
-                    company_highlights=data.get('company_highlights', ''),
-                    # 情绪面/消息面
-                    news_summary=data.get('news_summary', ''),
-                    market_sentiment=data.get('market_sentiment', ''),
-                    hot_topics=data.get('hot_topics', ''),
-                    # 综合
+                    # summary
                     analysis_summary=data.get('analysis_summary', '分析完成'),
-                    key_points=data.get('key_points', ''),
-                    risk_warning=data.get('risk_warning', ''),
-                    buy_reason=data.get('buy_reason', ''),
-                    # 元数据
+                    # metadata
                     search_performed=data.get('search_performed', False),
                     data_sources=data.get('data_sources', '技术面数据'),
                     success=True,
@@ -1482,9 +1453,6 @@ class GeminiAnalyzer:
             decision_type=decision_type,
             confidence_level='低',
             analysis_summary=summary,
-            key_points='JSON解析失败，仅供参考',
-            risk_warning='分析结果可能不准确，建议结合其他信息判断',
-            raw_response=response_text,
             success=True,
         )
     

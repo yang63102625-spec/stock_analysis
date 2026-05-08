@@ -558,7 +558,7 @@ def _build_analysis_report(
     details = None
     if details_data:
         details = ReportDetails(
-            news_content=details_data.get("news_summary") or details_data.get("news_content"),
+            news_content=details_data.get("news_content"),
             raw_result=details_data,
             context_snapshot=None
         )

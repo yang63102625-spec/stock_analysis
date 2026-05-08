@@ -158,3 +158,36 @@ def get_stock_performance(
             detail={"error": "internal_error", "message": f"查询单股表现失败: {str(exc)}"},
         )
 
+
+@router.get(
+    "/score-analysis",
+    responses={
+        200: {"description": "评分有效性分析"},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="评分有效性分析",
+    description="分析评分与实际收益的相关性，按评分区间统计胜率和平均收益",
+)
+def get_score_analysis(
+    start_date: Optional[str] = Query(None, description="起始日期 YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
+    eval_window_days: int = Query(5, ge=1, le=120, description="评估窗口天数"),
+    score_bucket_size: int = Query(10, ge=5, le=25, description="评分区间大小"),
+    db_manager: DatabaseManager = Depends(get_database_manager),
+):
+    try:
+        service = BacktestService(db_manager)
+        result = service.analyze_score_effectiveness(
+            start_date=start_date,
+            end_date=end_date,
+            eval_window_days=eval_window_days,
+            score_bucket_size=score_bucket_size,
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"评分有效性分析失败: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "internal_error", "message": f"评分有效性分析失败: {str(exc)}"},
+        )
+

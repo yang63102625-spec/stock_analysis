@@ -137,22 +137,6 @@ class TestAgentResultConversion(unittest.TestCase):
             "confidence_level": "高",
             "dashboard": {"core_conclusion": {"one_sentence": "看好"}},
             "analysis_summary": "Testing",
-            "key_points": "Strong",
-            "risk_warning": "High valuation",
-            "buy_reason": "Leader",
-            "trend_analysis": "Upward",
-            "technical_analysis": "Bullish MACD",
-            "ma_analysis": "Golden cross",
-            "volume_analysis": "Healthy volume",
-            "pattern_analysis": "Cup and handle",
-            "fundamental_analysis": "Strong revenue",
-            "sector_position": "Liquor leader",
-            "company_highlights": "Brand value",
-            "news_summary": "Recent news",
-            "market_sentiment": "Optimistic",
-            "hot_topics": "Baijiu",
-            "short_term_outlook": "Bullish",
-            "medium_term_outlook": "Stable",
         }
 
         agent_result = AgentResult(

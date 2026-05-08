@@ -16,6 +16,7 @@
 
 import logging
 import random
+import threading
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, time as dt_time
@@ -390,6 +391,18 @@ class BaseFetcher(ABC):
         df['volume_ratio'] = df['volume'] / avg_volume_5.shift(1)
         df['volume_ratio'] = df['volume_ratio'].fillna(1.0)
         
+        # Calculate ATR(20) - Average True Range
+        if len(df) >= 20 and all(col in df.columns for col in ['high', 'low', 'close']):
+            high = df['high']
+            low = df['low']
+            prev_close = df['close'].shift(1)
+            tr = pd.concat([
+                (high - low),
+                (high - prev_close).abs(),
+                (low - prev_close).abs()
+            ], axis=1).max(axis=1)
+            df['ATR_20'] = tr.rolling(window=20).mean()
+
         # 保留2位小数
         for col in ['ma5', 'ma10', 'ma20', 'volume_ratio']:
             if col in df.columns:
@@ -412,7 +425,7 @@ class BaseFetcher(ABC):
 
 class DataFetcherManager:
     """
-    数据源策略管理器
+    数据源策略管理器 (Thread-safe Singleton)
     
     职责：
     1. 管理多个数据源（按优先级排序）
@@ -424,22 +437,45 @@ class DataFetcherManager:
     - 失败后自动切换到下一个
     - 所有数据源都失败时抛出异常
     """
-    
+
+    _instance: Optional['DataFetcherManager'] = None
+    _lock = threading.Lock()
+
+    def __new__(cls, fetchers: Optional[List['BaseFetcher']] = None):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, fetchers: Optional[List[BaseFetcher]] = None):
-        """
-        初始化管理器
-        
-        Args:
-            fetchers: 数据源列表（可选，默认按优先级自动创建）
-        """
-        self._fetchers: List[BaseFetcher] = []
-        
-        if fetchers:
-            # 按优先级排序
-            self._fetchers = sorted(fetchers, key=lambda f: f.priority)
-        else:
-            # 默认数据源将在首次使用时延迟加载
-            self._init_default_fetchers()
+        """Thread-safe singleton initialization with double-checked locking."""
+        # Fast path (no lock): skip if already initialized
+        if self._initialized:
+            return
+
+        # Double-checked locking: acquire lock and verify again
+        with self._lock:
+            if self._initialized:
+                return
+
+            self._fetchers: List[BaseFetcher] = []
+
+            if fetchers:
+                # Sort by priority
+                self._fetchers = sorted(fetchers, key=lambda f: f.priority)
+            else:
+                # Default data sources loaded here
+                self._init_default_fetchers()
+
+            self._initialized = True
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton instance (for testing purposes)."""
+        with cls._lock:
+            cls._instance = None
     
     def _init_default_fetchers(self) -> None:
         """

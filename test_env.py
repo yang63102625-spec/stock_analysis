@@ -284,8 +284,6 @@ def test_llm():
         print(f"  情绪评分: {result.sentiment_score}/100")
         print(f"  趋势预测: {result.trend_prediction}")
         print(f"  操作建议: {result.operation_advice}")
-        print(f"  技术分析: {result.technical_analysis[:80]}..." if len(result.technical_analysis) > 80 else f"  技术分析: {result.technical_analysis}")
-        print(f"  消息面: {result.news_summary[:80]}..." if len(result.news_summary) > 80 else f"  消息面: {result.news_summary}")
         print(f"  综合摘要: {result.analysis_summary}")
         
         if not result.success:

@@ -17,6 +17,7 @@ import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
+from threading import Lock
 from typing import List, Dict, Any, Optional, Tuple
 
 import pandas as pd
@@ -30,7 +31,7 @@ from src.data.stock_mapping import STOCK_NAME_MAP
 from src.notification import NotificationService, NotificationChannel
 from src.search_service import SearchService
 from src.enums import ReportType
-from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
+from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult, TrendStatus, BuySignal
 from src.core.trading_calendar import (
     get_calendar_today_for_market,
     get_market_for_stock,
@@ -258,11 +259,79 @@ class StockAnalysisPipeline:
                     # Issue #234: Augment with realtime for intraday MA calculation
                     if self.config.enable_realtime_quote and realtime_quote:
                         df = self._augment_historical_with_realtime(df, realtime_quote, code)
-                    trend_result = self.trend_analyzer.analyze(df, code)
+                    # Get broad market environment for score adjustment
+                    market_env = self._get_market_environment()
+                    trend_result = self.trend_analyzer.analyze(df, code, market_environment=market_env)
                     logger.info(f"{stock_name}({code}) 趋势分析: {trend_result.trend_status.value}, "
-                              f"买入信号={trend_result.buy_signal.value}, 评分={trend_result.signal_score}")
+                              f"买入信号={trend_result.buy_signal.value}, 评分={trend_result.signal_score}"
+                              f", 大盘={trend_result.market_environment}")
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 趋势分析失败: {e}", exc_info=True)
+
+            # Step 3.5: Integrate capital flow score into trend analysis result
+            if trend_result:
+                try:
+                    token = self.config.tushare_token
+                    if token:
+                        try:
+                            import tushare as ts
+                            from data_provider.moneyflow_fetcher import MoneyflowFetcher
+
+                            if getattr(self, '_mf_fetcher', None) is None:
+                                pro = ts.pro_api(token)
+                                self._mf_fetcher = MoneyflowFetcher(pro)
+
+                            mf_fetcher = self._mf_fetcher
+                            # Convert code to ts_code format (e.g., "000001" -> "000001.SZ")
+                            ts_code = code
+                        except ImportError:
+                            logger.warning(f"{stock_name}({code}) Tushare package not installed, skipping capital flow analysis")
+                            mf_fetcher = None
+                            ts_code = None
+
+                        if mf_fetcher and ts_code:
+                            if len(code) == 6 and code.isdigit():
+                                if code.startswith(('6', '9')):
+                                    ts_code = f"{code}.SH"
+                                else:
+                                    ts_code = f"{code}.SZ"
+
+                            cap_result = mf_fetcher.analyze_capital_flow(ts_code, days=5)
+                            if cap_result and cap_result.get("total_capital_score", 0) > 0:
+                                trend_result.capital_flow_score = cap_result["total_capital_score"]
+                                trend_result.main_force_signal = cap_result["main_force_signal"]
+                                trend_result.north_signal = cap_result["north_signal"]
+                                # Update total signal_score (capital_flow_score was 0 when _generate_signal ran)
+                                trend_result.signal_score += trend_result.capital_flow_score
+                                trend_result.dim_capital_flow_score = trend_result.capital_flow_score
+                                # Append capital flow reasons/risks
+                                if trend_result.capital_flow_score >= 6:
+                                    trend_result.signal_reasons.append(
+                                        f"✅ {cap_result['main_force_signal']}"
+                                    )
+                                elif trend_result.capital_flow_score >= 2:
+                                    trend_result.signal_reasons.append(
+                                        f"⚡ {cap_result['main_force_signal']}"
+                                    )
+                                elif (cap_result["main_force_signal"]
+                                      and cap_result["main_force_signal"] != "资金流向数据暂不可用"):
+                                    trend_result.risk_factors.append(
+                                        f"⚠️ {cap_result['main_force_signal']}"
+                                    )
+                                if (cap_result["north_signal"]
+                                        and cap_result["north_signal"] != "北向资金数据暂不可用"):
+                                    trend_result.signal_reasons.append(cap_result["north_signal"])
+                                # Re-evaluate buy_signal with updated score
+                                self._reevaluate_buy_signal(trend_result)
+                                logger.info(
+                                    f"{stock_name}({code}) 资金面评分: "
+                                    f"{trend_result.capital_flow_score}/10, "
+                                    f"主力: {trend_result.main_force_signal}"
+                                )
+                except Exception as e:
+                    logger.warning(
+                        f"{stock_name}({code}) Capital flow analysis failed, score defaults to 0: {e}"
+                    )
 
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             news_context = None
@@ -444,6 +513,15 @@ class StockAnalysisPipeline:
                 'signal_score': trend_result.signal_score,
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
+                'market_environment': trend_result.market_environment,
+                # Per-dimension scores for backtesting effectiveness analysis
+                'dim_trend_score': trend_result.dim_trend_score,
+                'dim_bias_score': trend_result.dim_bias_score,
+                'dim_volume_score': trend_result.dim_volume_score,
+                'dim_support_score': trend_result.dim_support_score,
+                'dim_macd_score': trend_result.dim_macd_score,
+                'dim_rsi_score': trend_result.dim_rsi_score,
+                'dim_capital_flow_score': trend_result.dim_capital_flow_score,
             }
 
         # Issue #234: Override today with realtime OHLC + trend MA for intraday analysis
@@ -554,6 +632,33 @@ class StockAnalysisPipeline:
             result = self._agent_result_to_analysis_result(agent_result, code, stock_name, report_type, query_id)
             if result:
                 result.query_id = query_id
+
+            # Populate price data and market snapshot from realtime quote (Fixes #18)
+            if result and realtime_quote:
+                result.current_price = getattr(realtime_quote, 'price', None)
+                result.change_pct = getattr(realtime_quote, 'change_pct', None)
+                result.market_snapshot = {
+                    'price': getattr(realtime_quote, 'price', None),
+                    'open': getattr(realtime_quote, 'open_price', None),
+                    'high': getattr(realtime_quote, 'high', None),
+                    'low': getattr(realtime_quote, 'low', None),
+                    'volume': getattr(realtime_quote, 'volume', None),
+                    'amount': getattr(realtime_quote, 'amount', None),
+                    'change_pct': getattr(realtime_quote, 'change_pct', None),
+                    'turnover_rate': getattr(realtime_quote, 'turnover_rate', None),
+                    'volume_ratio': getattr(realtime_quote, 'volume_ratio', None),
+                }
+                # Remove None values to keep snapshot clean
+                result.market_snapshot = {k: v for k, v in result.market_snapshot.items() if v is not None}
+
+            # Determine if search was performed during agent execution
+            if result:
+                tool_log = getattr(agent_result, 'tool_calls_log', []) or []
+                result.search_performed = any(
+                    'search' in str(tc.get('tool', '')).lower() or 'news' in str(tc.get('tool', '')).lower()
+                    for tc in tool_log
+                )
+
             # Agent weak integrity: placeholder fill only, no LLM retry
             if result and getattr(self.config, "report_integrity_enabled", False):
                 from src.analyzer import check_content_integrity, apply_placeholder_fill
@@ -593,6 +698,43 @@ class StockAnalysisPipeline:
                         logger.info(f"[{code}] Agent 模式: 新闻情报已保存 {len(news_response.results)} 条")
                 except Exception as e:
                     logger.warning(f"[{code}] Agent 模式保存新闻情报失败: {e}")
+
+            # Ensure dimension scores are available for backtest evaluation
+            if result and "enhanced_context" not in initial_context:
+                try:
+                    end_date = date.today()
+                    start_date = end_date - timedelta(days=89)
+                    historical_bars = self.db.get_data_range(code, start_date, end_date)
+                    if historical_bars:
+                        df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
+                        if self.config.enable_realtime_quote and realtime_quote:
+                            df = self._augment_historical_with_realtime(df, realtime_quote, code)
+                        market_env = self._get_market_environment()
+                        trend_result = self.trend_analyzer.analyze(df, code, market_environment=market_env)
+                        if trend_result:
+                            initial_context["enhanced_context"] = {
+                                "trend_analysis": {
+                                    "dim_trend_score": trend_result.dim_trend_score,
+                                    "dim_bias_score": trend_result.dim_bias_score,
+                                    "dim_volume_score": trend_result.dim_volume_score,
+                                    "dim_support_score": trend_result.dim_support_score,
+                                    "dim_macd_score": trend_result.dim_macd_score,
+                                    "dim_rsi_score": trend_result.dim_rsi_score,
+                                    "dim_capital_flow_score": trend_result.dim_capital_flow_score,
+                                    "total_score": trend_result.signal_score,
+                                    "buy_signal": (
+                                        trend_result.buy_signal.value
+                                        if trend_result.buy_signal else None
+                                    ),
+                                    "market_environment": trend_result.market_environment,
+                                }
+                            }
+                            logger.info(
+                                f"[{code}] Agent mode: dimension scores computed "
+                                f"(total={trend_result.signal_score})"
+                            )
+                except Exception as e:
+                    logger.warning(f"[{code}] Failed to compute dimension scores for backtest: {e}")
 
             # 保存分析历史记录
             if result:
@@ -728,6 +870,113 @@ class StockAnalysisPipeline:
             return "短期走弱 🔽"
         else:
             return "震荡整理 ↔️"
+
+    @staticmethod
+    def _reevaluate_buy_signal(result: TrendAnalysisResult) -> None:
+        """Re-evaluate buy_signal after capital_flow_score injection updates signal_score."""
+        result.buy_signal = StockTrendAnalyzer.classify_buy_signal(result.signal_score, result.trend_status)
+
+    # --- Market environment cache (shared across concurrent analyze_stock calls) ---
+    _market_env_cache: Optional[Dict[str, Any]] = None
+    _market_env_cache_lock = Lock()
+    _MARKET_ENV_TTL_SECONDS: int = 900  # 15 minutes
+
+    def _get_market_environment(self) -> str:
+        """Get broad market environment based on SSE index MA20.
+
+        Returns one of: 'strong_bull', 'bull', 'neutral', 'bear', 'strong_bear'.
+        Uses a 15-min TTL cache to avoid redundant API calls.
+        Falls back to 'neutral' on any error (no impact on scoring).
+        """
+        now = time.time()
+
+        # Check cache (thread-safe)
+        with self._market_env_cache_lock:
+            if (self._market_env_cache is not None
+                    and now - self._market_env_cache.get('ts', 0) < self._MARKET_ENV_TTL_SECONDS):
+                return self._market_env_cache['regime']
+
+        # Fetch SSE composite index (000001.SH) daily data
+        try:
+            df, source = self.fetcher_manager.get_index_daily_data(
+                index_code="000001.SH", days=30
+            )
+            if df is None or df.empty or len(df) < 20:
+                logger.debug("[MarketEnv] SSE index data insufficient, defaulting to neutral")
+                regime = "neutral"
+                self._update_market_env_cache(regime, now)
+                return regime
+
+            # Find close column
+            close_col = None
+            for col in ('close', '收盘'):
+                if col in df.columns:
+                    close_col = col
+                    break
+            if close_col is None:
+                self._update_market_env_cache("neutral", now)
+                return "neutral"
+
+            close_series = pd.to_numeric(df[close_col], errors='coerce').dropna()
+            if len(close_series) < 20:
+                self._update_market_env_cache("neutral", now)
+                return "neutral"
+
+            # Use last 25 bars for MA20 + slope calculation
+            close_series = close_series.tail(25).reset_index(drop=True)
+            ma20_series = close_series.rolling(window=20).mean()
+
+            current_price = float(close_series.iloc[-1])
+            current_ma20 = float(ma20_series.iloc[-1])
+
+            if current_ma20 <= 0:
+                self._update_market_env_cache("neutral", now)
+                return "neutral"
+
+            diff_pct = (current_price - current_ma20) / current_ma20 * 100
+
+            # MA20 slope: compare current MA20 vs MA20 of 5 bars ago
+            ma20_slope_positive = False
+            ma20_slope_negative = False
+            if len(ma20_series.dropna()) >= 6:
+                ma20_5_ago = float(ma20_series.dropna().iloc[-6])
+                if ma20_5_ago > 0:
+                    ma20_slope_positive = current_ma20 > ma20_5_ago
+                    ma20_slope_negative = current_ma20 < ma20_5_ago
+
+            # Determine regime
+            if current_price > current_ma20 and ma20_slope_positive:
+                regime = "strong_bull"
+            elif current_price > current_ma20:
+                regime = "bull"
+            elif abs(diff_pct) <= 1.0:
+                regime = "neutral"
+            elif current_price < current_ma20 and ma20_slope_negative:
+                regime = "strong_bear"
+            else:
+                regime = "bear"
+
+            logger.info(
+                "[MarketEnv] SSE %.2f %s MA20 %.2f (diff %+.2f%%, slope %s) -> %s",
+                current_price,
+                ">" if current_price > current_ma20 else "<",
+                current_ma20,
+                diff_pct,
+                "up" if ma20_slope_positive else ("down" if ma20_slope_negative else "flat"),
+                regime.upper(),
+            )
+            self._update_market_env_cache(regime, now)
+            return regime
+
+        except Exception as e:
+            logger.warning("[MarketEnv] Failed to determine market environment: %s", e)
+            self._update_market_env_cache("neutral", now)
+            return "neutral"
+
+    def _update_market_env_cache(self, regime: str, ts: float) -> None:
+        """Update the market environment cache (thread-safe)."""
+        with self._market_env_cache_lock:
+            self._market_env_cache = {'regime': regime, 'ts': ts}
 
     def _augment_historical_with_realtime(
         self, df: pd.DataFrame, realtime_quote: Any, code: str

@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Seven-dimension scoring system (trend 30 + bias 15 + volume 18 + support 12 + MACD 10 + RSI 5 + capital flow 10 = 100)
+- Market environment correction factor based on SSE MA20 direction (strong_bear ×0.85, bear ×0.90, neutral/bull ×1.0, strong_bull ×1.05)
+- Phase-based bias threshold (startup 6%, main-rise 5%, acceleration 3.5%)
+- ATR(20) dynamic bias threshold adjustment with local fallback calculation
+- Capital flow scoring via Tushare moneyflow (main force + northbound, min 1M threshold)
+- Stop-loss/take-profit consistency constraints in LLM prompts
+- Dimension scores persistence for backtest evaluation in Agent mode
+- Unified buy signal classification via `StockTrendAnalyzer.classify_buy_signal()`
+
+### Fixed
+- Agent mode missing dimension scores causing all backtest results to show "negative"
+- DataFetcherManager thread-safety issue (double-checked locking in both __new__ and __init__)
+- ATR_20 dynamic threshold never effective in production (DB didn't store the column)
+- Prompt principle #7 contradicting code logic (updated to phase-based rule)
+- Volume shrinkage scoring now market-condition-aware (bull 18 / sideways 10 / bear 0)
+
+### Changed
+- Bias threshold from fixed 4.5% to phase-based (3.5% / 5.0% / 6.0%)
+- Strong bear market coefficient from 0.75 to 0.85
+- Bear market coefficient from 0.85 to 0.90
+- Volume exhaustion penalty: -5 points; extreme volume warning: -15 points
+- Capital flow scoring tightened (6/3/1/0 for main force, 4/2/1/0 for northbound)
+
+### Removed
+- 17 deprecated Optional fields from AnalysisReportSchema (old format)
+- `sector_relative_strength` unused field from TrendAnalysisResult
+- All legacy analysis history data (database cleanup)
+
+### Enhanced
+- **个股分析评分体系重构** — 新增资金面维度(10分)，调整权重配比（降低MACD/RSI滞后指标权重，提升量能/支撑位权重）
+- **动态乖离率阈值** — 基于20日ATR波动率自适应调整（高波动股放宽、低波动股收紧）
+- **RSI超卖企稳条件** — RSI<30需连续2日回升确认企稳才给满分，避免下跌趋势误判
+- **乖离率MA20方向区分** — 负乖离率时区分MA20上行(超跌反弹)与MA20下行(趋势破坏)
+- **多日量能趋势分析** — 新增3/10/20日均量对比、天量预警(>5倍)、量能衰竭检测
+- **资金面数据接入** — 接入Tushare北向资金(moneyflow_hsgt)和个股主力资金(moneyflow)，纳入评分体系
+- **LLM Prompt增强** — 新增止盈止损规则、量能深度解读指令、资金面三角验证逻辑
+
+### Added
+- `data_provider/moneyflow_fetcher.py` — 资金流向数据获取模块(MoneyflowFetcher)
+- Agent工具 `get_capital_flow` — 个股资金面分析工具
+
 ### Performance
 - **perf(sector)**: Background preload of sector ranking & member data at startup via FastAPI lifespan
 - **perf(sector)**: Periodic background refresh every 50 minutes (before 1-hour cache TTL)
