@@ -167,6 +167,9 @@ BOTTOM_REVERSAL_PARAMS = StrategyParams(
     change_60d_max=-8.0,  # Tightened -5→-8: shallow -5% drops are usually pullbacks,
                           # not reversals; need real decline before "reversal" applies.
     volume_ratio_min=0.7,  # Allow low volume ratio (stabilisation = shrinking volume)
+    # Cap market cap: oversold reversal works best on small/mid caps;
+    # large caps (>300亿) rebound slower and dilute the bet.
+    market_cap_max=300.0,
 )
 
 # EOD buyback (尾盘买入法): 七条铁律
@@ -252,6 +255,12 @@ def filter_momentum(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame:
     so strategies like eod_buyback can delegate dynamic checks to the
     realtime phase.
     """
+    # Per-strategy PE ceiling (shared basic filter only enforces pe<100;
+    # tighter strategies like bottom_reversal need their own pe_max applied).
+    if "市盈率-动态" in df.columns and params.pe_max is not None:
+        pe = pd.to_numeric(df["市盈率-动态"], errors="coerce")
+        df = df[(pe > 0) & (pe < params.pe_max)]
+
     if "涨跌幅" in df.columns:
         pct = pd.to_numeric(df["涨跌幅"], errors="coerce")
         if params.daily_change_min is not None:
