@@ -106,8 +106,10 @@ class SectorStrengthService:
         failed = 0
 
         def _fetch_members(sector: Dict) -> Tuple[str, Set[str]]:
-            """Fetch member codes for a single sector."""
-            return sector["name"], self._get_sector_members(sector["name"])
+            """Fetch member codes for a single sector (Tushare-first if ts_code present)."""
+            return sector["name"], self._get_sector_members(
+                sector["name"], ts_code=sector.get("ts_code") or None,
+            )
 
         with ThreadPoolExecutor(max_workers=25) as executor:
             futures = {executor.submit(_fetch_members, s): s for s in strong_sectors}
@@ -224,6 +226,7 @@ class SectorStrengthService:
             for _, row in top_sectors.iterrows():
                 result.append({
                     "name": str(row["name"]),
+                    "ts_code": str(row["ts_code"]),
                     "change_pct": float(row["pct_change"]),
                 })
 
@@ -295,7 +298,11 @@ class SectorStrengthService:
             top_df = df_sw.head(n_top)
 
             result = [
-                {"name": str(row[name_col]), "change_pct": float(row["pct_change"])}
+                {
+                    "name": str(row[name_col]),
+                    "ts_code": str(row["ts_code"]) if "ts_code" in df_sw.columns else "",
+                    "change_pct": float(row["pct_change"]),
+                }
                 for _, row in top_df.iterrows()
             ]
             logger.info(
@@ -540,34 +547,94 @@ class SectorStrengthService:
 
     # ------------------------------------------------------------------ sector members
 
-    def _get_sector_members(self, sector_name: str) -> Set[str]:
+    def _get_sector_members(self, sector_name: str, ts_code: Optional[str] = None) -> Set[str]:
         """Get member stock codes for a sector, with persistent cache.
 
-        Cache key does NOT include trade_date because sector composition
-        changes only on a quarterly basis at most.
+        Lookup strategy:
+        1. Tushare `index_member_all(l1_code=...)` when ts_code provided —
+           native SW naming, same source as rt_sw_k (no name mismatch).
+        2. AkShare `stock_board_industry_cons_em(symbol=name)` fallback —
+           uses EastMoney naming (may not resolve SW names).
+
+        Cache key does NOT include trade_date — sector composition changes
+        quarterly at most. Empty results are also cached (negative cache) to
+        avoid hammering data sources when both lookups fail.
         """
-        cache_key = f"members_{sector_name}"
+        cache_key = f"members_{ts_code or sector_name}"
         cached = self._get_cached(cache_key, ttl=self._MEMBERS_TTL)
         if cached is not None:
             return cached
 
-        import akshare as ak
+        codes: Set[str] = set()
 
-        for attempt in range(2):
+        # 1. Tushare path (preferred when ts_code available)
+        if ts_code:
+            codes = self._fetch_members_tushare(ts_code)
+
+        # 2. AkShare fallback when Tushare path missing or empty
+        if not codes:
+            codes = self._fetch_members_akshare(sector_name)
+
+        # Cache result (including empty set) to avoid repeated lookups.
+        self._set_cached(cache_key, codes)
+        return codes
+
+    def _fetch_members_tushare(self, ts_code: str) -> Set[str]:
+        """Fetch SW industry constituents via Tushare.
+
+        Tries `index_member_all(l1_code=...)` first (newer API; constituent
+        codes are in the `ts_code` column). Falls back to legacy
+        `index_member(index_code=...)` (constituent codes in `con_code`).
+        """
+        from src.config import get_config
+
+        config = get_config()
+        if not config.tushare_token:
+            return set()
+
+        try:
+            import tushare as ts
+            api = ts.pro_api(token=config.tushare_token)
+        except Exception as e:
+            logger.debug("[SectorStrength] Tushare client init failed: %s", e)
+            return set()
+
+        # Try index_member_all (newer SW2021 API); constituent code column = ts_code
+        for call in (
+            lambda: api.index_member_all(l1_code=ts_code, is_new="Y"),
+            lambda: api.index_member(index_code=ts_code),
+        ):
             try:
-                df = ak.stock_board_industry_cons_em(symbol=sector_name)
-                if df is not None and not df.empty:
-                    code_col = '代码' if '代码' in df.columns else 'code'
-                    if code_col in df.columns:
-                        codes = set(df[code_col].astype(str).str.zfill(6).tolist())
-                        self._set_cached(cache_key, codes)
-                        return codes
-                    break
-                time.sleep(0.02)  # Rate limiting
+                df = call()
             except Exception as e:
-                if attempt < 1:
-                    logger.debug("[SectorStrength] Sector members fetch attempt %d/2 failed: %s, retrying", attempt + 1, e)
-                    time.sleep(3)
-                    continue
-                pass
+                logger.debug("[SectorStrength] Tushare member fetch attempt failed for %s: %s", ts_code, e)
+                continue
+            if df is None or df.empty:
+                continue
+            # Defensive: pick whichever code column exists in the response
+            code_col = "con_code" if "con_code" in df.columns else (
+                "ts_code" if "ts_code" in df.columns else None
+            )
+            if not code_col:
+                continue
+            codes = (
+                df[code_col].astype(str).str.split(".").str[0].str.zfill(6)
+            )
+            # Filter to 6-digit numeric codes only (defensive)
+            return set(c for c in codes.tolist() if c.isdigit() and len(c) == 6)
         return set()
+
+    def _fetch_members_akshare(self, sector_name: str) -> Set[str]:
+        """Fetch sector constituents via AkShare EastMoney (fallback)."""
+        try:
+            import akshare as ak
+            df = ak.stock_board_industry_cons_em(symbol=sector_name)
+            if df is None or df.empty:
+                return set()
+            code_col = '代码' if '代码' in df.columns else 'code'
+            if code_col not in df.columns:
+                return set()
+            return set(df[code_col].astype(str).str.zfill(6).tolist())
+        except Exception as e:
+            logger.debug("[SectorStrength] AkShare cons_em(%s) failed: %s", sector_name, e)
+            return set()
