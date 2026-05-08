@@ -164,8 +164,9 @@ BOTTOM_REVERSAL_PARAMS = StrategyParams(
     require_ma_bullish=False,  # Bottom stocks often not MA bullish
     max_retracement_pct=0.618,  # Fibonacci 61.8% B-wave rebound filter
     change_60d_min=-25.0,
-    change_60d_max=-8.0,  # Tightened -5→-8: shallow -5% drops are usually pullbacks,
-                          # not reversals; need real decline before "reversal" applies.
+    change_60d_max=-10.0,  # Tightened -8→-10: drops shallower than -10% are usually
+                           # noise/pullbacks rather than true reversals — filter them out
+                           # to avoid pseudo-reversal candidates.
     volume_ratio_min=0.7,  # Allow low volume ratio (stabilisation = shrinking volume)
     # Cap market cap: oversold reversal works best on small/mid caps;
     # large caps (>300亿) rebound slower and dilute the bet.
