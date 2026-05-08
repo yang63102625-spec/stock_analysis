@@ -22,6 +22,14 @@ export interface ScreenedStock {
   change_pct_60d: number;
   score: number;
   strategies?: string[];
+  industry?: string;
+  ideal_buy?: number;
+  stop_loss?: number;
+  take_profit_1?: number;
+  take_profit_2_rule?: string;
+  position_pct?: number;
+  risk_reward?: number;
+  resonance?: 'double' | 'triple';
 }
 
 export interface StockPick {
@@ -32,6 +40,15 @@ export interface StockPick {
   catalyst: string;
   attention: 'high' | 'medium' | 'low';
   risk_note: string;
+  // Trade levels (computed by trade_levels.py; absent when MA data unavailable)
+  ideal_buy?: number;
+  stop_loss?: number;
+  take_profit_1?: number;
+  take_profit_2_rule?: string;
+  position_pct?: number;
+  risk_reward?: number;
+  strategies?: string[];
+  resonance?: 'double' | 'triple';
 }
 
 export interface PickerResponse {

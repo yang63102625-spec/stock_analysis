@@ -255,7 +255,56 @@ const PickCard: React.FC<{ pick: StockPick; index: number }> = ({ pick, index })
 
       <p className="text-sm text-secondary pl-4 mb-4 leading-relaxed">{pick.reason}</p>
 
+      {/* Trade action panel (shown when system computed trade levels) */}
+      {pick.ideal_buy !== undefined && pick.ideal_buy > 0 && (
+        <div className="ml-4 mb-4 grid grid-cols-2 md:grid-cols-5 gap-2 p-3
+                        bg-slate-50 border border-slate-200 rounded-lg text-sm">
+          <div>
+            <div className="text-xs text-muted">理想买入</div>
+            <div className="font-semibold text-primary tabular-nums">{pick.ideal_buy.toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted">止损</div>
+            <div className="font-semibold text-red-600 tabular-nums">
+              {pick.stop_loss?.toFixed(2)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted">首止盈</div>
+            <div className="font-semibold text-emerald-600 tabular-nums">
+              {pick.take_profit_1?.toFixed(2)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted">盈亏比</div>
+            <div className="font-semibold text-cyan tabular-nums">
+              {pick.risk_reward?.toFixed(2)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted">建议仓位</div>
+            <div className="font-semibold text-amber-600 tabular-nums">
+              {pick.position_pct ? `${(pick.position_pct * 100).toFixed(1)}%` : '—'}
+            </div>
+          </div>
+          {pick.take_profit_2_rule && (
+            <div className="col-span-2 md:col-span-5 text-xs text-secondary mt-1
+                            border-t border-slate-200 pt-2">
+              <span className="text-muted">后续止盈：</span>{pick.take_profit_2_rule}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-4 pl-4">
+        {pick.resonance && (
+          <div className="flex items-center gap-2 text-sm bg-purple-50 rounded-lg px-3 py-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+            <span className="text-purple-700 font-medium">
+              {pick.resonance === 'triple' ? '三策略共振 ⭐⭐⭐' : '双策略共振 ⭐⭐'}
+            </span>
+          </div>
+        )}
         {pick.catalyst && (
           <div className="flex items-center gap-2 text-sm bg-emerald-50 rounded-lg px-3 py-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />

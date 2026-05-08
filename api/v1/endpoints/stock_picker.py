@@ -47,6 +47,15 @@ class ScreenedStockResponse(BaseModel):
     change_pct_60d: float = 0
     score: float = 0
     strategies: List[str] = Field(default_factory=list)
+    industry: Optional[str] = None
+    # Trade levels (filled by trade_levels engine; absent when MA data missing)
+    ideal_buy: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit_1: Optional[float] = None
+    take_profit_2_rule: Optional[str] = None
+    position_pct: Optional[float] = None
+    risk_reward: Optional[float] = None
+    resonance: Optional[str] = None
 
 
 class PickRecommendation(BaseModel):
@@ -57,6 +66,15 @@ class PickRecommendation(BaseModel):
     catalyst: str = ""
     attention: str = "medium"
     risk_note: str = ""
+    # Trade levels (filled by trade_levels engine; absent when MA data missing)
+    ideal_buy: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit_1: Optional[float] = None
+    take_profit_2_rule: Optional[str] = None
+    position_pct: Optional[float] = None
+    risk_reward: Optional[float] = None
+    strategies: Optional[List[str]] = None
+    resonance: Optional[str] = None   # "" / "double" / "triple"
 
 
 class PickerRecommendRequest(BaseModel):
