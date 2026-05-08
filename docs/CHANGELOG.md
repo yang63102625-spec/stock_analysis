@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Veto thresholds tightened**: pledge ratio 60% → 50% (most A-share pledge blow-ups occur >50%), reduction window 5d/2% → 10d/1% (insider-selling impact persists 2-3 weeks).
 - **Regime-aware position scaling (E1)**: weak market ×0.6, neutral ×0.85, strong ×1.0 applied post-merge in `stock_picker_service.screen()` — complements existing market_guard which only restricts strategies.
 
+### Changed (Picker Quality Tightening — Post-run Review)
+- **`BOTTOM_REVERSAL.pe_max` 100 → 60**: reversal strategy is mean-reversion bet on oversold names; PE>60 with -15-20% drawdown rarely qualifies as a true "low base" — historical win rate <30% in this band. Tightening filters out high-PE "fake reversals" (e.g. mid-cap "白马" rebounds).
+- **Industry concentration cap (E2)**: post-merge filter keeping at most N (default 2, env `PICKER_INDUSTRY_TOP_N`) highest-scoring candidates per SW L1 industry. Prevents sector-beta blow-ups where one industry can dominate the picker pool. New `ScreenedStock.industry` field (best-effort from Tushare `stock_basic`); cap silently skipped when industry data unavailable.
+
 ### Refactored
 - `trade_levels.py`: collapsed 4 strategy-specific level-builder functions into a single config-table-driven implementation (`_StrategyConfig` + `_resolve_entry_anchor`). Removes ~120 lines of duplicate code; new strategies / parameter tuning now require config-only changes.
 

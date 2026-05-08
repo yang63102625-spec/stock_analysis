@@ -275,6 +275,8 @@ class ScreenedStock:
     risk_reward: float = 0.0
     # Multi-strategy resonance flag: "" / "double" / "triple"
     resonance: str = ""
+    # SW L1 industry name (best-effort; empty when data source missing it).
+    industry: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -288,6 +290,8 @@ class ScreenedStock:
             "change_pct_60d": round(self.change_pct_60d, 2),
             "score": round(self.score, 1),
         }
+        if self.industry:
+            d["industry"] = self.industry
         if self.strategies:
             d["strategies"] = self.strategies
         if self.ideal_buy > 0:
@@ -775,6 +779,36 @@ class StockScreener:
                             )
                 except Exception as exc:
                     logger.warning("[Screener] Auto-reweight failed (skipped): %s", exc)
+
+            # -- Industry concentration cap (E2) --
+            # Keep at most N highest-scoring candidates per SW L1 industry to
+            # prevent sector-beta blow-ups (e.g. picker pool 50% electric utilities).
+            # Skipped silently when industry data unavailable from data source.
+            INDUSTRY_TOP_N = int(getattr(cfg, "picker_industry_top_n", 2) or 2)
+            if candidates and INDUSTRY_TOP_N > 0:
+                tagged = [s for s in candidates if getattr(s, "industry", "")]
+                if tagged:
+                    candidates.sort(key=lambda s: s.score, reverse=True)
+                    seen: Dict[str, int] = {}
+                    kept: List[ScreenedStock] = []
+                    dropped = 0
+                    for s in candidates:
+                        ind = getattr(s, "industry", "") or ""
+                        if not ind:
+                            kept.append(s)
+                            continue
+                        if seen.get(ind, 0) >= INDUSTRY_TOP_N:
+                            dropped += 1
+                            continue
+                        seen[ind] = seen.get(ind, 0) + 1
+                        kept.append(s)
+                    if dropped > 0:
+                        logger.info(
+                            "[Screener] Industry concentration cap (top %d/industry): "
+                            "dropped %d, kept %d",
+                            INDUSTRY_TOP_N, dropped, len(kept),
+                        )
+                    candidates = kept
 
             # -- Regime-aware position scaling (E1) --
             # Down-scale all candidate positions in weak/neutral markets; in strong
@@ -1945,7 +1979,7 @@ class StockScreener:
             if self._stock_basic_cache is not None:
                 df_names = self._stock_basic_cache
             else:
-                df_names = tushare_api.stock_basic(fields="ts_code,symbol,name")
+                df_names = tushare_api.stock_basic(fields="ts_code,symbol,name,industry")
                 if df_names is not None and not df_names.empty:
                     df_names.columns = [c.lower() for c in df_names.columns]
                     self._stock_basic_cache = df_names

@@ -288,6 +288,9 @@ class Config:
     picker_weak_market_action: str = "limit"  # skip=no picking, limit=only allowed strategies
     picker_weak_market_strategies: str = "bottom_reversal"  # Comma-separated strategies allowed in weak market
 
+    # Industry concentration cap: max candidates per SW L1 industry (0 = disabled)
+    picker_industry_top_n: int = 2
+
     # Sector strength filter: only pick stocks from strong sectors
     picker_sector_filter: bool = True           # Enable/disable sector strength filter
     picker_sector_top_pct: int = 15             # Top N% sectors considered "strong" (default: 15%)
@@ -764,6 +767,7 @@ class Config:
             picker_realtime_daily_chg_max=float(os.getenv('PICKER_REALTIME_DAILY_CHG_MAX', '')) if os.getenv('PICKER_REALTIME_DAILY_CHG_MAX') else None,
             picker_realtime_max_volume_ratio=float(os.getenv('PICKER_REALTIME_MAX_VOLUME_RATIO', '0.0')),
             picker_market_guard=os.getenv('PICKER_MARKET_GUARD', 'true').lower() == 'true',
+            picker_industry_top_n=int(os.getenv('PICKER_INDUSTRY_TOP_N', '2')),
             picker_weak_market_action=os.getenv('PICKER_WEAK_MARKET_ACTION', 'limit').strip().lower(),
             picker_weak_market_strategies=os.getenv('PICKER_WEAK_MARKET_STRATEGIES', 'bottom_reversal').strip(),
             picker_sector_filter=os.getenv('PICKER_SECTOR_FILTER', 'true').lower() == 'true',

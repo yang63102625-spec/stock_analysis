@@ -152,7 +152,9 @@ BREAKOUT_PARAMS = StrategyParams(
 BOTTOM_REVERSAL_PARAMS = StrategyParams(
     max_bias_pct=6.0,  # Stricter (near support)
     leader_bias_exempt_pct=0.0,  # No exemption: bottom stocks are not leaders
-    pe_max=100,
+    pe_max=60,   # Tightened 100→60: reversal strategy is mean-reversion bet on
+                 # oversold names; PE>60 with 15-20% drawdown is rarely a true
+                 # "low base" — historical win rate <30% in this band.
     pe_ideal_low=8,
     pe_ideal_high=35,
     daily_change_min=1.0,  # Must be rising today — confirms reversal signal
@@ -600,6 +602,7 @@ def score_and_rank(
             if tl.ideal_buy > 0 and tl.risk_reward > 0 and tl.risk_reward < RR_MIN:
                 continue
 
+            industry = str(row.get("industry") or row.get("行业") or "").strip()
             records.append(
                 ScreenedStock(
                     code=code,
@@ -615,6 +618,7 @@ def score_and_rank(
                     change_pct_60d=pct_60d,
                     score=score,
                     strategies=[strategy_id],
+                    industry=industry,
                     ideal_buy=tl.ideal_buy,
                     stop_loss=tl.stop_loss,
                     take_profit_1=tl.take_profit_1,
@@ -660,6 +664,7 @@ def merge_candidates_by_code(candidates_per_strategy: Dict[str, List[ScreenedSto
                     change_pct_60d=s.change_pct_60d,
                     score=max(s.score, 0),
                     strategies=[strategy_id],
+                    industry=s.industry,
                     ideal_buy=s.ideal_buy,
                     stop_loss=s.stop_loss,
                     take_profit_1=s.take_profit_1,
