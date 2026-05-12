@@ -48,7 +48,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         service._providers[0].search = mock_search
         return service, mock_search
 
-    @patch("src.search_service.datetime")
+    @patch("src.search_service.service.datetime")
     def test_search_stock_news_days_monday_limit_by_news_max_age(
         self, mock_dt: MagicMock
     ) -> None:
@@ -62,7 +62,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         call_kwargs = mock_search.call_args[1]
         self.assertEqual(call_kwargs["days"], 1)
 
-    @patch("src.search_service.datetime")
+    @patch("src.search_service.service.datetime")
     def test_search_stock_news_days_tuesday_weekday_dominates(
         self, mock_dt: MagicMock
     ) -> None:
@@ -76,7 +76,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         call_kwargs = mock_search.call_args[1]
         self.assertEqual(call_kwargs["days"], 1)
 
-    @patch("src.search_service.datetime")
+    @patch("src.search_service.service.datetime")
     def test_search_stock_news_days_monday_news_max_age_dominates(
         self, mock_dt: MagicMock
     ) -> None:
@@ -90,7 +90,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         call_kwargs = mock_search.call_args[1]
         self.assertEqual(call_kwargs["days"], 3)
 
-    @patch("src.search_service.datetime")
+    @patch("src.search_service.service.datetime")
     def test_search_stock_news_days_weekend(self, mock_dt: MagicMock) -> None:
         """Saturday + news_max_age_days=5 -> search_days=2 (min(2,5)=2)."""
         mock_dt.now.return_value.weekday.return_value = 5  # Saturday -> weekday_days=2
@@ -107,7 +107,7 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         service, mock_search = self._create_service_with_mock_provider(
             news_max_age_days=2
         )
-        with patch("src.search_service.time.sleep"):  # avoid delay in tests
+        with patch("src.search_service.service.time.sleep"):  # avoid delay in tests
             service.search_comprehensive_intel(
                 stock_code="600519",
                 stock_name="贵州茅台",

@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: code quality phase 2.4 (split search service)
+
+- ``src/search_service.py`` (2019 lines) replaced by the
+  ``src.search_service`` sub-package. Each search provider gets its own file
+  (``tavily.py`` / ``serpapi.py`` / ``bocha.py`` / ``minimax.py`` /
+  ``brave.py`` / ``searxng.py``) plus shared modules:
+  ``http_utils.py`` (``_post_with_retry`` / ``_get_with_retry`` /
+  ``fetch_url_content``), ``models.py`` (``SearchResult`` / ``SearchResponse``
+  dataclasses), ``base_provider.py`` (``BaseSearchProvider`` ABC),
+  ``service.py`` (``SearchService`` orchestrator + ``get_search_service`` /
+  ``reset_search_service`` singleton helpers).
+- Largest split file is ``service.py`` at 732 lines; every provider stays
+  well under the 800-line ceiling.
+- Package ``__init__.py`` re-exports every public symbol so existing
+  imports (``from src.search_service import SearchService`` / provider
+  classes / dataclasses / module-level helpers) keep working.
+- Tests that mocked ``src.search_service.requests.get`` /
+  ``src.search_service.datetime`` were updated to point at the canonical
+  module locations (``http_utils.requests`` / ``service.datetime``).
+
 ### Refactor: code quality phase 2.3 (split storage layer)
 
 - ``src/storage.py`` (2175 lines) replaced by the ``src.storage`` sub-package:
