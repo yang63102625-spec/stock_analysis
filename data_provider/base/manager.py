@@ -108,7 +108,7 @@ class DataFetcherManager(_RealtimeMixin, _NamesMixin, _MarketMixin):
         efinance = EfinanceFetcher()
         akshare = AkshareFetcher()
         tushare = TushareFetcher(rate_limit_per_minute=config.tushare_rate_limit_per_minute)
-        pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_HOST/PYTDX_PORT）
+        pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_SERVERS）
         baostock = BaostockFetcher()
         yfinance = YfinanceFetcher()
 

@@ -49,7 +49,7 @@ class ReportAggregatorMixin(_DashboardMixin):
     def _get_history_compare_context(self, results: List[AnalysisResult]) -> Dict[str, Any]:
         """Fetch and cache history comparison data for markdown rendering."""
         config = get_config()
-        history_compare_n = getattr(config, 'report_history_compare_n', 0)
+        history_compare_n = 0
         if history_compare_n <= 0 or not results:
             return {"history_by_code": {}}
 
@@ -376,7 +376,7 @@ class ReportAggregatorMixin(_DashboardMixin):
         if report_date is None:
             report_date = datetime.now().strftime('%Y-%m-%d')
         config = get_config()
-        if getattr(config, 'report_renderer_enabled', False) and results:
+        if results:
             from src.services.report_renderer import render
             out = render(
                 platform='brief',

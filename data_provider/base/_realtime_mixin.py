@@ -49,11 +49,6 @@ class _RealtimeMixin:
             logger.debug("[预取] PREFETCH_REALTIME_QUOTES=false，跳过批量预取")
             return 0
 
-        # 如果实时行情被禁用，跳过预取
-        if not config.enable_realtime_quote:
-            logger.debug("[预取] 实时行情功能已禁用，跳过预取")
-            return 0
-        
         # 检查优先级中是否包含全量拉取数据源
         # 注意：新增全量接口（如 tushare_realtime）时需同步更新此列表
         # 全量接口特征：一次 API 调用拉取全市场 5000+ 股票数据
@@ -127,11 +122,6 @@ class _RealtimeMixin:
         from src.config import get_config
 
         config = get_config()
-
-        # 如果实时行情功能被禁用，直接返回 None
-        if not config.enable_realtime_quote:
-            logger.debug(f"[实时行情] 功能已禁用，跳过 {stock_code}")
-            return None
 
         # 美股指数由 YfinanceFetcher 处理（在美股股票检查之前）
         if is_us_index_code(stock_code):

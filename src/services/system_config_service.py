@@ -50,7 +50,8 @@ class SystemConfigService:
         """Return current config values without server-side secret masking."""
         config_map = self._manager.read_config_map()
         registered_keys = set(get_registered_field_keys())
-        all_keys = set(config_map.keys()) | registered_keys
+        # Only expose keys defined in the schema; stale .env rows are ignored.
+        all_keys = registered_keys
 
         category_orders = {
             item["category"]: item["display_order"]

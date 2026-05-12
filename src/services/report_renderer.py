@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.analyzer import AnalysisResult
-from src.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +77,8 @@ def _clean_sniper_value(val: Any) -> str:
 
 def _resolve_templates_dir() -> Path:
     """Resolve template directory relative to project root."""
-    config = get_config()
     base = Path(__file__).resolve().parent.parent.parent
-    templates_dir = Path(config.report_templates_dir)
+    templates_dir = Path("templates")
     if not templates_dir.is_absolute():
         return base / templates_dir
     return templates_dir

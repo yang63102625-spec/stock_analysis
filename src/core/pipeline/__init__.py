@@ -107,10 +107,7 @@ class StockAnalysisPipeline(_AnalysisMixin, _MarketEnvMixin, _RunMixin, _NotifyM
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
         logger.info("已启用趋势分析器 (MA5>MA10>MA20 多头判断)")
         # 打印实时行情/筹码配置状态
-        if self.config.enable_realtime_quote:
-            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
-        else:
-            logger.info("实时行情已禁用，将使用历史收盘价")
+        logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
         if self.config.enable_chip_distribution:
             logger.info("筹码分布分析已启用")
         else:

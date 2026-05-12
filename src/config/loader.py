@@ -25,6 +25,19 @@ from .llm_config import (
 _logger = logging.getLogger(__name__)
 
 
+def _merge_csv_env_keys(single_var: str, plural_var: str) -> List[str]:
+    """Parse comma-separated API keys from singular env var and legacy plural alias."""
+    merged: List[str] = []
+    seen: set[str] = set()
+    for chunk in (os.getenv(single_var, ""), os.getenv(plural_var, "")):
+        for k in chunk.split(","):
+            k = k.strip()
+            if k and k not in seen:
+                seen.add(k)
+                merged.append(k)
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Convenience singleton accessor
 # ---------------------------------------------------------------------------
@@ -35,10 +48,10 @@ def get_config() -> Config:
 
 
 def get_effective_push_report_type(cfg: Optional[Config] = None) -> str:
-    """Return report type for push: PUSH_REPORT_TYPE or REPORT_TYPE."""
+    """Return report type for push (same as REPORT_TYPE; dashboard and push unified)."""
     if cfg is None:
         cfg = get_config()
-    return cfg.push_report_type or cfg.report_type
+    return cfg.report_type
 
 
 # ---------------------------------------------------------------------------
@@ -54,19 +67,6 @@ def _parse_report_type(value: str) -> str:
         f"REPORT_TYPE '{value}' invalid, fallback to 'simple' (valid: simple/full/brief)"
     )
     return 'simple'
-
-
-def _parse_push_report_type(value: Optional[str]) -> Optional[str]:
-    """Parse PUSH_REPORT_TYPE; None means use report_type."""
-    if not value or not value.strip():
-        return None
-    v = value.strip().lower()
-    if v in ('simple', 'full', 'brief'):
-        return v
-    _logger.warning(
-        f"PUSH_REPORT_TYPE '{value}' invalid, fallback to None (valid: simple/full/brief)"
-    )
-    return None
 
 
 def _parse_market_review_region(value: str) -> str:
@@ -222,34 +222,18 @@ def load_config_from_env() -> Config:
     if not stock_list:
         stock_list = ['600519', '000001', '300750']
 
-    # === LiteLLM multi-key parsing ===
-    _gemini_keys_raw = os.getenv('GEMINI_API_KEYS', '')
-    gemini_api_keys = [k.strip() for k in _gemini_keys_raw.split(',') if k.strip()]
-    _single_gemini = os.getenv('GEMINI_API_KEY', '').strip()
-    if not gemini_api_keys and _single_gemini:
-        gemini_api_keys = [_single_gemini]
+    # === LiteLLM multi-key parsing (comma-separated in *_API_KEY; legacy *_API_KEYS merged) ===
+    gemini_api_keys = _merge_csv_env_keys("GEMINI_API_KEY", "GEMINI_API_KEYS")
 
-    _anthropic_keys_raw = os.getenv('ANTHROPIC_API_KEYS', '')
-    anthropic_api_keys = [k.strip() for k in _anthropic_keys_raw.split(',') if k.strip()]
-    _single_anthropic = os.getenv('ANTHROPIC_API_KEY', '').strip()
-    if not anthropic_api_keys and _single_anthropic:
-        anthropic_api_keys = [_single_anthropic]
+    anthropic_api_keys = _merge_csv_env_keys("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEYS")
 
-    _openai_keys_raw = os.getenv('OPENAI_API_KEYS', '')
-    openai_api_keys = [k.strip() for k in _openai_keys_raw.split(',') if k.strip()]
+    openai_api_keys = _merge_csv_env_keys("OPENAI_API_KEY", "OPENAI_API_KEYS")
     if not openai_api_keys:
         _aihubmix = os.getenv('AIHUBMIX_KEY', '').strip()
-        _single_openai = os.getenv('OPENAI_API_KEY', '').strip()
-        _fallback_key = _aihubmix or _single_openai
-        if _fallback_key:
-            openai_api_keys = [_fallback_key]
+        if _aihubmix:
+            openai_api_keys = [_aihubmix]
 
-    _deepseek_keys_raw = os.getenv('DEEPSEEK_API_KEYS', '')
-    deepseek_api_keys = [k.strip() for k in _deepseek_keys_raw.split(',') if k.strip()]
-    if not deepseek_api_keys:
-        _single_deepseek = os.getenv('DEEPSEEK_API_KEY', '').strip()
-        if _single_deepseek:
-            deepseek_api_keys = [_single_deepseek]
+    deepseek_api_keys = _merge_csv_env_keys("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS")
 
     # LITELLM_MODEL: explicit config takes precedence; else infer from available keys
     litellm_model = os.getenv('LITELLM_MODEL', '').strip()
@@ -274,12 +258,7 @@ def load_config_from_env() -> Config:
     if _fallback_str.strip():
         litellm_fallback_models = [m.strip() for m in _fallback_str.split(',') if m.strip()]
     else:
-        _gemini_fallback = os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-2.5-flash').strip()
-        if litellm_model.startswith('gemini/') and _gemini_fallback:
-            _fb = f'gemini/{_gemini_fallback}' if '/' not in _gemini_fallback else _gemini_fallback
-            litellm_fallback_models = [_fb]
-        else:
-            litellm_fallback_models: List[str] = []
+        litellm_fallback_models = []
 
     # === LLM Channels + YAML config ===
     litellm_config_path = os.getenv('LITELLM_CONFIG', '').strip() or None
@@ -380,29 +359,22 @@ def load_config_from_env() -> Config:
         anthropic_api_keys=anthropic_api_keys,
         openai_api_keys=openai_api_keys,
         deepseek_api_keys=deepseek_api_keys,
-        gemini_api_key=os.getenv('GEMINI_API_KEY'),
         gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
-        gemini_model_fallback=os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-2.5-flash'),
         gemini_temperature=float(os.getenv('GEMINI_TEMPERATURE', '0.7')),
         gemini_request_delay=float(os.getenv('GEMINI_REQUEST_DELAY', '2.0')),
         gemini_max_retries=int(os.getenv('GEMINI_MAX_RETRIES', '5')),
         gemini_retry_delay=float(os.getenv('GEMINI_RETRY_DELAY', '5.0')),
-        anthropic_api_key=os.getenv('ANTHROPIC_API_KEY'),
+        anthropic_api_key=anthropic_api_keys[0] if anthropic_api_keys else None,
         anthropic_model=os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
         anthropic_temperature=float(os.getenv('ANTHROPIC_TEMPERATURE', '0.7')),
         anthropic_max_tokens=int(os.getenv('ANTHROPIC_MAX_TOKENS', '8192')),
-        openai_api_key=os.getenv('AIHUBMIX_KEY') or os.getenv('OPENAI_API_KEY') or None,
+        openai_api_key=openai_api_keys[0] if openai_api_keys else None,
         openai_base_url=os.getenv('OPENAI_BASE_URL') or (
             'https://aihubmix.com/v1' if os.getenv('AIHUBMIX_KEY') else None
         ),
         openai_model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
-        openai_vision_model=os.getenv('OPENAI_VISION_MODEL') or None,
         openai_temperature=float(os.getenv('OPENAI_TEMPERATURE', '0.7')),
-        vision_model=(
-            os.getenv('VISION_MODEL')
-            or os.getenv('OPENAI_VISION_MODEL')
-            or ""
-        ),
+        vision_model=(os.getenv('VISION_MODEL') or "").strip(),
         vision_provider_priority=os.getenv('VISION_PROVIDER_PRIORITY', 'gemini,anthropic,openai'),
         bocha_api_keys=bocha_api_keys,
         minimax_api_keys=minimax_api_keys,
@@ -433,23 +405,14 @@ def load_config_from_env() -> Config:
         serverchan3_sendkey=os.getenv('SERVERCHAN3_SENDKEY'),
         custom_webhook_urls=[u.strip() for u in os.getenv('CUSTOM_WEBHOOK_URLS', '').split(',') if u.strip()],
         custom_webhook_bearer_token=os.getenv('CUSTOM_WEBHOOK_BEARER_TOKEN'),
-        webhook_verify_ssl=os.getenv('WEBHOOK_VERIFY_SSL', 'true').lower() == 'true',
         discord_bot_token=os.getenv('DISCORD_BOT_TOKEN'),
         discord_main_channel_id=os.getenv('DISCORD_MAIN_CHANNEL_ID'),
         discord_webhook_url=os.getenv('DISCORD_WEBHOOK_URL'),
         astrbot_url=os.getenv('ASTRBOT_URL'),
         astrbot_token=os.getenv('ASTRBOT_TOKEN'),
-        single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
         report_type=_parse_report_type(os.getenv('REPORT_TYPE', 'simple')),
-        push_report_type=_parse_push_report_type(os.getenv('PUSH_REPORT_TYPE')),
         report_summary_only=os.getenv('REPORT_SUMMARY_ONLY', 'false').lower() == 'true',
-        report_templates_dir=os.getenv('REPORT_TEMPLATES_DIR', 'templates'),
-        report_renderer_enabled=os.getenv('REPORT_RENDERER_ENABLED', 'false').lower() == 'true',
-        report_integrity_enabled=os.getenv('REPORT_INTEGRITY_ENABLED', 'true').lower() == 'true',
-        report_integrity_retry=int(os.getenv('REPORT_INTEGRITY_RETRY', '1')),
-        report_history_compare_n=int(os.getenv('REPORT_HISTORY_COMPARE_N', '0')),
         analysis_delay=float(os.getenv('ANALYSIS_DELAY', '0')),
-        merge_email_notification=os.getenv('MERGE_EMAIL_NOTIFICATION', 'false').lower() == 'true',
         feishu_max_bytes=int(os.getenv('FEISHU_MAX_BYTES', '20000')),
         wechat_max_bytes=wechat_max_bytes,
         wechat_msg_type=wechat_msg_type_lower,
@@ -501,19 +464,13 @@ def load_config_from_env() -> Config:
         log_dir=os.getenv('LOG_DIR', './logs'),
         log_level=os.getenv('LOG_LEVEL', 'INFO'),
         max_workers=int(os.getenv('MAX_WORKERS', '3')),
-        debug=os.getenv('DEBUG', 'false').lower() == 'true',
         config_validate_mode=os.getenv('CONFIG_VALIDATE_MODE', 'warn').lower(),
         http_proxy=os.getenv('HTTP_PROXY'),
         https_proxy=os.getenv('HTTPS_PROXY'),
-        schedule_enabled=os.getenv('SCHEDULE_ENABLED', 'false').lower() == 'true',
-        schedule_time=os.getenv('SCHEDULE_TIME', '18:00'),
-        schedule_run_immediately=os.getenv('SCHEDULE_RUN_IMMEDIATELY', 'true').lower() == 'true',
-        run_immediately=os.getenv('RUN_IMMEDIATELY', 'true').lower() == 'true',
-        market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
+        schedule_time=os.getenv('SCHEDULE_TIME', '').strip(),
         market_review_region=_parse_market_review_region(
             os.getenv('MARKET_REVIEW_REGION', 'cn')
         ),
-        trading_day_check_enabled=os.getenv('TRADING_DAY_CHECK_ENABLED', 'true').lower() != 'false',
         webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
         webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
         webui_port=int(os.getenv('WEBUI_PORT', '8000')),
@@ -534,10 +491,6 @@ def load_config_from_env() -> Config:
         wecom_agent_id=os.getenv('WECOM_AGENT_ID'),
         telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
         discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
-        enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
-        enable_realtime_technical_indicators=os.getenv(
-            'ENABLE_REALTIME_TECHNICAL_INDICATORS', 'true'
-        ).lower() == 'true',
         enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
         enable_eastmoney_patch=os.getenv('ENABLE_EASTMONEY_PATCH', 'false').lower() == 'true',
         use_enhanced_market_review=os.getenv('USE_ENHANCED_MARKET_REVIEW', 'true').lower() == 'true',
@@ -563,7 +516,6 @@ if __name__ == "__main__":
     print(f"Stock list: {config.stock_list}")
     print(f"Database path: {config.database_path}")
     print(f"Max workers: {config.max_workers}")
-    print(f"Debug mode: {config.debug}")
 
     warnings = config.validate()
     if warnings:

@@ -107,7 +107,8 @@ class _RunMixin:
         stock_codes: Optional[List[str]] = None,
         dry_run: bool = False,
         send_notification: bool = True,
-        merge_notification: bool = False
+        merge_notification: bool = False,
+        single_stock_notify: bool = False,
     ) -> List[AnalysisResult]:
         """
         运行完整的分析流程
@@ -123,6 +124,7 @@ class _RunMixin:
             dry_run: 是否仅获取数据不分析
             send_notification: 是否发送推送通知
             merge_notification: 是否合并推送（跳过本次推送，由 main 层合并个股+大盘后统一发送，Issue #190）
+            single_stock_notify: 单股推送（通常来自 CLI --single-notify）
 
         Returns:
             分析结果列表
@@ -154,8 +156,7 @@ class _RunMixin:
         if not dry_run:
             self.fetcher_manager.prefetch_stock_names(stock_codes, use_bulk=False)
 
-        # 单股推送模式（#55）：从配置读取
-        single_stock_notify = getattr(self.config, 'single_stock_notify', False)
+        # 单股推送模式（#55）：CLI --single-notify
         # Issue #119: 从配置读取报告类型
         report_type_str = getattr(self.config, 'report_type', 'simple').lower()
         if report_type_str == 'brief':

@@ -87,10 +87,7 @@ class Config:
     openai_api_keys: List[str] = field(default_factory=list)
     deepseek_api_keys: List[str] = field(default_factory=list)
 
-    # Legacy single-key fields (kept for backward compatibility)
-    gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3-flash-preview"
-    gemini_model_fallback: str = "gemini-2.5-flash"
     gemini_temperature: float = 0.7
 
     # Gemini API request config (rate-limit prevention)
@@ -108,7 +105,6 @@ class Config:
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
-    openai_vision_model: Optional[str] = None  # Deprecated: use VISION_MODEL instead
     openai_temperature: float = 0.7
 
     # === Vision config ===
@@ -154,7 +150,6 @@ class Config:
     # Custom Webhook
     custom_webhook_urls: List[str] = field(default_factory=list)
     custom_webhook_bearer_token: Optional[str] = None
-    webhook_verify_ssl: bool = True
 
     # Discord
     discord_bot_token: Optional[str] = None
@@ -165,20 +160,9 @@ class Config:
     astrbot_token: Optional[str] = None
     astrbot_url: Optional[str] = None
 
-    # Single stock push mode
-    single_stock_notify: bool = False
-
     # Report type: simple / full / brief
     report_type: str = "simple"
-    push_report_type: Optional[str] = None
     report_summary_only: bool = False
-
-    # Report Engine P0: Jinja2 renderer and integrity checks
-    report_templates_dir: str = "templates"
-    report_renderer_enabled: bool = False
-    report_integrity_enabled: bool = True
-    report_integrity_retry: int = 1
-    report_history_compare_n: int = 0
 
     # PushPlus
     pushplus_token: Optional[str] = None
@@ -189,9 +173,6 @@ class Config:
 
     # Analysis delay (seconds)
     analysis_delay: float = 0.0
-
-    # Merge stock + market report into one notification (Issue #190)
-    merge_email_notification: bool = False
 
     # Message length limits (bytes)
     feishu_max_bytes: int = 20000
@@ -251,22 +232,14 @@ class Config:
 
     # === System ===
     max_workers: int = 3
-    debug: bool = False
     http_proxy: Optional[str] = None
     https_proxy: Optional[str] = None
 
     # === Scheduled tasks ===
-    schedule_enabled: bool = False
-    schedule_time: str = "18:00"
-    schedule_run_immediately: bool = True
-    run_immediately: bool = True
-    market_review_enabled: bool = True
+    schedule_time: str = ""
     market_review_region: str = "cn"
-    trading_day_check_enabled: bool = True
 
     # === Realtime quote enhanced data ===
-    enable_realtime_quote: bool = True
-    enable_realtime_technical_indicators: bool = True
     enable_chip_distribution: bool = True
     enable_eastmoney_patch: bool = False
 

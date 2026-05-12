@@ -39,7 +39,7 @@ class _DashboardMixin:
             Markdown formatted decision dashboard report
         """
         config = get_config()
-        if getattr(config, 'report_renderer_enabled', False) and results:
+        if results:
             from src.services.report_renderer import render
             out = render(
                 platform='markdown',
@@ -282,7 +282,7 @@ class _DashboardMixin:
             Compact decision dashboard
         """
         config = get_config()
-        if getattr(config, 'report_renderer_enabled', False) and results:
+        if results:
             from src.services.report_renderer import render
             out = render(
                 platform='wechat',

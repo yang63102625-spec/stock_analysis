@@ -137,11 +137,6 @@ class _MarketEnvMixin:
             return df
 
         # Optional: skip augmentation on non-trading days (fail-open)
-        enable_realtime_tech = getattr(
-            self.config, 'enable_realtime_technical_indicators', True
-        )
-        if not enable_realtime_tech:
-            return df
         market = get_market_for_stock(code)
         if market and not is_market_open(market, date.today()):
             return df

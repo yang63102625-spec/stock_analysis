@@ -26,7 +26,7 @@ class _NotifyMixin:
         """
         发送分析结果通知
 
-        仪表盘/本地保存使用 report_type（详细），推送使用 PUSH_REPORT_TYPE（可精简）。
+        推送报告类型与仪表盘一致，均由 ``REPORT_TYPE`` 控制。
 
         Args:
             results: 分析结果列表

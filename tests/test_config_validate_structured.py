@@ -55,11 +55,7 @@ def _make_config(**kwargs) -> Config:
         discord_webhook_url=None,
         llm_channels=[],
         litellm_config_path=None,
-        gemini_api_key=None,
-        anthropic_api_key=None,
-        openai_api_key=None,
         openai_base_url=None,
-        openai_vision_model=None,
     )
     defaults.update(kwargs)
     return Config(**defaults)
@@ -230,40 +226,6 @@ class TestValidateStructuredNotification:
         issues = cfg.validate_structured()
         info = [i for i in issues if i.severity == "info"]
         assert not any("搜索引擎" in i.message and "未配置" in i.message for i in info)
-
-
-# ---------------------------------------------------------------------------
-# Deprecated field migration hints
-# ---------------------------------------------------------------------------
-
-class TestDeprecatedFieldHints:
-    def test_openai_vision_model_deprecation_when_env_set(self):
-        """When OPENAI_VISION_MODEL is in env, validate_structured reports deprecation hint."""
-        cfg = _make_config()
-        with patch.dict("os.environ", {"OPENAI_VISION_MODEL": "openai/gpt-4o"}, clear=False):
-            issues = cfg.validate_structured()
-        deprec = [i for i in issues if i.field == "OPENAI_VISION_MODEL"]
-        assert deprec, "Expected deprecation hint when OPENAI_VISION_MODEL is set"
-        assert deprec[0].severity == "info"
-        assert "VISION_MODEL" in deprec[0].message
-
-    def test_no_deprecation_when_openai_vision_model_not_in_env(self):
-        """When OPENAI_VISION_MODEL is not in env, no deprecation hint."""
-        import os
-        cfg = _make_config()
-        real_getenv = os.getenv
-
-        def mock_getenv(key, default=None):
-            if key == "OPENAI_VISION_MODEL":
-                return None
-            return real_getenv(key, default)
-
-        # ``src.config`` is now a package; the actual ``os.getenv`` lookup
-        # happens inside ``src.config.loader``.
-        with patch("src.config.loader.os.getenv", side_effect=mock_getenv):
-            issues = cfg.validate_structured()
-        deprec = [i for i in issues if i.field == "OPENAI_VISION_MODEL"]
-        assert not deprec, "Should not report deprecation when OPENAI_VISION_MODEL is unset"
 
 
 # ---------------------------------------------------------------------------

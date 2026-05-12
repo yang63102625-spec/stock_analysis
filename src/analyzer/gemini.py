@@ -365,7 +365,7 @@ class GeminiAnalyzer(_LLMClientMixin, _PromptBuilderMixin, _ResponseParserMixin)
             # 使用 litellm 调用（支持完整性校验重试）
             current_prompt = prompt
             retry_count = 0
-            max_retries = config.report_integrity_retry if config.report_integrity_enabled else 0
+            max_retries = 1
 
             while True:
                 start_time = time.time()
@@ -388,9 +388,7 @@ class GeminiAnalyzer(_LLMClientMixin, _PromptBuilderMixin, _ResponseParserMixin)
                 result.market_snapshot = self._build_market_snapshot(context)
                 result.model_used = model_used
 
-                # 内容完整性校验（可选）
-                if not config.report_integrity_enabled:
-                    break
+                # Content integrity validation (mandatory)
                 pass_integrity, missing_fields = self._check_content_integrity(result)
                 if pass_integrity:
                     break

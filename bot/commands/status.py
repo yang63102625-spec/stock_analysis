@@ -67,7 +67,7 @@ class StatusCommand(BotCommand):
         }
         
         # AI 配置状态
-        status["ai_gemini"] = bool(config.gemini_api_key)
+        status["ai_gemini"] = bool(config.gemini_api_keys)
         status["ai_openai"] = bool(config.openai_api_key)
         
         # 搜索服务状态

@@ -118,7 +118,7 @@ class _AnalysisMixin:
                 if historical_bars:
                     df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
                     # Issue #234: Augment with realtime for intraday MA calculation
-                    if self.config.enable_realtime_quote and realtime_quote:
+                    if realtime_quote:
                         df = self._augment_historical_with_realtime(df, realtime_quote, code)
                     # Get broad market environment for score adjustment
                     market_env = self._get_market_environment()
@@ -565,7 +565,7 @@ class _AnalysisMixin:
                 )
 
             # Agent weak integrity: placeholder fill only, no LLM retry
-            if result and getattr(self.config, "report_integrity_enabled", False):
+            if result:
                 from src.analyzer import check_content_integrity, apply_placeholder_fill
 
                 pass_integrity, missing = check_content_integrity(result)
@@ -612,7 +612,7 @@ class _AnalysisMixin:
                     historical_bars = self.db.get_data_range(code, start_date, end_date)
                     if historical_bars:
                         df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
-                        if self.config.enable_realtime_quote and realtime_quote:
+                        if realtime_quote:
                             df = self._augment_historical_with_realtime(df, realtime_quote, code)
                         market_env = self._get_market_environment()
                         pe_for_score = getattr(realtime_quote, 'pe_ratio', None) if realtime_quote else None

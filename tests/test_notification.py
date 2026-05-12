@@ -202,7 +202,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification_service.service.get_config")
     def test_generate_single_stock_report_keeps_legacy_simple_format(self, mock_get_config: mock.MagicMock):
-        mock_get_config.return_value = _make_config(report_renderer_enabled=True)
+        mock_get_config.return_value = _make_config()
         service = NotificationService()
         result = AnalysisResult(
             code="600519",
@@ -222,11 +222,11 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification_service.aggregator.get_config")
     @mock.patch("src.notification_service.service.get_config")
-    def test_history_compare_context_uses_cache(
+    def test_history_compare_context_skips_fetch_when_disabled(
         self, mock_get_config: mock.MagicMock, mock_aggregator_get_config: mock.MagicMock
     ):
-        mock_aggregator_get_config.return_value = _make_config(report_history_compare_n=3)
-        mock_get_config.return_value = _make_config(report_history_compare_n=3)
+        mock_aggregator_get_config.return_value = _make_config()
+        mock_get_config.return_value = _make_config()
         service = NotificationService()
         result = AnalysisResult(
             code="600519",
@@ -242,12 +242,10 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
             "src.services.history_comparison_service.get_signal_changes_batch",
             return_value={"600519": []},
         ) as mock_batch:
-            first = service._get_history_compare_context([result])
-            second = service._get_history_compare_context([result])
+            ctx = service._get_history_compare_context([result])
 
-        self.assertEqual(first, {"history_by_code": {"600519": []}})
-        self.assertEqual(second, {"history_by_code": {"600519": []}})
-        mock_batch.assert_called_once()
+        mock_batch.assert_not_called()
+        self.assertEqual(ctx, {"history_by_code": {}})
 
     @mock.patch("src.notification_service.service.get_config")
     @mock.patch("smtplib.SMTP_SSL")

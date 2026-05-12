@@ -75,18 +75,20 @@ def test_config():
     print(f"  股票列表: {config.stock_list}")
     print(f"  数据库路径: {config.database_path}")
     print(f"  最大并发数: {config.max_workers}")
-    print(f"  调试模式: {config.debug}")
+    print(f"  日志级别: {config.log_level}")
     
     print_section("API 配置")
     print(f"  Tushare Token: {'已配置 ✓' if config.tushare_token else '未配置 ✗'}")
     if config.tushare_token:
         print(f"    Token 前8位: {config.tushare_token[:8]}...")
     
-    print(f"  Gemini API Key: {'已配置 ✓' if config.gemini_api_key else '未配置 ✗'}")
-    if config.gemini_api_key:
-        print(f"    Key 前8位: {config.gemini_api_key[:8]}...")
+    _gk = config.gemini_api_keys[0] if config.gemini_api_keys else None
+    print(f"  Gemini API Key: {'已配置 ✓' if _gk else '未配置 ✗'}")
+    if _gk:
+        print(f"    Key 前8位: {_gk[:8]}...")
     print(f"  Gemini 主模型: {config.gemini_model}")
-    print(f"  Gemini 备选模型: {config.gemini_model_fallback}")
+    _fb = ",".join(config.litellm_fallback_models) if config.litellm_fallback_models else "(未配置)"
+    print(f"  LiteLLM 备选模型: {_fb}")
     
     print(f"  企业微信 Webhook: {'已配置 ✓' if config.wechat_webhook_url else '未配置 ✗'}")
     
@@ -229,7 +231,7 @@ def test_llm():
     
     print_section("模型配置")
     print(f"  主模型: {config.gemini_model}")
-    print(f"  备选模型: {config.gemini_model_fallback}")
+    print(f"  备选模型(LiteLLM): {config.litellm_fallback_models or '(未配置)'}")
     
     # 检查网络连接
     print_section("网络连接检查")

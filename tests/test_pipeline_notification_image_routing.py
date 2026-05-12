@@ -49,11 +49,6 @@ class TestPipelineEmailGroupImageRouting(unittest.TestCase):
             stock_email_groups=[
                 (["000001"], ["group@example.com"]),
             ],
-            # ``_send_notifications`` calls ``get_effective_push_report_type``
-            # which reads ``push_report_type`` / ``report_type`` from the
-            # config object. Provide explicit values so the SimpleNamespace
-            # surface matches the real Config dataclass.
-            push_report_type="",
             report_type="simple",
         )
         return pipeline
@@ -116,7 +111,6 @@ class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
         pipeline.notifier = _FakeWechatNotifier()
         pipeline.config = SimpleNamespace(
             stock_email_groups=[],
-            push_report_type="",
             report_type="simple",
         )
         results = [SimpleNamespace(code="000001")]
@@ -135,7 +129,6 @@ class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
         pipeline.notifier = _FakeWechatNotifier()
         pipeline.config = SimpleNamespace(
             stock_email_groups=[],
-            push_report_type="",
             report_type="simple",
         )
         results = [SimpleNamespace(code="000001")]

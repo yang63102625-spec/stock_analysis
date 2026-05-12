@@ -4,10 +4,9 @@
 Provides ``validate_config_structured`` which returns a list of
 :class:`~src.config.base.ConfigIssue` instances covering all three LLM
 configuration tiers (YAML / channels / legacy keys), notification channels,
-data sources, and deprecated-field migration hints.
+data sources.
 """
 
-import os
 from typing import TYPE_CHECKING, List
 
 from .base import ConfigIssue
@@ -101,17 +100,6 @@ def validate_config_structured(config: "Config") -> List[ConfigIssue]:
             severity="warning",
             message="未配置通知渠道，将不发送推送通知",
             field="WECHAT_WEBHOOK_URL",
-        ))
-
-    # --- Deprecated field migration hints ---
-    if os.getenv("OPENAI_VISION_MODEL"):
-        issues.append(ConfigIssue(
-            severity="info",
-            message=(
-                "OPENAI_VISION_MODEL 已废弃，请改用 VISION_MODEL。"
-                "当前值已自动迁移，建议更新配置文件以消除此提示。"
-            ),
-            field="OPENAI_VISION_MODEL",
         ))
 
     # --- Vision key availability ---

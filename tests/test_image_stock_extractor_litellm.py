@@ -2,7 +2,7 @@
 """Tests for image_stock_extractor Vision LLM layer.
 
 Covers:
-- _resolve_vision_model(): priority chain (vision_model > openai_vision_model > litellm_model > inferred)
+- _resolve_vision_model(): priority chain (vision_model > litellm_model > inferred)
 - gemini-3 heuristic downgrade behaviour
 - _get_api_keys_for_model(): provider key routing
 - _call_litellm_vision(): request payload / timeout / error handling
@@ -63,7 +63,6 @@ def _cfg(**kwargs) -> Config:
         openai_api_keys=[],
         openai_model="gpt-4o-mini",
         openai_base_url=None,
-        openai_vision_model=None,
         deepseek_api_keys=[],
         config_validate_mode="warn",
     )
@@ -82,44 +81,39 @@ def _make_jpeg_bytes() -> bytes:
 
 class TestResolveVisionModel:
     def test_uses_vision_model_first(self):
-        cfg = _cfg(vision_model="gemini/gemini-2.0-flash", openai_vision_model="openai/gpt-4o")
+        cfg = _cfg(vision_model="gemini/gemini-2.0-flash", litellm_model="openai/gpt-4o")
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             assert _resolve_vision_model() == "gemini/gemini-2.0-flash"
 
-    def test_uses_openai_vision_model_first(self):
-        cfg = _cfg(vision_model="", openai_vision_model="openai/gpt-4o", litellm_model="gemini/gemini-2.5-flash")
-        with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
-            assert _resolve_vision_model() == "openai/gpt-4o"
-
-    def test_falls_back_to_litellm_model(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="gemini/gemini-2.5-flash")
+    def test_falls_back_to_litellm_model_when_vision_empty(self):
+        cfg = _cfg(vision_model="", litellm_model="gemini/gemini-2.5-flash")
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             assert _resolve_vision_model() == "gemini/gemini-2.5-flash"
 
     def test_infers_gemini_from_api_keys(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="", gemini_api_keys=[_GEMINI_KEY])
+        cfg = _cfg(litellm_model="", gemini_api_keys=[_GEMINI_KEY])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             assert _resolve_vision_model() == "gemini/gemini-2.0-flash"
 
     def test_infers_anthropic_when_no_gemini_key(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="", gemini_api_keys=[], anthropic_api_keys=[_ANTHROPIC_KEY])
+        cfg = _cfg(litellm_model="", gemini_api_keys=[], anthropic_api_keys=[_ANTHROPIC_KEY])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             result = _resolve_vision_model()
             assert result.startswith("anthropic/")
 
     def test_infers_openai_when_only_openai_key(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="", openai_api_keys=[_OPENAI_KEY])
+        cfg = _cfg(litellm_model="", openai_api_keys=[_OPENAI_KEY])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             result = _resolve_vision_model()
             assert result.startswith("openai/")
 
     def test_downgrades_gemini3_to_gemini20_flash(self):
-        cfg = _cfg(openai_vision_model="gemini/gemini-3-flash-preview")
+        cfg = _cfg(vision_model="gemini/gemini-3-flash-preview")
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             assert _resolve_vision_model() == "gemini/gemini-2.0-flash"
 
     def test_returns_empty_when_no_model_and_no_keys(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="", gemini_api_keys=[], anthropic_api_keys=[], openai_api_keys=[])
+        cfg = _cfg(litellm_model="", gemini_api_keys=[], anthropic_api_keys=[], openai_api_keys=[])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             assert _resolve_vision_model() == ""
 
@@ -166,7 +160,7 @@ class TestCallLitellmVision:
         return resp
 
     def test_calls_litellm_with_image(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="", gemini_api_keys=[_GEMINI_KEY])
+        cfg = _cfg(litellm_model="", gemini_api_keys=[_GEMINI_KEY])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg), \
              patch("src.services.image_stock_extractor.litellm.completion",
                    return_value=self._good_response()) as mock_comp:
@@ -179,7 +173,7 @@ class TestCallLitellmVision:
 
     def test_openai_model_uses_api_base_and_aihubmix_headers(self):
         cfg = _cfg(
-            openai_vision_model="openai/gpt-4o-mini",
+            vision_model="openai/gpt-4o-mini",
             openai_api_keys=[_OPENAI_KEY],
             openai_base_url="https://aihubmix.com/v1",
         )
@@ -192,13 +186,13 @@ class TestCallLitellmVision:
             assert kwargs["extra_headers"]["APP-Code"] == "GPIJ3886"
 
     def test_raises_when_model_not_configured(self):
-        cfg = _cfg(openai_vision_model=None, litellm_model="", gemini_api_keys=[], anthropic_api_keys=[], openai_api_keys=[])
+        cfg = _cfg(litellm_model="", gemini_api_keys=[], anthropic_api_keys=[], openai_api_keys=[])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             with pytest.raises(ValueError, match="未配置 Vision API"):
                 _call_litellm_vision("b64", "image/jpeg")
 
     def test_raises_when_no_key_for_model(self):
-        cfg = _cfg(openai_vision_model="openai/gpt-4o-mini", openai_api_keys=[])
+        cfg = _cfg(vision_model="openai/gpt-4o-mini", openai_api_keys=[])
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg):
             with pytest.raises(ValueError, match="No API key found"):
                 _call_litellm_vision("b64", "image/jpeg")

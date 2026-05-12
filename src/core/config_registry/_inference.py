@@ -33,7 +33,7 @@ def _infer_category(key: str) -> str:
             "NEWS_",
             "BIAS_",
         )
-    ) or key in ("ENABLE_REALTIME_QUOTE", "ENABLE_CHIP_DISTRIBUTION"):
+    ) or key == "ENABLE_CHIP_DISTRIBUTION":
         return "data_source"
     if key.startswith((
         "WECHAT",

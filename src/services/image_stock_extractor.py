@@ -207,8 +207,8 @@ def _resolve_vision_model() -> str:
     infer/correct the provider prefix.
     """
     cfg = get_config()
-    # Prefer explicit vision model, then OPENAI_VISION_MODEL alias, then primary litellm model
-    model = (cfg.vision_model or cfg.openai_vision_model or cfg.litellm_model or "").strip()
+    # Prefer explicit VISION_MODEL, then primary litellm model
+    model = (cfg.vision_model or cfg.litellm_model or "").strip()
 
     # If a channel is configured for this model, use the stored model_name verbatim.
     # The channel owner deliberately set the provider prefix; we must not override it.

@@ -39,12 +39,6 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
         "display_order": 50,
     },
     {
-        "category": "agent",
-        "title": "Agent",
-        "description": "Agent mode and strategy settings.",
-        "display_order": 55,
-    },
-    {
         "category": "backtest",
         "title": "Backtest",
         "description": "Backtest engine behavior and evaluation parameters.",

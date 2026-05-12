@@ -70,7 +70,7 @@ def _compute_trading_day_filter(
         - should_skip_all: skip entire run when no stocks and no market review to run
     """
     force_run = getattr(args, 'force_run', False)
-    if force_run or not getattr(config, 'trading_day_check_enabled', True):
+    if force_run:
         return (stock_codes, None, False)
 
     from src.core.trading_calendar import (
@@ -86,7 +86,7 @@ def _compute_trading_day_filter(
         if mkt in open_markets or mkt is None:
             filtered_codes.append(code)
 
-    if config.market_review_enabled and not getattr(args, 'no_market_review', False):
+    if not getattr(args, 'no_market_review', False):
         effective_region = compute_effective_region(
             getattr(config, 'market_review_region', 'cn') or 'cn', open_markets
         )
@@ -212,16 +212,10 @@ def run_full_analysis(
             logger.info("今日休市股票已跳过: %s", skipped)
         stock_codes = filtered_codes
 
-        # 命令行参数 --single-notify 覆盖配置（#55）
-        if getattr(args, 'single_notify', False):
-            config.single_stock_notify = True
-
-        # Issue #190: 个股与大盘复盘合并推送
+        # Issue #190: always merge stock + market into one notification when market review runs
         merge_notification = (
-            getattr(config, 'merge_email_notification', False)
-            and config.market_review_enabled
-            and not getattr(args, 'no_market_review', False)
-            and not config.single_stock_notify
+            not getattr(args, 'no_market_review', False)
+            and not getattr(args, 'single_notify', False)
         )
 
         # 创建调度器
@@ -243,14 +237,14 @@ def run_full_analysis(
             stock_codes=stock_codes,
             dry_run=args.dry_run,
             send_notification=send_notification,
-            merge_notification=merge_notification
+            merge_notification=merge_notification,
+            single_stock_notify=getattr(args, 'single_notify', False),
         )
 
         # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
         analysis_delay = getattr(config, 'analysis_delay', 0)
         if (
             analysis_delay > 0
-            and config.market_review_enabled
             and not args.no_market_review
             and effective_region != ''
         ):
@@ -259,11 +253,7 @@ def run_full_analysis(
 
         # 2. 运行大盘复盘（如果启用且不是仅个股模式）
         market_report = ""
-        if (
-            config.market_review_enabled
-            and not args.no_market_review
-            and effective_region != ''
-        ):
+        if not args.no_market_review and effective_region != '':
             review_result = run_market_review(
                 notifier=pipeline.notifier,
                 analyzer=pipeline.analyzer,
@@ -563,11 +553,9 @@ def main() -> int:
             from src.search_service import SearchService
 
             # Issue #373: Trading day check for market-review-only mode.
-            # Do NOT use _compute_trading_day_filter here: that helper checks
-            # config.market_review_enabled, which would wrongly block an
-            # explicit --market-review invocation when the flag is disabled.
+            # Do NOT use _compute_trading_day_filter here: we only need region gating.
             effective_region = None
-            if not getattr(args, 'force_run', False) and getattr(config, 'trading_day_check_enabled', True):
+            if not getattr(args, 'force_run', False):
                 from src.core.trading_calendar import get_open_markets_today, compute_effective_region as _compute_region
                 open_markets = get_open_markets_today()
                 effective_region = _compute_region(
@@ -595,8 +583,9 @@ def main() -> int:
                     news_max_age_days=config.news_max_age_days,
                 )
 
-            if config.gemini_api_key or config.openai_api_key:
-                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+            if config.gemini_api_keys or config.openai_api_key:
+                _gk = config.gemini_api_keys[0] if config.gemini_api_keys else None
+                analyzer = GeminiAnalyzer(api_key=_gk)
                 if not analyzer.is_available():
                     logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
                     analyzer = None
@@ -612,17 +601,17 @@ def main() -> int:
             )
             return 0
 
-        # 模式2: 定时任务模式
-        if args.schedule or config.schedule_enabled:
-            logger.info("模式: 定时任务")
-            logger.info(f"每日执行时间: {config.schedule_time}")
+        # Mode 2: scheduler — non-empty SCHEDULE_TIME runs daily at HH:MM; CLI --schedule uses default 18:00 when empty.
+        schedule_time_raw = config.schedule_time.strip()
+        if args.schedule or schedule_time_raw:
+            eff_schedule_time = schedule_time_raw or "18:00"
+            if args.schedule and not schedule_time_raw:
+                logger.info("SCHEDULE_TIME empty; defaulting to 18:00 for --schedule")
 
-            # Determine whether to run immediately:
-            # Command line arg --no-run-immediately overrides config if present.
-            # Otherwise use config (defaults to True).
-            should_run_immediately = config.schedule_run_immediately
-            if getattr(args, 'no_run_immediately', False):
-                should_run_immediately = False
+            logger.info("模式: 定时任务")
+            logger.info(f"每日执行时间: {eff_schedule_time}")
+
+            should_run_immediately = not getattr(args, 'no_run_immediately', False)
 
             logger.info(f"启动时立即执行: {should_run_immediately}")
 
@@ -633,21 +622,18 @@ def main() -> int:
 
             run_with_schedule(
                 task=scheduled_task,
-                schedule_time=config.schedule_time,
+                schedule_time=eff_schedule_time,
                 run_immediately=should_run_immediately
             )
             return 0
 
         # 模式3: 正常单次运行
-        if config.run_immediately:
-            run_full_analysis(config, args, stock_codes)
-        else:
-            logger.info("配置为不立即运行分析 (RUN_IMMEDIATELY=false)")
+        run_full_analysis(config, args, stock_codes)
 
         logger.info("\n程序执行完成")
 
         # 如果启用了服务且是非定时任务模式，保持程序运行
-        keep_running = start_serve and not (args.schedule or config.schedule_enabled)
+        keep_running = start_serve and not (args.schedule or config.schedule_time.strip())
         if keep_running:
             logger.info("API 服务运行中 (按 Ctrl+C 退出)...")
             try:

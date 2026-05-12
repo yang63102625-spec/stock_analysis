@@ -40,12 +40,8 @@ logger = logging.getLogger(__name__)
 
 def _parse_hosts_from_env() -> Optional[List[Tuple[str, int]]]:
     """
-    从环境变量构建通达信服务器列表。
-
-    优先级：
-    1. PYTDX_SERVERS：逗号分隔 "ip:port,ip:port"（如 "192.168.1.1:7709,10.0.0.1:7709"）
-    2. PYTDX_HOST + PYTDX_PORT：单个服务器
-    3. 均未配置时返回 None（调用方使用 DEFAULT_HOSTS）
+    Build Pytdx server list from ``PYTDX_SERVERS`` (comma-separated ``ip:port``).
+    Returns None when unset so callers use DEFAULT_HOSTS.
     """
     servers = os.getenv("PYTDX_SERVERS", "").strip()
     if servers:
@@ -64,14 +60,6 @@ def _parse_hosts_from_env() -> Optional[List[Tuple[str, int]]]:
                 logger.warning(f"Invalid PYTDX_SERVERS entry (missing port): {part}")
         if result:
             return result
-
-    host = os.getenv("PYTDX_HOST", "").strip()
-    port_str = os.getenv("PYTDX_PORT", "").strip()
-    if host and port_str:
-        try:
-            return [(host, int(port_str))]
-        except ValueError:
-            logger.warning(f"Invalid PYTDX_HOST/PYTDX_PORT: {host}:{port_str}")
 
     return None
 
@@ -129,9 +117,8 @@ class PytdxFetcher(RateLimitMixin, BaseFetcher):
         初始化 PytdxFetcher
 
         Args:
-            hosts: 服务器列表 [(host, port), ...]。若未传入，优先使用环境变量
-                   PYTDX_SERVERS（ip:port,ip:port）或 PYTDX_HOST+PYTDX_PORT，
-                   否则使用内置 DEFAULT_HOSTS。
+            hosts: Server list ``[(host, port), ...]``. If omitted, uses ``PYTDX_SERVERS``
+                   or built-in ``DEFAULT_HOSTS``.
         """
         if hosts is not None:
             self._hosts = hosts
