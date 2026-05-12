@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Backward-compat smoke test for legacy import paths.
+"""Public-import smoke test.
 
-Several refactors moved real implementations behind sub-packages while
-keeping shim modules at the original paths. This test asserts every legacy
-symbol still imports — preventing accidental shim breakage.
-
-Add new entries here whenever an existing public path is shimmed.
+Asserts that the canonical public symbols stay importable after the
+sub-package refactors. Legacy shim paths have been removed; this test now
+only covers the surviving canonical locations.
 """
 
 from __future__ import annotations
@@ -17,54 +15,52 @@ import pytest
 
 # (module_path, attribute) pairs that *must* keep working.
 LEGACY_SYMBOLS = [
-    # src.config shim
+    # src.config package
     ("src.config", "Config"),
     ("src.config", "get_config"),
     ("src.config", "setup_env"),
     ("src.config", "get_api_keys_for_model"),
     ("src.config", "extra_litellm_params"),
     ("src.config", "ConfigIssue"),
-    # src.notification shim
-    ("src.notification", "NotificationService"),
-    ("src.notification", "NotificationChannel"),
-    ("src.notification", "NotificationBuilder"),
-    ("src.notification", "ChannelDetector"),
-    # src.formatters shim (still used by mail/wechat/feishu senders)
-    ("src.formatters", "format_feishu_markdown"),
-    ("src.formatters", "chunk_content_by_max_bytes"),
-    ("src.formatters", "markdown_to_html_document"),
-    # src.wechat_formatter shim
-    ("src.wechat_formatter", "WechatFormatter"),
-    ("src.wechat_formatter", "PublishPlatform"),
-    # picker shim
-    ("src.services.stock_picker_service", "StockPickerService"),
-    ("src.services.stock_picker_service", "StockScreener"),
-    ("src.services.stock_picker_service", "PickerResult"),
-    ("src.services.stock_picker_service", "create_screener_from_config"),
+    # src.notification_service package
+    ("src.notification_service", "NotificationService"),
+    ("src.notification_service", "NotificationChannel"),
+    ("src.notification_service", "NotificationBuilder"),
+    ("src.notification_service", "ChannelDetector"),
+    # src.notification_service.formatters
+    ("src.notification_service.formatters", "format_feishu_markdown"),
+    ("src.notification_service.formatters", "chunk_content_by_max_bytes"),
+    ("src.notification_service.formatters", "markdown_to_html_document"),
+    # src.notification_service.wechat_formatter
+    ("src.notification_service.wechat_formatter", "WechatFormatter"),
+    ("src.notification_service.wechat_formatter", "PublishPlatform"),
+    # picker package
+    ("src.services.picker", "StockPickerService"),
+    ("src.services.picker", "StockScreener"),
+    ("src.services.picker", "PickerResult"),
+    ("src.services.picker", "create_screener_from_config"),
+    ("src.services.picker.screener", "StockScreener"),
     # data_provider public surface
     ("data_provider.base", "BaseFetcher"),
     ("data_provider.base", "DataFetcherManager"),
     ("data_provider.base", "DataFetchError"),
     ("data_provider.base", "RateLimitError"),
     ("data_provider.base", "DataSourceUnavailableError"),
-    ("data_provider.tushare_fetcher", "TushareFetcher"),
-    # Tushare shim must keep re-exporting module-level cache state used by
-    # callers (quantitative_filter forces realtime cache expiry through it).
-    ("data_provider.tushare_fetcher", "_realtime_list_cache"),
-    ("data_provider.tushare_fetcher", "_rt_k_cache_time"),
-    ("data_provider.tushare_fetcher", "_is_etf_code"),
-    ("data_provider.tushare_fetcher", "_is_us_code"),
-    # Tushare new sub-package
+    # Tushare canonical sub-package
     ("data_provider.tushare", "TushareFetcher"),
-    ("data_provider.akshare_fetcher", "AkshareFetcher"),
-    ("data_provider.akshare_fetcher", "SINA_REALTIME_ENDPOINT"),
-    ("data_provider.akshare_fetcher", "TENCENT_REALTIME_ENDPOINT"),
-    ("data_provider.akshare_fetcher", "_to_sina_tx_symbol"),
-    ("data_provider.akshare_fetcher", "_is_hk_code"),
-    ("data_provider.akshare_fetcher", "_is_us_code"),
-    # Akshare new sub-package
+    ("data_provider.tushare.utils", "_is_etf_code"),
+    ("data_provider.tushare.utils", "_is_us_code"),
+    ("data_provider.tushare.realtime", "_realtime_list_cache"),
+    ("data_provider.tushare.realtime", "_rt_k_cache_time"),
+    # Akshare canonical sub-package
     ("data_provider.akshare", "AkshareFetcher"),
     ("data_provider.akshare", "is_hk_stock_code"),
+    ("data_provider.akshare.utils", "SINA_REALTIME_ENDPOINT"),
+    ("data_provider.akshare.utils", "TENCENT_REALTIME_ENDPOINT"),
+    ("data_provider.akshare.utils", "_to_sina_tx_symbol"),
+    ("data_provider.akshare.utils", "_is_hk_code"),
+    ("data_provider.akshare.utils", "_is_us_code"),
+    # Other fetchers
     ("data_provider.efinance_fetcher", "EfinanceFetcher"),
     ("data_provider.baostock_fetcher", "BaostockFetcher"),
     ("data_provider.yfinance_fetcher", "YfinanceFetcher"),
@@ -73,7 +69,7 @@ LEGACY_SYMBOLS = [
     ("data_provider.caching_manager", "CachingDataFetcherManager"),
     ("data_provider.caching_manager", "TTLCache"),
     ("data_provider.caching_manager", "trading_session_ttl"),
-    # search_service subpackage (replaced legacy src/search_service.py)
+    # search_service subpackage
     ("src.search_service", "SearchService"),
     ("src.search_service", "SearchResponse"),
     ("src.search_service", "SearchResult"),
@@ -87,7 +83,7 @@ LEGACY_SYMBOLS = [
     ("src.search_service", "fetch_url_content"),
     ("src.search_service", "get_search_service"),
     ("src.search_service", "reset_search_service"),
-    # storage subpackage (replaced legacy src/storage.py)
+    # storage subpackage
     ("src.storage", "DatabaseManager"),
     ("src.storage", "get_db"),
     ("src.storage", "persist_llm_usage"),
@@ -101,7 +97,7 @@ LEGACY_SYMBOLS = [
     ("src.storage", "BacktestSummary"),
     ("src.storage", "ConversationMessage"),
     ("src.storage", "LLMUsage"),
-    # New unified exceptions
+    # Unified exceptions
     ("src.exceptions", "RateLimitError"),
     ("src.exceptions", "NetworkError"),
     ("src.exceptions", "DataSourceUnavailableError"),
@@ -111,11 +107,10 @@ LEGACY_SYMBOLS = [
 
 
 @pytest.mark.parametrize("module_path,attr", LEGACY_SYMBOLS)
-def test_legacy_symbol_importable(module_path: str, attr: str) -> None:
+def test_canonical_symbol_importable(module_path: str, attr: str) -> None:
     module = importlib.import_module(module_path)
     assert hasattr(module, attr), (
-        f"Legacy symbol {module_path}.{attr} no longer importable — "
-        "check the corresponding compat shim."
+        f"Public symbol {module_path}.{attr} no longer importable."
     )
 
 
@@ -140,7 +135,6 @@ def test_classify_exception_taxonomy() -> None:
         ValidationError,
     )
 
-    # Build a minimal concrete BaseFetcher for testing.
     class _Stub(BaseFetcher):  # noqa: D401  -- test stub
         def _fetch_raw_data(self, *a, **kw):  # type: ignore[override]
             raise NotImplementedError

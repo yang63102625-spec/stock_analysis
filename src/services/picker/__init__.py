@@ -40,7 +40,7 @@ from src.services.picker.constants import (
     get_tushare_api,
     create_screener_from_config,
 )
-from src.services.picker.quantitative_filter import StockScreener
+from src.services.picker.screener import StockScreener
 
 __all__ = [
     "StockPickerService",

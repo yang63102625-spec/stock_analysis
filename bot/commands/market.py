@@ -73,7 +73,7 @@ class MarketCommand(BotCommand):
         """后台执行大盘复盘"""
         try:
             from src.config import get_config
-            from src.notification import NotificationService
+            from src.notification_service import NotificationService
             from src.market_analyzer import MarketAnalyzer
             from src.search_service import SearchService
             from src.analyzer import GeminiAnalyzer

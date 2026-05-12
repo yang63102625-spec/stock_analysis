@@ -30,7 +30,7 @@ except ImportError as e:
 
 # Optional fetcher-specific imports
 try:
-    from data_provider.tushare_fetcher import TushareFetcher
+    from data_provider.tushare import TushareFetcher
     _TUSHARE_IMPORTS_OK = True
     _TUSHARE_IMPORT_ERROR = ""
 except ImportError as e:
@@ -38,7 +38,7 @@ except ImportError as e:
     _TUSHARE_IMPORT_ERROR = str(e)
 
 try:
-    from data_provider.akshare_fetcher import _to_sina_tx_symbol
+    from data_provider.akshare.utils import _to_sina_tx_symbol
     _AKSHARE_IMPORTS_OK = True
     _AKSHARE_IMPORT_ERROR = ""
 except ImportError as e:

@@ -15,10 +15,10 @@ from datetime import datetime
 from typing import Optional
 
 from src.config import get_config
-from src.notification import NotificationService
+from src.notification_service import NotificationService
 from src.market_analyzer import MarketAnalyzer
 from src.enhanced_market_analyzer import EnhancedMarketAnalyzer
-from src.wechat_formatter import WechatFormatter, PublishPlatform
+from src.notification_service.wechat_formatter import WechatFormatter, PublishPlatform
 from src.search_service import SearchService
 from src.analyzer import GeminiAnalyzer
 

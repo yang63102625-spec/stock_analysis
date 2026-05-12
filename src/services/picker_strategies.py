@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.services.stock_picker_service import (
+from src.services.picker import (
     ScreenedStock,
     TREND_DECAY_THRESHOLD_PCT,
     PE_SCORE_PARTIAL_MAX,

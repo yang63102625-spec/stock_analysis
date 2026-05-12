@@ -67,7 +67,7 @@ def _get_picker_module():
 def _screener(mode: str = "balanced"):
     """Get StockScreener instance. Optional mode: defensive/balanced/offensive."""
     try:
-        from src.services.stock_picker_service import StockScreener
+        from src.services.picker import StockScreener
     except ImportError:
         StockScreener = _get_picker_module().StockScreener
     return StockScreener(
@@ -90,7 +90,7 @@ def _row(**kwargs):
 def test_prompt_contains_1_5_picks():
     """Verify LLM prompt says 1-5 picks, 60% empty trigger, 8% bias."""
     try:
-        from src.services.stock_picker_service import PICK_SYSTEM_PROMPT
+        from src.services.picker import PICK_SYSTEM_PROMPT
     except ImportError:
         PICK_SYSTEM_PROMPT = _get_picker_module().PICK_SYSTEM_PROMPT
 
@@ -102,7 +102,7 @@ def test_prompt_contains_1_5_picks():
 def test_bias_constant():
     """Verify bias filter threshold."""
     try:
-        from src.services.stock_picker_service import PICKER_MAX_BIAS_PCT
+        from src.services.picker import PICKER_MAX_BIAS_PCT
     except ImportError:
         PICKER_MAX_BIAS_PCT = _get_picker_module().PICKER_MAX_BIAS_PCT
 
@@ -112,7 +112,7 @@ def test_bias_constant():
 def test_volume_ratio_min_constant():
     """Verify volume ratio filter uses VOLUME_RATIO_MIN=1.0."""
     try:
-        from src.services.stock_picker_service import VOLUME_RATIO_MIN
+        from src.services.picker import VOLUME_RATIO_MIN
     except ImportError:
         VOLUME_RATIO_MIN = _get_picker_module().VOLUME_RATIO_MIN
 
@@ -122,7 +122,7 @@ def test_volume_ratio_min_constant():
 def test_pe_max_constant():
     """Verify balanced mode PE max is 100."""
     try:
-        from src.services.stock_picker_service import PickerModeParams
+        from src.services.picker import PickerModeParams
     except ImportError:
         PickerModeParams = _get_picker_module().PickerModeParams
 
@@ -132,7 +132,7 @@ def test_pe_max_constant():
 def test_limit_up_thresholds():
     """Verify limit-up thresholds: main 9.5%, ChiNext/STAR 19%."""
     try:
-        from src.services.stock_picker_service import LIMIT_UP_PCT_MAIN, LIMIT_UP_PCT_KC_CY
+        from src.services.picker import LIMIT_UP_PCT_MAIN, LIMIT_UP_PCT_KC_CY
     except ImportError:
         mod = _get_picker_module()
         LIMIT_UP_PCT_MAIN = mod.LIMIT_UP_PCT_MAIN
@@ -145,7 +145,7 @@ def test_limit_up_thresholds():
 def test_mode_params_all_modes():
     """Verify PickerModeParams for defensive, balanced, offensive."""
     try:
-        from src.services.stock_picker_service import PickerModeParams
+        from src.services.picker import PickerModeParams
     except ImportError:
         PickerModeParams = _get_picker_module().PickerModeParams
 
@@ -227,7 +227,7 @@ def test_leader_exemption_candidate():
     """Verify _is_leader_candidate: 60d>15%, change 2-7%, vol_ratio>1.5, turnover 2-8%."""
     screener = _screener()
     try:
-        from src.services.stock_picker_service import ScreenedStock
+        from src.services.picker import ScreenedStock
     except ImportError:
         ScreenedStock = _get_picker_module().ScreenedStock
 
@@ -320,7 +320,7 @@ def _make_daily_df(closes, dates=None):
 def test_b_wave_filter_excludes_b_wave_bounce():
     """B-wave risk: high then low, bounce 50%, low 9 days ago -> excluded."""
     try:
-        from src.services.stock_picker_service import StockScreener, ScreenedStock
+        from src.services.picker import StockScreener, ScreenedStock
     except ImportError:
         mod = _get_picker_module()
         StockScreener = mod.StockScreener
@@ -350,7 +350,7 @@ def test_b_wave_filter_excludes_b_wave_bounce():
 def test_b_wave_filter_keeps_uptrend():
     """Uptrend: low first, high later -> no B-wave, keep."""
     try:
-        from src.services.stock_picker_service import StockScreener, ScreenedStock
+        from src.services.picker import StockScreener, ScreenedStock
     except ImportError:
         mod = _get_picker_module()
         StockScreener = mod.StockScreener
@@ -379,7 +379,7 @@ def test_b_wave_filter_keeps_uptrend():
 def test_b_wave_filter_keeps_at_bottom():
     """At C bottom: low at most recent day -> keep (days_since_low=0)."""
     try:
-        from src.services.stock_picker_service import StockScreener, ScreenedStock
+        from src.services.picker import StockScreener, ScreenedStock
     except ImportError:
         mod = _get_picker_module()
         StockScreener = mod.StockScreener
@@ -420,7 +420,7 @@ def _make_eod_stock(code="600810", change_pct=4.0, vol_ratio=3.0, turnover=10.0,
                     market_cap=100.0, strategies=None):
     """Helper to create a ScreenedStock tagged with eod_buyback strategy."""
     try:
-        from src.services.stock_picker_service import ScreenedStock
+        from src.services.picker import ScreenedStock
     except ImportError:
         ScreenedStock = _get_picker_module().ScreenedStock
     return ScreenedStock(
@@ -466,7 +466,7 @@ def test_eod_buyback_bypasses_realtime_filter_none_change_pct():
     from src.services.picker.realtime_filter import filter_by_realtime
 
     try:
-        from src.services.stock_picker_service import ScreenedStock
+        from src.services.picker import ScreenedStock
     except ImportError:
         ScreenedStock = _get_picker_module().ScreenedStock
 
@@ -493,7 +493,7 @@ def test_eod_buyback_passes_valid_stock():
 def test_empty_pool_prompt_no_free_pick():
     """When candidates is empty, prompt must NOT say '请仅基于市场情报推荐'."""
     try:
-        from src.services.stock_picker_service import PICK_SYSTEM_PROMPT
+        from src.services.picker import PICK_SYSTEM_PROMPT
     except ImportError:
         _get_picker_module()  # ensure module loaded
 
@@ -513,7 +513,7 @@ def test_empty_pool_prompt_no_free_pick():
 def test_post_validation_filters_out_of_pool_picks():
     """LLM picks not in screened_pool must be filtered out after _parse_result."""
     try:
-        from src.services.stock_picker_service import PickerResult, StockPick, ScreenedStock
+        from src.services.picker import PickerResult, StockPick, ScreenedStock
     except ImportError:
         mod = _get_picker_module()
         PickerResult = mod.PickerResult
@@ -545,7 +545,7 @@ def test_post_validation_filters_out_of_pool_picks():
 def test_empty_candidates_skip_llm_message():
     """When screened pool is empty, result should have the skip message."""
     try:
-        from src.services.stock_picker_service import PickerResult
+        from src.services.picker import PickerResult
     except ImportError:
         PickerResult = _get_picker_module().PickerResult
 

@@ -322,7 +322,7 @@ def test_notification():
     """测试通知推送"""
     print_header("5. 通知推送测试")
     
-    from src.notification import NotificationService
+    from src.notification_service import NotificationService
     from src.config import get_config
     
     config = get_config()

@@ -30,7 +30,7 @@ for optional_module in ("litellm", "json_repair"):
         sys.modules[optional_module] = mock.MagicMock()
 
 from src.config import Config
-from src.notification import NotificationService, NotificationChannel
+from src.notification_service import NotificationService, NotificationChannel
 from src.analyzer import AnalysisResult
 import requests
 

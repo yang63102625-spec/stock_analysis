@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 from typing import Optional
 
-from src.formatters import markdown_to_html_document
+from src.notification_service.formatters import markdown_to_html_document
 
 logger = logging.getLogger(__name__)
 

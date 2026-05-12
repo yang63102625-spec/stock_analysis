@@ -13,7 +13,7 @@ from src.services.picker.constants import (
     LIMIT_UP_PCT_MAIN,
     ScreenedStock,
 )
-from src.services.picker.quantitative_filter import StockScreener
+from src.services.picker.screener import StockScreener
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def filter_by_realtime(
 
     # Pre-warm realtime caches
     try:
-        from data_provider.tushare_fetcher import TushareFetcher
+        from data_provider.tushare import TushareFetcher
         if data_manager:
             for fetcher in getattr(data_manager, '_fetchers', []):
                 if isinstance(fetcher, TushareFetcher) and fetcher.is_available():

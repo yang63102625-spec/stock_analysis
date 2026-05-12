@@ -229,7 +229,7 @@ WECHAT_MAX_LENGTH=8000
 
 ```python
 from src.enhanced_market_analyzer import EnhancedMarketAnalyzer
-from src.wechat_formatter import WechatFormatter, PublishPlatform
+from src.notification_service.wechat_formatter import WechatFormatter, PublishPlatform
 
 # 创建增强版分析器
 analyzer = EnhancedMarketAnalyzer(region="cn")
@@ -254,7 +254,7 @@ summary = formatter.generate_summary(report)
 ### 自定义格式化配置
 
 ```python
-from src.wechat_formatter import WechatConfig, WechatFormatter
+from src.notification_service.wechat_formatter import WechatConfig, WechatFormatter
 
 # 自定义配置
 config = WechatConfig(

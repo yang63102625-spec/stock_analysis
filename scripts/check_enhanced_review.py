@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import setup_env, get_config
 from src.enhanced_market_analyzer import EnhancedMarketAnalyzer
-from src.wechat_formatter import WechatFormatter, PublishPlatform, WechatConfig
+from src.notification_service.wechat_formatter import WechatFormatter, PublishPlatform, WechatConfig
 from src.logging_config import setup_logging
 
 def test_enhanced_analyzer():

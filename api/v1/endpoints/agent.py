@@ -159,7 +159,7 @@ async def send_chat_to_notification(request: SendChatRequest):
     Send chat session content to configured notification channels.
     Uses run_in_executor to avoid blocking the event loop.
     """
-    from src.notification import NotificationService
+    from src.notification_service import NotificationService
 
     loop = asyncio.get_running_loop()
     success = await loop.run_in_executor(

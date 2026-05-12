@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: drop legacy backward-compatibility shims
+
+- Removed all 7 shim files left behind by phases 1-2 refactors:
+  ``src/notification.py``, ``src/wechat_formatter.py``, ``src/formatters.py``,
+  ``src/services/stock_picker_service.py``,
+  ``src/services/picker/quantitative_filter.py``,
+  ``data_provider/tushare_fetcher.py``,
+  ``data_provider/akshare_fetcher.py``.
+- All call sites (16 production modules + 4 test files + 1 GitHub workflow
+  + ``test.sh``) updated to import directly from the canonical paths
+  (``src.notification_service`` / ``src.notification_service.wechat_formatter``
+  / ``src.notification_service.formatters`` / ``src.services.picker`` /
+  ``src.services.picker.screener`` / ``data_provider.tushare`` /
+  ``data_provider.akshare`` and their ``utils`` / ``realtime`` submodules).
+- ``data_provider/__init__.py`` now imports ``AkshareFetcher`` /
+  ``TushareFetcher`` from their respective canonical sub-packages.
+- ``tests/test_backward_compat_imports.py`` rewritten to assert the
+  canonical public surface only (legacy shim entries removed).
+
 ### Refactor: code quality phase 2.4 (split search service)
 
 - ``src/search_service.py`` (2019 lines) replaced by the

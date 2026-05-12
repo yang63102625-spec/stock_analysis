@@ -28,7 +28,7 @@ from data_provider import DataFetcherManager
 from data_provider.realtime_types import ChipDistribution
 from src.analyzer import GeminiAnalyzer, AnalysisResult, fill_chip_structure_if_needed
 from src.data.stock_mapping import STOCK_NAME_MAP
-from src.notification import NotificationService, NotificationChannel
+from src.notification_service import NotificationService, NotificationChannel
 from src.search_service import SearchService
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult, TrendStatus, BuySignal

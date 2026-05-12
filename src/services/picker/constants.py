@@ -417,7 +417,7 @@ def get_tushare_api(data_manager=None):
 
 def create_screener_from_config(data_manager=None) -> "StockScreener":  # noqa: F821
     """Create StockScreener with config from environment. Use for picker and backtest."""
-    from src.services.picker.quantitative_filter import StockScreener
+    from src.services.picker.screener import StockScreener
     cfg = get_config()
     strategies = getattr(cfg, "picker_strategies", None) or ["buy_pullback"]
     return StockScreener(

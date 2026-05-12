@@ -143,7 +143,7 @@ async def recommend_stocks(body: Optional[PickerRecommendRequest] = Body(None)):
     Optional body: picker_strategies (list of strategy ids).
     """
     try:
-        from src.services.stock_picker_service import StockPickerService
+        from src.services.picker import StockPickerService
 
         req = body or PickerRecommendRequest()
         service = StockPickerService(

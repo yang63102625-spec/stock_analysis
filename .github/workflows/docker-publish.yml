@@ -102,7 +102,7 @@ jobs:
           docker run --rm stock-analysis:release python -c "
           from src.config import get_config; print('ok-config')
           from src.storage import DatabaseManager; print('ok-storage')
-          from src.notification import NotificationService; print('ok-notification')
+          from src.notification_service import NotificationService; print('ok-notification')
           from data_provider import DataFetcherManager; print('ok-data-provider')
           from src.analyzer import GeminiAnalyzer; print('ok-analyzer')
           print('release-smoke-ok')

@@ -329,8 +329,8 @@ def _format_picker_report(result_dict: dict) -> str:
 
 def _run_picker_and_notify() -> None:
     """Run stock picker and push report to configured channels."""
-    from src.services.stock_picker_service import StockPickerService
-    from src.notification import NotificationService
+    from src.services.picker import StockPickerService
+    from src.notification_service import NotificationService
 
     logger.info("开始 AI 智能选股...")
     service = StockPickerService()
@@ -730,7 +730,7 @@ def main() -> int:
         if args.market_review:
             from src.analyzer import GeminiAnalyzer
             from src.core.market_review import run_market_review
-            from src.notification import NotificationService
+            from src.notification_service import NotificationService
             from src.search_service import SearchService
 
             # Issue #373: Trading day check for market-review-only mode.

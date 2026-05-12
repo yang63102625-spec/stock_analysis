@@ -20,7 +20,7 @@ from src.services.picker.constants import (
     ScreenedStock,
     StockPick,
 )
-from src.services.picker.quantitative_filter import StockScreener
+from src.services.picker.screener import StockScreener
 from src.services.picker.realtime_filter import filter_by_realtime
 from src.services.picker.ai_selector import AISelector
 

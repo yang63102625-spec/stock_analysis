@@ -49,7 +49,7 @@ except ImportError:
     logger.warning("[Feishu Stream] 请运行: pip install lark-oapi")
 
 from bot.models import BotMessage, BotResponse, ChatType
-from src.formatters import format_feishu_markdown, chunk_content_by_max_bytes
+from src.notification_service.formatters import format_feishu_markdown, chunk_content_by_max_bytes
 from src.config import get_config
 
 

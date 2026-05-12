@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.formatters import (
+from src.notification_service.formatters import (
     chunk_content_by_max_words,
     chunk_content_by_max_bytes,
     TRUNCATION_SUFFIX,

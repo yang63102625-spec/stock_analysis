@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from src.analyzer import AnalysisResult
 from src.config import get_config, Config
-from src.notification import NotificationService
+from src.notification_service import NotificationService
 from src.enums import ReportType
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review

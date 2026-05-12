@@ -31,8 +31,8 @@
 
 from .base import BaseFetcher, DataFetcherManager
 from .efinance_fetcher import EfinanceFetcher
-from .akshare_fetcher import AkshareFetcher, is_hk_stock_code
-from .tushare_fetcher import TushareFetcher
+from .akshare import AkshareFetcher, is_hk_stock_code
+from .tushare import TushareFetcher
 from .pytdx_fetcher import PytdxFetcher
 from .baostock_fetcher import BaostockFetcher
 from .yfinance_fetcher import YfinanceFetcher

@@ -19,7 +19,7 @@ import pandas as pd
 from data_provider.base import DataFetcherManager
 from data_provider.caching_manager import CachingDataFetcherManager
 from src.config import get_config
-from src.services.stock_picker_service import (
+from src.services.picker import (
     StockScreener,
     create_screener_from_config,
     get_tushare_api,

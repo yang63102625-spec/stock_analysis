@@ -3,8 +3,8 @@ import logging
 import pytest
 import requests
 
-from data_provider.akshare_fetcher import (
-    AkshareFetcher,
+from data_provider.akshare import AkshareFetcher
+from data_provider.akshare.utils import (
     SINA_REALTIME_ENDPOINT,
     TENCENT_REALTIME_ENDPOINT,
 )

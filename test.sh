@@ -183,7 +183,7 @@ test_code_recognition() {
     python3 << 'PYTEST'
 import sys
 sys.path.insert(0, '.')
-from data_provider.akshare_fetcher import _is_hk_code, _is_us_code
+from data_provider.akshare.utils import _is_hk_code, _is_us_code
 
 test_cases = [
     # (代码, 预期HK, 预期US, 描述)
@@ -261,8 +261,9 @@ test_syntax() {
     header "测试场景: Python 语法检查"
     info "检查所有Python文件语法..."
 
-    python3 -m py_compile main.py src/config.py src/notification.py \
-        data_provider/akshare_fetcher.py \
+    python3 -m py_compile main.py \
+        src/config/__init__.py src/notification_service/__init__.py \
+        data_provider/akshare/__init__.py \
         data_provider/yfinance_fetcher.py \
         bot/commands/analyze.py
 
