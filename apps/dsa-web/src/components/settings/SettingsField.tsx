@@ -189,8 +189,15 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
 }) => {
   const schema = item.schema;
   const isMultiValue = isMultiValueField(item);
-  const title = getFieldTitleZh(item.key, item.key);
-  const description = getFieldDescriptionZh(item.key);
+  const title = getFieldTitleZh(
+    { key: item.key, titleZh: item.schema?.titleZh, title: item.schema?.title },
+    item.key,
+  );
+  const description = getFieldDescriptionZh({
+    key: item.key,
+    descriptionZh: item.schema?.descriptionZh,
+    description: item.schema?.description,
+  });
   const hasError = issues.some((issue) => issue.severity === 'error');
   const [isSecretVisible, setIsSecretVisible] = useState(false);
   const [isPasswordEditable, setIsPasswordEditable] = useState(false);

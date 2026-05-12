@@ -51,6 +51,7 @@ def get_field_definition(key: str, value_hint: Optional[str] = None) -> Dict[str
     if key_upper in _FIELD_DEFINITIONS:
         field = deepcopy(_FIELD_DEFINITIONS[key_upper])
         field["key"] = key_upper
+        field.setdefault("display_advanced", False)
         return field
 
     category = _infer_category(key_upper)
@@ -58,7 +59,9 @@ def get_field_definition(key: str, value_hint: Optional[str] = None) -> Dict[str
     field = {
         "key": key_upper,
         "title": key_upper.replace("_", " ").title(),
+        "title_zh": key_upper,
         "description": "Auto-inferred field metadata.",
+        "description_zh": "",
         "category": category,
         "data_type": data_type,
         "ui_control": _infer_ui_control(data_type, key_upper),
@@ -69,6 +72,7 @@ def get_field_definition(key: str, value_hint: Optional[str] = None) -> Dict[str
         "options": [],
         "validation": {},
         "display_order": 9000,
+        "display_advanced": False,
     }
     return field
 

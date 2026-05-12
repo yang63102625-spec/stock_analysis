@@ -4,7 +4,6 @@ export type SystemConfigCategory =
   | 'ai_model'
   | 'notification'
   | 'system'
-  | 'agent'
   | 'backtest'
   | 'uncategorized';
 
@@ -29,7 +28,9 @@ export type SystemConfigUIControl =
 export interface SystemConfigFieldSchema {
   key: string;
   title?: string;
+  titleZh?: string;
   description?: string;
+  descriptionZh?: string;
   category: SystemConfigCategory;
   dataType: SystemConfigDataType;
   uiControl: SystemConfigUIControl;
@@ -40,12 +41,15 @@ export interface SystemConfigFieldSchema {
   options: string[];
   validation: Record<string, unknown>;
   displayOrder: number;
+  displayAdvanced?: boolean;
 }
 
 export interface SystemConfigCategorySchema {
   category: SystemConfigCategory;
   title: string;
+  titleZh?: string;
   description?: string;
+  descriptionZh?: string;
   displayOrder: number;
   fields: SystemConfigFieldSchema[];
 }

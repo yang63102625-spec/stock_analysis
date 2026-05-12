@@ -13,8 +13,10 @@ class SystemConfigFieldSchema(BaseModel):
 
     key: str = Field(..., description="Configuration key name")
     title: Optional[str] = Field(None, description="Display title")
+    title_zh: Optional[str] = Field(None, description="Display title (Chinese)")
     description: Optional[str] = Field(None, description="Field description")
-    category: Literal["base", "data_source", "ai_model", "notification", "system", "agent", "backtest", "uncategorized"]
+    description_zh: Optional[str] = Field(None, description="Field description (Chinese)")
+    category: Literal["base", "data_source", "ai_model", "notification", "system", "backtest", "uncategorized"]
     data_type: Literal["string", "integer", "number", "boolean", "array", "json", "time"]
     ui_control: Literal["text", "password", "number", "select", "textarea", "switch", "time"]
     is_sensitive: bool
@@ -24,6 +26,7 @@ class SystemConfigFieldSchema(BaseModel):
     options: List[str] = Field(default_factory=list)
     validation: Dict[str, Any] = Field(default_factory=dict)
     display_order: int
+    display_advanced: bool = False
 
 
 class SystemConfigCategorySchema(BaseModel):
@@ -31,7 +34,9 @@ class SystemConfigCategorySchema(BaseModel):
 
     category: str
     title: str
+    title_zh: Optional[str] = Field(None, description="Category title (Chinese)")
     description: Optional[str] = None
+    description_zh: Optional[str] = Field(None, description="Category description (Chinese)")
     display_order: int
     fields: List[SystemConfigFieldSchema]
 

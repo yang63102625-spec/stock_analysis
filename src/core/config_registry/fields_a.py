@@ -8,7 +8,9 @@ from typing import Any, Dict
 _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     "STOCK_LIST": {
         "title": "Stock List",
+        "title_zh": "自选股列表",
         "description": "Comma-separated watchlist stock codes.",
+        "description_zh": "用逗号分隔的自选股代码列表。",
         "category": "base",
         "data_type": "array",
         "ui_control": "textarea",
@@ -25,7 +27,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "LITELLM_MODEL": {
         "title": "Primary Model (LiteLLM)",
+        "title_zh": "主模型（LiteLLM）",
         "description": "Unified primary model in provider/model format (e.g. gemini/gemini-3-flash-preview, openai/deepseek-chat, anthropic/claude-3-5-sonnet-20241022). If empty, auto-inferred from available API keys.",
+        "description_zh": "主模型，格式 provider/model；留空则根据已有 API Key 自动推断。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -39,7 +43,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "LITELLM_FALLBACK_MODELS": {
         "title": "Fallback Models (LiteLLM)",
+        "title_zh": "备选模型（LiteLLM）",
         "description": "Comma-separated fallback models tried when the primary model fails (e.g. anthropic/claude-3-5-sonnet-20241022,openai/gpt-4o-mini). Enables cross-provider redundancy.",
+        "description_zh": "主模型失败时按序尝试的备选模型，逗号分隔，可跨厂商冗余。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -56,7 +62,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "LITELLM_CONFIG": {
         "title": "LiteLLM Config File",
+        "title_zh": "LiteLLM 配置文件",
         "description": "Path to litellm_config.yaml (advanced). Takes priority over channels and legacy keys.",
+        "description_zh": "litellm_config.yaml 路径（高级），优先级高于渠道与旧版单独 Key。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -70,7 +78,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "LLM_CHANNELS": {
         "title": "LLM Channels",
+        "title_zh": "LLM 渠道列表",
         "description": "Channel names (comma-separated). Managed by the channel editor above.",
+        "description_zh": "渠道名称列表（逗号分隔）。推荐用上方渠道编辑器管理。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -84,7 +94,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "AIHUBMIX_KEY": {
         "title": "AIHubmix Key",
+        "title_zh": "AIHubmix Key",
         "description": "AIHubmix one-stop API key – access all mainstream models with a single key, no VPN required. Auto-sets base URL to aihubmix.com/v1. Get key: https://aihubmix.com/",
+        "description_zh": "AIHubmix 一站式 API Key，单 Key 访问主流模型；自动指向 aihubmix.com/v1。获取：https://aihubmix.com/",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "password",
@@ -101,7 +113,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "DEEPSEEK_API_KEY": {
         "title": "DeepSeek API Key(s)",
+        "title_zh": "DeepSeek API Key",
         "description": "Official DeepSeek API keys (comma-separated). Auto-infers openai/deepseek-chat when set alone.",
+        "description_zh": "DeepSeek 官方 API 密钥（可逗号分隔多 Key）。单独填写时自动使用 deepseek-chat 模型。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "password",
@@ -115,7 +129,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "TUSHARE_TOKEN": {
         "title": "Tushare Token",
+        "title_zh": "Tushare Token",
         "description": "Token for Tushare Pro API.",
+        "description_zh": "接入 Tushare Pro 的凭据。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "password",
@@ -129,7 +145,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "REALTIME_SOURCE_PRIORITY": {
         "title": "Realtime Source Priority",
+        "title_zh": "实时数据源优先级",
         "description": "Comma-separated priority for realtime quote providers.",
+        "description_zh": "实时行情数据源调用顺序，逗号分隔。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "text",
@@ -143,7 +161,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "BOCHA_API_KEYS": {
         "title": "Bocha API Keys",
+        "title_zh": "Bocha API Keys",
         "description": "Comma-separated Bocha API keys (Chinese search optimization).",
+        "description_zh": "Bocha 新闻检索密钥（逗号分隔，中文检索优化，优先级最高）。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "password",
@@ -157,7 +177,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "TAVILY_API_KEYS": {
         "title": "Tavily API Keys",
+        "title_zh": "Tavily API Keys",
         "description": "Comma-separated Tavily API keys.",
+        "description_zh": "Tavily 新闻检索密钥（逗号分隔多个）。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "password",
@@ -171,7 +193,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "SERPAPI_API_KEYS": {
         "title": "SerpAPI Keys",
+        "title_zh": "SerpAPI API Keys",
         "description": "Comma-separated SerpAPI keys.",
+        "description_zh": "SerpAPI 密钥（逗号分隔多个）。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "password",
@@ -185,7 +209,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "BRAVE_API_KEYS": {
         "title": "Brave API Keys",
+        "title_zh": "Brave API Keys",
         "description": "Comma-separated Brave Search API keys.",
+        "description_zh": "Brave Search 密钥（逗号分隔多个）。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "password",
@@ -199,7 +225,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "MINIMAX_API_KEYS": {
         "title": "MiniMax API Key",
+        "title_zh": "MiniMax API Keys",
         "description": "MiniMax API key (search priority: Bocha > Tavily > Brave > SerpAPI > MiniMax > SearXNG).",
+        "description_zh": "MiniMax 新闻检索密钥；检索优先级：Bocha > Tavily > Brave > SerpAPI > MiniMax > SearXNG。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "password",
@@ -213,7 +241,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "SEARXNG_BASE_URLS": {
         "title": "SearXNG Base URLs",
+        "title_zh": "SearXNG Base URLs",
         "description": "Comma-separated SearXNG instance URLs (self-hosted, no quota). Enable format: json in settings.yml.",
+        "description_zh": "自托管 SearXNG 实例地址（逗号分隔）；需在 settings.yml 启用 format: json。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "text",
@@ -232,7 +262,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "PYTDX_SERVERS": {
         "title": "Pytdx Servers",
+        "title_zh": "Pytdx 服务器",
         "description": "Comma-separated ip:port list (e.g. 192.168.1.1:7709,10.0.0.1:7709). When empty, built-in default hosts are used.",
+        "description_zh": "Pytdx 行情服务器 ip:port 列表（逗号分隔）；留空则使用内置默认主机。",
         "category": "data_source",
         "data_type": "string",
         "ui_control": "text",
@@ -246,7 +278,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "GEMINI_API_KEY": {
         "title": "Gemini API Key(s)",
+        "title_zh": "Gemini API Key",
         "description": "One or more Gemini API keys (comma-separated for load balancing, from https://aistudio.google.com).",
+        "description_zh": "Gemini API 密钥（可逗号分隔多 Key 做负载均衡）。来源：https://aistudio.google.com",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "password",
@@ -260,7 +294,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "GEMINI_MODEL": {
         "title": "Gemini Model",
+        "title_zh": "Gemini 模型",
         "description": "Gemini model name.",
+        "description_zh": "Gemini 模型名称。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -274,7 +310,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "GEMINI_TEMPERATURE": {
         "title": "Gemini Temperature",
+        "title_zh": "Gemini 温度",
         "description": "Temperature in range [0.0, 2.0].",
+        "description_zh": "采样温度，范围 [0.0, 2.0]。",
         "category": "ai_model",
         "data_type": "number",
         "ui_control": "number",
@@ -288,7 +326,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "OPENAI_API_KEY": {
         "title": "OpenAI API Key(s)",
+        "title_zh": "OpenAI API Key",
         "description": "OpenAI-compatible API keys (comma-separated). AIHUBMIX_KEY env still works when this is empty.",
+        "description_zh": "OpenAI 兼容服务的 API Key（逗号分隔）。留空时仍可使用 AIHUBMIX_KEY 环境变量。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "password",
@@ -302,7 +342,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "OPENAI_BASE_URL": {
         "title": "OpenAI Base URL",
+        "title_zh": "OpenAI Base URL",
         "description": "Base URL for OpenAI-compatible endpoint.",
+        "description_zh": "OpenAI 兼容 API 的 Base URL。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -316,7 +358,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "OPENAI_MODEL": {
         "title": "OpenAI Model",
+        "title_zh": "OpenAI 模型",
         "description": "Model name for OpenAI-compatible endpoint.",
+        "description_zh": "OpenAI 兼容端点使用的模型名。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -330,7 +374,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "OPENAI_TEMPERATURE": {
         "title": "OpenAI Temperature",
+        "title_zh": "OpenAI 温度",
         "description": "Temperature for OpenAI-compatible models in range [0.0, 2.0].",
+        "description_zh": "OpenAI 兼容模型的温度参数，范围 [0.0, 2.0]。",
         "category": "ai_model",
         "data_type": "number",
         "ui_control": "number",
@@ -344,7 +390,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "ANTHROPIC_API_KEY": {
         "title": "Anthropic API Key(s)",
+        "title_zh": "Anthropic API Key",
         "description": "Anthropic Claude API keys (comma-separated for load balancing, from https://console.anthropic.com).",
+        "description_zh": "Anthropic Claude API 密钥（逗号分隔多个）。来源：https://console.anthropic.com",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "password",
@@ -358,7 +406,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "ANTHROPIC_MODEL": {
         "title": "Anthropic Model",
-        "description": "Claude 模型名称（如 claude-3-5-sonnet-20241022）。",
+        "title_zh": "Anthropic 模型",
+        "description": "Claude model name (e.g. claude-3-5-sonnet-20241022).",
+        "description_zh": "Claude 模型名称（如 claude-3-5-sonnet-20241022）。",
         "category": "ai_model",
         "data_type": "string",
         "ui_control": "text",
@@ -372,7 +422,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "ANTHROPIC_TEMPERATURE": {
         "title": "Anthropic Temperature",
-        "description": "温度参数，范围 [0.0, 1.0]。",
+        "title_zh": "Anthropic 温度",
+        "description": "Temperature in range [0.0, 1.0].",
+        "description_zh": "温度参数，范围 [0.0, 1.0]。",
         "category": "ai_model",
         "data_type": "number",
         "ui_control": "number",
@@ -386,7 +438,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "ANTHROPIC_MAX_TOKENS": {
         "title": "Anthropic Max Tokens",
-        "description": "Anthropic API 响应最大 token 数（默认 8192）。",
+        "title_zh": "Anthropic 最大 Token",
+        "description": "Maximum tokens for Anthropic API response (default 8192).",
+        "description_zh": "Anthropic 响应最大 token 数（默认 8192）。",
         "category": "ai_model",
         "data_type": "number",
         "ui_control": "number",
@@ -400,7 +454,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "WECHAT_WEBHOOK_URL": {
         "title": "WeChat Webhook URL",
+        "title_zh": "企业微信 Webhook",
         "description": "Webhook URL for enterprise WeChat bot.",
+        "description_zh": "企业微信机器人的 Webhook 地址。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -414,7 +470,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "DINGTALK_APP_KEY": {
         "title": "DingTalk App Key",
+        "title_zh": "钉钉 App Key",
         "description": "DingTalk app key.",
+        "description_zh": "钉钉应用模式 App Key。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -428,7 +486,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "DINGTALK_APP_SECRET": {
         "title": "DingTalk App Secret",
+        "title_zh": "钉钉 App Secret",
         "description": "DingTalk app secret.",
+        "description_zh": "钉钉应用模式 App Secret。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -442,7 +502,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "PUSHPLUS_TOKEN": {
         "title": "PushPlus Token",
+        "title_zh": "PushPlus Token",
         "description": "Token for PushPlus notifications.",
+        "description_zh": "PushPlus 推送令牌。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -456,7 +518,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "CUSTOM_WEBHOOK_URLS": {
         "title": "Custom Webhook URLs",
+        "title_zh": "自定义 Webhook",
         "description": "Comma-separated webhook URLs for custom notifications (DingTalk, Discord, Slack, etc.).",
+        "description_zh": "自定义通知的 Webhook 地址，逗号分隔（可含钉钉、Discord、Slack 等）。",
         "category": "notification",
         "data_type": "array",
         "ui_control": "textarea",
@@ -471,7 +535,9 @@ _FIELD_DEFS_A: Dict[str, Dict[str, Any]] = {
     },
     "CUSTOM_WEBHOOK_BEARER_TOKEN": {
         "title": "Custom Webhook Bearer Token",
+        "title_zh": "自定义 Webhook Bearer",
         "description": "Bearer token for authenticated custom webhooks.",
+        "description_zh": "需鉴权的自定义 Webhook 所用的 Bearer Token。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",

@@ -3,6 +3,7 @@ import { createParsedApiError, getParsedApiError, type ParsedApiError } from '..
 import { systemConfigApi, SystemConfigConflictError, SystemConfigValidationError } from '../api/systemConfig';
 import type {
   ConfigValidationIssue,
+  SystemConfigCategory,
   SystemConfigCategorySchema,
   SystemConfigItem,
   SystemConfigUpdateItem,
@@ -21,6 +22,12 @@ export function useSystemConfig() {
   const [activeCategory, setActiveCategory] = useState<string>('base');
   const [validationIssues, setValidationIssues] = useState<ConfigValidationIssue[]>([]);
   const [toast, setToast] = useState<ToastState>(null);
+  const [categorySchemaMeta, setCategorySchemaMeta] = useState<
+    Record<
+      string,
+      { title?: string; titleZh?: string; description?: string; descriptionZh?: string }
+    >
+  >({});
 
   // Request state
   const [isLoading, setIsLoading] = useState(false);
@@ -144,6 +151,25 @@ export function useSystemConfig() {
       const config = await systemConfigApi.getConfig(true);
       applyServerPayload(config.items, config.configVersion, config.maskToken);
       setToast(null);
+      try {
+        const schema = await systemConfigApi.getSchema();
+        const meta: Record<
+          string,
+          { title?: string; titleZh?: string; description?: string; descriptionZh?: string }
+        > = {};
+        for (const row of schema.categories) {
+          const cat = row.category as SystemConfigCategory;
+          meta[cat] = {
+            title: row.title,
+            titleZh: row.titleZh,
+            description: row.description,
+            descriptionZh: row.descriptionZh,
+          };
+        }
+        setCategorySchemaMeta(meta);
+      } catch {
+        setCategorySchemaMeta({});
+      }
     } catch (error: unknown) {
       setLoadError(getParsedApiError(error));
       setRetryAction('load');
@@ -282,6 +308,7 @@ export function useSystemConfig() {
     maskToken,
     serverItems,
     categories,
+    categorySchemaMeta,
     itemsByCategory,
     issueByKey,
 

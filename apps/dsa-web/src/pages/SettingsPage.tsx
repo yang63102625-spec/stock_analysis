@@ -16,6 +16,7 @@ const SettingsPage: React.FC = () => {
   const { passwordChangeable } = useAuth();
   const {
     categories,
+    categorySchemaMeta,
     itemsByCategory,
     issueByKey,
     activeCategory,
@@ -64,6 +65,9 @@ const SettingsPage: React.FC = () => {
     activeCategory === 'ai_model'
       ? rawActiveItems.filter((item) => !LLM_CHANNEL_KEY_RE.test(item.key))
       : rawActiveItems;
+
+  const mainItems = activeItems.filter((i) => !i.schema?.displayAdvanced);
+  const advancedItems = activeItems.filter((i) => i.schema?.displayAdvanced);
 
   return (
     <div className="min-h-screen px-6 py-6 max-w-6xl mx-auto">
@@ -121,7 +125,15 @@ const SettingsPage: React.FC = () => {
             <div className="flex gap-2 justify-center flex-wrap">
               {categories.map((category) => {
                 const isActive = category.category === activeCategory;
-                const title = getCategoryTitleZh(category.category, category.title);
+                const cm = categorySchemaMeta[category.category];
+                const title = getCategoryTitleZh(
+                  {
+                    category: category.category,
+                    titleZh: cm?.titleZh,
+                    title: cm?.title ?? category.title,
+                  },
+                  category.title,
+                );
 
                 return (
                   <button
@@ -170,8 +182,8 @@ const SettingsPage: React.FC = () => {
                 <ChangePasswordCard />
               </div>
             ) : null}
-            {activeItems.length ? (
-              activeItems.map((item) => (
+            {mainItems.length ? (
+              mainItems.map((item) => (
                 <SettingsField
                   key={item.key}
                   item={item}
@@ -181,11 +193,31 @@ const SettingsPage: React.FC = () => {
                   issues={issueByKey[item.key] || []}
                 />
               ))
-            ) : (
+            ) : null}
+            {advancedItems.length ? (
+              <details className="rounded-xl border border-border bg-elevated/30 p-4">
+                <summary className="cursor-pointer text-sm font-medium text-primary select-none">
+                  更多设置 (高级)
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {advancedItems.map((item) => (
+                    <SettingsField
+                      key={item.key}
+                      item={item}
+                      value={item.value}
+                      disabled={isSaving}
+                      onChange={setDraftValue}
+                      issues={issueByKey[item.key] || []}
+                    />
+                  ))}
+                </div>
+              </details>
+            ) : null}
+            {!mainItems.length && !advancedItems.length ? (
               <div className="rounded-xl border border-border bg-elevated/40 p-5 text-sm text-secondary">
                 当前分类下暂无配置项。
               </div>
-            )}
+            ) : null}
           </section>
         </>
       )}

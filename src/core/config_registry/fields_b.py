@@ -8,7 +8,9 @@ from typing import Any, Dict
 _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     "REPORT_SUMMARY_ONLY": {
         "title": "Report Summary Only",
+        "title_zh": "仅推送摘要",
         "description": "Push only analysis summary without per-stock details. Suitable for quick overview when tracking many stocks (Issue #262).",
+        "description_zh": "只推送分析摘要、不含个股详情；多股关注时便于快速浏览（Issue #262）。",
         "category": "notification",
         "data_type": "boolean",
         "ui_control": "switch",
@@ -25,7 +27,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "FEISHU_WEBHOOK_URL": {
         "title": "Feishu Webhook URL",
+        "title_zh": "飞书 Webhook",
         "description": "Webhook URL for Feishu (Lark) bot notifications.",
+        "description_zh": "飞书（Lark）群机器人的 Webhook 地址。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -39,7 +43,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "FEISHU_APP_ID": {
         "title": "Feishu App ID",
+        "title_zh": "飞书 App ID",
         "description": "Feishu app bot App ID (for event-driven bot mode).",
+        "description_zh": "飞书应用机器人 App ID（事件订阅模式）。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "text",
@@ -54,7 +60,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "FEISHU_APP_SECRET": {
         "title": "Feishu App Secret",
+        "title_zh": "飞书 App Secret",
         "description": "Feishu app bot App Secret.",
+        "description_zh": "飞书应用机器人 App Secret。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -72,7 +80,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "TELEGRAM_BOT_TOKEN": {
         "title": "Telegram Bot Token",
+        "title_zh": "Telegram Bot Token",
         "description": "Telegram bot token (from @BotFather).",
+        "description_zh": "Telegram 机器人 Token（@BotFather 获取）。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -87,7 +97,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "TELEGRAM_CHAT_ID": {
         "title": "Telegram Chat ID",
+        "title_zh": "Telegram Chat ID",
         "description": "Telegram chat/group ID to send messages to.",
+        "description_zh": "接收消息的 Telegram 会话/群组 ID。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "text",
@@ -102,7 +114,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "TELEGRAM_MESSAGE_THREAD_ID": {
         "title": "Telegram Thread ID",
+        "title_zh": "Telegram 话题 ID",
         "description": "Telegram topic/thread ID for group messages (optional).",
+        "description_zh": "群组内话题/串 ID（可选）。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "text",
@@ -120,7 +134,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "EMAIL_SENDER": {
         "title": "Email Sender",
+        "title_zh": "发件邮箱",
         "description": "Sender email address (SMTP host auto-detected).",
+        "description_zh": "发件人邮箱地址（SMTP 主机自动识别）。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "text",
@@ -134,7 +150,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "EMAIL_PASSWORD": {
         "title": "Email Password",
+        "title_zh": "邮箱密码",
         "description": "Email password or app-specific authorization code.",
+        "description_zh": "邮箱密码或专用授权码。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -148,7 +166,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "EMAIL_RECEIVERS": {
         "title": "Email Receivers",
+        "title_zh": "收件人",
         "description": "Comma-separated recipient email addresses. Leave empty to send to yourself.",
+        "description_zh": "收件人邮箱，逗号分隔；留空则发给自己。",
         "category": "notification",
         "data_type": "array",
         "ui_control": "textarea",
@@ -165,7 +185,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "DISCORD_WEBHOOK_URL": {
         "title": "Discord Webhook URL",
+        "title_zh": "Discord Webhook",
         "description": "Discord webhook URL for channel notifications.",
+        "description_zh": "Discord 频道 Webhook 地址。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -180,7 +202,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "DISCORD_BOT_TOKEN": {
         "title": "Discord Bot Token",
+        "title_zh": "Discord Bot Token",
         "description": "Discord bot token for interactive bot mode.",
+        "description_zh": "Discord 交互式机器人模式的 Token。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -195,7 +219,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "DISCORD_MAIN_CHANNEL_ID": {
         "title": "Discord Channel ID",
+        "title_zh": "Discord 频道 ID",
         "description": "Discord main channel ID for sending messages.",
+        "description_zh": "用于发送消息的 Discord 主频道 ID。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "text",
@@ -213,7 +239,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "PUSHOVER_USER_KEY": {
         "title": "Pushover User Key",
+        "title_zh": "Pushover User Key",
         "description": "Pushover user key (from https://pushover.net).",
+        "description_zh": "Pushover 用户 Key。来源：https://pushover.net",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -228,7 +256,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "PUSHOVER_API_TOKEN": {
         "title": "Pushover API Token",
+        "title_zh": "Pushover API Token",
         "description": "Pushover application API token.",
+        "description_zh": "Pushover 应用的 API Token。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -243,7 +273,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "PUSHPLUS_TOPIC": {
         "title": "PushPlus Topic",
+        "title_zh": "PushPlus 群组码",
         "description": "PushPlus group topic code for one-to-many push.",
+        "description_zh": "PushPlus 一对多推送的群组 topic 编码。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "text",
@@ -261,7 +293,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     # ------------------------------------------------------------------
     "SERVERCHAN3_SENDKEY": {
         "title": "ServerChan3 SendKey",
+        "title_zh": "Server酱 SendKey",
         "description": "Server酱3 SendKey for push notifications.",
+        "description_zh": "Server酱3 推送的 SendKey。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "password",
@@ -275,7 +309,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "REPORT_TYPE": {
         "title": "Report Type",
+        "title_zh": "报告类型",
         "description": "Report format for analysis/dashboard: 'simple' (concise), 'full' (detailed), or 'brief' (3-5 sentences).",
+        "description_zh": "分析与看板推送格式：simple 精简、full 详细、brief 三五句。",
         "category": "notification",
         "data_type": "string",
         "ui_control": "select",
@@ -289,7 +325,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "SCHEDULE_TIME": {
         "title": "Schedule Time",
+        "title_zh": "定时任务时间",
         "description": "Daily run at HH:MM (24h). Leave empty to disable daily scheduling. Use CLI --schedule to run the scheduler when this is empty (defaults to 18:00).",
+        "description_zh": "每日 HH:MM 定时运行；留空则关闭。也可用 CLI --schedule；留空时默认 18:00。",
         "category": "system",
         "data_type": "time",
         "ui_control": "time",
@@ -303,7 +341,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "HTTP_PROXY": {
         "title": "HTTP Proxy",
+        "title_zh": "HTTP 代理",
         "description": "Optional HTTP proxy endpoint.",
+        "description_zh": "可选 HTTP 代理地址。",
         "category": "system",
         "data_type": "string",
         "ui_control": "text",
@@ -317,7 +357,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "LOG_LEVEL": {
         "title": "Log Level",
+        "title_zh": "日志级别",
         "description": "Application log level.",
+        "description_zh": "应用日志输出级别。",
         "category": "system",
         "data_type": "string",
         "ui_control": "select",
@@ -331,7 +373,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "MARKET_REVIEW_REGION": {
         "title": "Market Review Region",
+        "title_zh": "复盘市场范围",
         "description": "Market region for review: cn (A-shares), us (US stocks), or both.",
+        "description_zh": "复盘覆盖市场：cn A 股、us 美股、both 两者。",
         "category": "system",
         "data_type": "string",
         "ui_control": "select",
@@ -345,7 +389,9 @@ _FIELD_DEFS_B: Dict[str, Dict[str, Any]] = {
     },
     "BACKTEST_ENABLED": {
         "title": "Backtest Enabled",
+        "title_zh": "启用回测",
         "description": "Whether backtest is enabled.",
+        "description_zh": "是否启用回测功能。",
         "category": "backtest",
         "data_type": "boolean",
         "ui_control": "switch",

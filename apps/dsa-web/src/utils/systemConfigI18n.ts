@@ -1,28 +1,26 @@
 import type { SystemConfigCategory } from '../types/systemConfig';
 
-const categoryTitleMap: Record<SystemConfigCategory, string> = {
+const legacyCategoryTitleMap: Partial<Record<SystemConfigCategory, string>> = {
   base: '基础设置',
   data_source: '数据源',
   ai_model: 'AI 模型',
   notification: '通知渠道',
   system: '系统设置',
-  agent: 'Agent 设置',
   backtest: '回测配置',
   uncategorized: '其他',
 };
 
-const categoryDescriptionMap: Partial<Record<SystemConfigCategory, string>> = {
+const legacyCategoryDescriptionMap: Partial<Record<SystemConfigCategory, string>> = {
   base: '管理自选股与基础运行参数。',
   data_source: '管理行情数据源与优先级策略。',
   ai_model: '管理模型供应商、模型名称与推理参数。',
   notification: '管理机器人、Webhook 和消息推送配置。',
   system: '管理调度、日志、端口等系统级参数。',
-  agent: '管理 Agent 模式、技能与策略配置。',
   backtest: '管理回测开关、评估窗口和引擎参数。',
   uncategorized: '其他未归类的配置项。',
 };
 
-const fieldTitleMap: Record<string, string> = {
+const legacyTitleMap: Record<string, string> = {
   STOCK_LIST: '自选股列表',
   TUSHARE_TOKEN: 'Tushare Token',
   BOCHA_API_KEYS: 'Bocha API Keys',
@@ -64,7 +62,7 @@ const fieldTitleMap: Record<string, string> = {
   BACKTEST_NEUTRAL_BAND_PCT: '回测中性区间阈值（%）',
 };
 
-const fieldDescriptionMap: Record<string, string> = {
+const legacyDescriptionMap: Record<string, string> = {
   STOCK_LIST: '使用逗号分隔股票代码，例如：600519,300750。',
   TUSHARE_TOKEN: '用于接入 Tushare Pro 数据服务的凭据。',
   BOCHA_API_KEYS: '用于新闻检索的 Bocha 密钥，支持逗号分隔多个（最高优先级）。',
@@ -106,18 +104,36 @@ const fieldDescriptionMap: Record<string, string> = {
   BACKTEST_NEUTRAL_BAND_PCT: '中性区间阈值百分比，例如 2 表示 -2%~+2%。',
 };
 
-export function getCategoryTitleZh(category: SystemConfigCategory, fallback?: string): string {
-  return categoryTitleMap[category] || fallback || category;
+export function getCategoryTitleZh(
+  item: { category: SystemConfigCategory; titleZh?: string; title?: string },
+  fallback?: string,
+): string {
+  return (
+    item.titleZh ||
+    legacyCategoryTitleMap[item.category] ||
+    item.title ||
+    fallback ||
+    item.category
+  );
 }
 
-export function getCategoryDescriptionZh(category: SystemConfigCategory, fallback?: string): string {
-  return categoryDescriptionMap[category] || fallback || '';
+export function getCategoryDescriptionZh(
+  item: { category: SystemConfigCategory; descriptionZh?: string; description?: string },
+  fallback?: string,
+): string {
+  return item.descriptionZh || legacyCategoryDescriptionMap[item.category] || item.description || fallback || '';
 }
 
-export function getFieldTitleZh(key: string, fallback?: string): string {
-  return fieldTitleMap[key] || fallback || key;
+export function getFieldTitleZh(
+  item: { key: string; titleZh?: string; title?: string },
+  fallback?: string,
+): string {
+  return item.titleZh || legacyTitleMap[item.key] || item.title || fallback || item.key;
 }
 
-export function getFieldDescriptionZh(key: string, fallback?: string): string {
-  return fieldDescriptionMap[key] || fallback || '';
+export function getFieldDescriptionZh(
+  item: { key: string; descriptionZh?: string; description?: string },
+  fallback?: string,
+): string {
+  return item.descriptionZh || legacyDescriptionMap[item.key] || item.description || fallback || '';
 }
