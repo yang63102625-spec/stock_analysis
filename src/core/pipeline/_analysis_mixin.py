@@ -23,6 +23,7 @@ from src.analyzer import AnalysisResult, GeminiAnalyzer, fill_chip_structure_if_
 from src.config import Config, get_config
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.enums import ReportType
+from src.search_service import SearchService
 from src.stock_analyzer import (
     BuySignal,
     StockTrendAnalyzer,

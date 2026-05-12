@@ -48,7 +48,13 @@ class TestPipelineEmailGroupImageRouting(unittest.TestCase):
         pipeline.config = SimpleNamespace(
             stock_email_groups=[
                 (["000001"], ["group@example.com"]),
-            ]
+            ],
+            # ``_send_notifications`` calls ``get_effective_push_report_type``
+            # which reads ``push_report_type`` / ``report_type`` from the
+            # config object. Provide explicit values so the SimpleNamespace
+            # surface matches the real Config dataclass.
+            push_report_type="",
+            report_type="simple",
         )
         return pipeline
 
@@ -108,7 +114,11 @@ class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
     def test_send_notifications_wechat_only_skips_full_report_conversion(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.notifier = _FakeWechatNotifier()
-        pipeline.config = SimpleNamespace(stock_email_groups=[])
+        pipeline.config = SimpleNamespace(
+            stock_email_groups=[],
+            push_report_type="",
+            report_type="simple",
+        )
         results = [SimpleNamespace(code="000001")]
 
         with patch("src.md2img.markdown_to_image", return_value=b"wechat-image") as mock_md2img:
@@ -123,12 +133,16 @@ class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
     def test_send_notifications_wechat_only_logs_hint_and_falls_back_to_text(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.notifier = _FakeWechatNotifier()
-        pipeline.config = SimpleNamespace(stock_email_groups=[])
+        pipeline.config = SimpleNamespace(
+            stock_email_groups=[],
+            push_report_type="",
+            report_type="simple",
+        )
         results = [SimpleNamespace(code="000001")]
 
         with patch("src.md2img.markdown_to_image", return_value=None), patch(
             "src.core.pipeline.get_config", return_value=SimpleNamespace(md2img_engine="wkhtmltoimage")
-        ), patch("src.core.pipeline.logger.warning") as mock_warning:
+        ), patch("src.core.pipeline._notify_mixin.logger.warning") as mock_warning:
             pipeline._send_notifications(results, ReportType.SIMPLE)
 
         pipeline.notifier._send_wechat_image.assert_not_called()

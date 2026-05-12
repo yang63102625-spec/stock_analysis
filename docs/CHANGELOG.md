@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fix: clear all pre-existing test failures (T4.5)
+
+Suite is now fully green: **685 passed, 0 failures**.
+
+Two real bugs uncovered (both fallout from Phase 3's pipeline split):
+
+- ``src/core/pipeline/_analysis_mixin.py``: missing
+  ``from src.search_service import SearchService`` import. The
+  ``_enhance_context`` path called ``SearchService.is_index_or_etf``
+  which raised ``NameError`` at runtime — caught by every test that
+  exercised the legacy (non-agent) analysis branch.
+- ``src/core/pipeline/_market_env_mixin.py``: ``date`` was used
+  (``date.today()``) but only ``datetime`` was imported. Triggered
+  ``NameError`` whenever
+  ``_augment_historical_with_realtime`` was called outside trading
+  hours.
+
+Test fixtures updated to match the post-Phase-1/3 module layout:
+
+- ``tests/test_agent_pipeline.py`` (5 cases): patched
+  ``src.config.load_dotenv`` (gone) and called
+  ``Config._load_from_env`` (renamed). Now patch
+  ``src.config.base.load_dotenv`` and call the canonical
+  ``src.config.loader.load_config_from_env``.
+- ``tests/test_pipeline_realtime_indicators.py`` (9 cases): same
+  ``Config._load_from_env`` migration.
+- ``tests/test_pipeline_notification_image_routing.py`` (5 cases):
+  ``SimpleNamespace`` config fixtures now declare
+  ``push_report_type`` / ``report_type`` (consumed by
+  ``get_effective_push_report_type``). The
+  ``logger.warning`` patch target migrated from
+  ``src.core.pipeline`` to ``src.core.pipeline._notify_mixin``
+  to match the post-T3.3 module structure.
+
 ### Refactor: split the last two 800+ line modules (T4.4-followup)
 
 Closes the rule §1 overflow tracked in the T4.4 wrap-up below — no

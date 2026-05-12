@@ -81,8 +81,9 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
         with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
             from src.config import Config
+            from src.config.loader import load_config_from_env
             Config._instance = None
-            self.config = Config._load_from_env()
+            self.config = load_config_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
     def test_returns_unchanged_when_realtime_none(self) -> None:
@@ -166,8 +167,9 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
         with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
             from src.config import Config
+            from src.config.loader import load_config_from_env
             Config._instance = None
-            self.config = Config._load_from_env()
+            self.config = load_config_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
     def test_today_overridden_when_realtime_and_trend_exist(self) -> None:

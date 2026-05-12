@@ -33,13 +33,20 @@ def _builtin_strategy_names() -> set[str]:
 class TestAgentConfig(unittest.TestCase):
     """Test agent-related configuration fields load correctly."""
 
+    # The Config singleton was refactored in Phase 1 — ``_load_from_env``
+    # (classmethod) was replaced by ``src.config.loader.load_config_from_env``
+    # and ``load_dotenv`` is now imported inside ``src.config.base`` rather
+    # than at the package root. Tests patch the new locations and call the
+    # canonical loader directly.
+
     @patch.dict(os.environ, {}, clear=True)
-    @patch('src.config.load_dotenv')
+    @patch('src.config.base.load_dotenv')
     def test_default_agent_config(self, _mock_dotenv):
         """Agent mode should be disabled by default."""
         from src.config import Config
+        from src.config.loader import load_config_from_env
         Config._instance = None
-        config = Config._load_from_env()
+        config = load_config_from_env()
         self.assertFalse(config.agent_mode)
         self.assertEqual(config.agent_max_steps, 10)
         self.assertEqual(config.agent_skills, [])
@@ -49,37 +56,45 @@ class TestAgentConfig(unittest.TestCase):
         'AGENT_MAX_STEPS': '15',
         'AGENT_SKILLS': 'dragon_head,shrink_pullback,volume_breakout',
     }, clear=True)
-    def test_agent_config_from_env(self):
+    @patch('src.config.base.load_dotenv')
+    def test_agent_config_from_env(self, _mock_dotenv):
         """Agent config should be loaded from environment."""
         from src.config import Config
+        from src.config.loader import load_config_from_env
         Config._instance = None
-        config = Config._load_from_env()
+        config = load_config_from_env()
         self.assertTrue(config.agent_mode)
         self.assertEqual(config.agent_max_steps, 15)
         self.assertEqual(config.agent_skills, ['dragon_head', 'shrink_pullback', 'volume_breakout'])
 
     @patch.dict(os.environ, {'AGENT_MODE': 'false'}, clear=True)
-    def test_agent_mode_disabled(self):
+    @patch('src.config.base.load_dotenv')
+    def test_agent_mode_disabled(self, _mock_dotenv):
         """Explicitly disabled agent mode."""
         from src.config import Config
+        from src.config.loader import load_config_from_env
         Config._instance = None
-        config = Config._load_from_env()
+        config = load_config_from_env()
         self.assertFalse(config.agent_mode)
 
     @patch.dict(os.environ, {'AGENT_SKILLS': ''}, clear=True)
-    def test_empty_skills_list(self):
+    @patch('src.config.base.load_dotenv')
+    def test_empty_skills_list(self, _mock_dotenv):
         """Empty AGENT_SKILLS should produce empty list."""
         from src.config import Config
+        from src.config.loader import load_config_from_env
         Config._instance = None
-        config = Config._load_from_env()
+        config = load_config_from_env()
         self.assertEqual(config.agent_skills, [])
 
     @patch.dict(os.environ, {'AGENT_SKILLS': '  dragon_head , shrink_pullback  '}, clear=True)
-    def test_skills_whitespace_handling(self):
+    @patch('src.config.base.load_dotenv')
+    def test_skills_whitespace_handling(self, _mock_dotenv):
         """Skills should have whitespace trimmed."""
         from src.config import Config
+        from src.config.loader import load_config_from_env
         Config._instance = None
-        config = Config._load_from_env()
+        config = load_config_from_env()
         self.assertEqual(config.agent_skills, ['dragon_head', 'shrink_pullback'])
 
 
