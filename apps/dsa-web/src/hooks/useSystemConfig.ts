@@ -7,61 +7,8 @@ import type {
   SystemConfigItem,
   SystemConfigUpdateItem,
 } from '../types/systemConfig';
-
-type ToastState = {
-  type: 'success';
-  message: string;
-} | {
-  type: 'error';
-  error: ParsedApiError;
-} | null;
-
-type RetryAction = 'load' | 'save' | null;
-
-type SaveResult = {
-  success: boolean;
-  message?: string;
-  issues?: ConfigValidationIssue[];
-};
-
-const CATEGORY_DISPLAY_ORDER: Record<string, number> = {
-  base: 10,
-  ai_model: 20,
-  data_source: 30,
-  notification: 40,
-  system: 50,
-  agent: 55,
-  backtest: 60,
-  uncategorized: 99,
-};
-
-function sortItemsByOrder(items: SystemConfigItem[]): SystemConfigItem[] {
-  return [...items].sort((a, b) => {
-    const left = a.schema?.displayOrder ?? 9999;
-    const right = b.schema?.displayOrder ?? 9999;
-    if (left !== right) {
-      return left - right;
-    }
-    return a.key.localeCompare(b.key);
-  });
-}
-
-function isMultiValueSchema(schema: SystemConfigItem['schema'] | undefined): boolean {
-  const validation = (schema?.validation ?? {}) as Record<string, unknown>;
-  return Boolean(validation.multiValue ?? validation.multi_value);
-}
-
-function normalizeFieldValue(value: string, schema: SystemConfigItem['schema'] | undefined): string {
-  if (!isMultiValueSchema(schema)) {
-    return value;
-  }
-
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-    .join(',');
-}
+import type { RetryAction, SaveResult, ToastState } from './systemConfig/types';
+import { CATEGORY_DISPLAY_ORDER, normalizeFieldValue, sortItemsByOrder } from './systemConfig/utils';
 
 export function useSystemConfig() {
   // Server state
