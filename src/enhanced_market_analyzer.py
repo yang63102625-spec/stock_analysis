@@ -23,7 +23,6 @@ import pandas as pd
 
 from src.config import get_config
 from src.search_service import SearchService
-from src.market_analyzer import MarketAnalyzer, MarketOverview, MarketIndex
 from src._enhanced_market_types import (
     EnhancedMarketReport,
     ExternalEnvironment,
@@ -32,6 +31,8 @@ from src._enhanced_market_types import (
     SentimentAnalysis,
     TechnicalAnalysis,
 )
+from src._market_prompt_builder import compose_enhanced_prompt
+from src.market_analyzer import MarketAnalyzer, MarketOverview, MarketIndex
 from data_provider.base import DataFetcherManager
 
 logger = logging.getLogger(__name__)
@@ -418,111 +419,8 @@ class EnhancedMarketAnalyzer(MarketAnalyzer):
     
     def _build_enhanced_prompt(self, data: EnhancedMarketReport) -> str:
         """构建增强版报告Prompt"""
-        
-        # 基础市场数据
-        indices_text = ""
-        for idx in data.basic_overview.indices:
-            direction = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-            indices_text += f"- {idx.name}: {idx.current:.2f} ({direction}{abs(idx.change_pct):.2f}%)\n"
-        
-        # 情绪分析数据
-        sentiment_text = f"""
-情绪等级: {data.sentiment_analysis.sentiment.value}
-恐慌贪婪指数: {data.sentiment_analysis.fear_greed_index:.1f}/100
-市场热度: {data.sentiment_analysis.market_heat:.1f}/100
-资金流向: {data.sentiment_analysis.fund_flow_trend}
-"""
-        
-        # 板块热点数据
-        hotspots_text = ""
-        for hotspot in data.sector_hotspots[:5]:
-            hotspots_text += f"- {hotspot.name}: {hotspot.change_pct:+.2f}% ({hotspot.sustainability})\n"
-            if hotspot.concept_tags:
-                hotspots_text += f"  概念: {', '.join(hotspot.concept_tags)}\n"
-        
-        # 外界环境数据
-        env_text = f"""
-政策面: {data.external_environment.policy_impact}
-国际市场: {data.external_environment.international_market}
-宏观数据: {data.external_environment.macro_data}
-"""
-        
-        # 技术面数据
-        tech_text = f"""
-趋势方向: {data.technical_analysis.trend_direction}
-关键支撑: {data.technical_analysis.key_support:.0f}
-关键阻力: {data.technical_analysis.key_resistance:.0f}
-量价关系: {data.technical_analysis.volume_price_relation}
-市场结构: {data.technical_analysis.market_structure}
-"""
-        
-        return f"""你是一位资深的A股市场分析师，请根据以下全面的市场数据生成一份专业的大盘复盘报告，适合在公众号发布。
+        return compose_enhanced_prompt(data)
 
-【重要】输出要求：
-- 必须输出纯 Markdown 文本格式
-- 语言风格要专业但易懂，适合普通投资者阅读
-- 重点突出市场情绪、板块热点、外界环境等关键信息
-- 给出明确的策略建议和风险提示
-
----
-
-# 今日市场全面数据
-
-## 日期
-{data.date}
-
-## 基础指数行情
-{indices_text}
-
-## 市场统计
-- 上涨: {data.basic_overview.up_count} 家 | 下跌: {data.basic_overview.down_count} 家
-- 涨停: {data.basic_overview.limit_up_count} 家 | 跌停: {data.basic_overview.limit_down_count} 家  
-- 成交额: {data.basic_overview.total_amount:.0f} 亿元
-
-## 市场情绪分析
-{sentiment_text}
-
-## 板块热点分析
-{hotspots_text}
-
-## 外界环境分析
-{env_text}
-
-## 技术面分析
-{tech_text}
-
----
-
-# 输出格式模板（请严格按此格式输出）
-
-## 📊 {data.date} A股智能复盘
-
-### 🎯 一、市场概况
-（用2-3句话概括今日市场整体表现，结合指数涨跌和成交量）
-
-### 📈 二、情绪解读
-（基于恐慌贪婪指数和市场热度，分析当前市场情绪状态及其含义）
-
-### 🔥 三、热点聚焦
-（深度解读领涨板块，分析背后的逻辑和催化剂，评估持续性）
-
-### 🌍 四、外围影响
-（分析政策面、国际市场等外界因素对A股的影响）
-
-### 📊 五、技术研判
-（从技术角度分析趋势、关键位置和量价关系）
-
-### 💡 六、策略建议
-（给出明确的操作建议，包括仓位配置和重点关注方向）
-
-### ⚠️七、风险提示
-（指出需要重点关注的风险点和应对策略）
-
----
-
-请直接输出复盘报告内容，语言要专业权威，适合公众号读者。
-"""
-    
     def _inject_enhanced_data(self, report: str, data: EnhancedMarketReport) -> str:
         """向报告中注入结构化数据"""
         import re
