@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -182,9 +182,14 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
             """根路由 - 前端未构建时返回引导页面"""
             return HTMLResponse(content=_FRONTEND_NOT_BUILT_HTML)
     
-    @app.get(
+    from api.v1.envelope_route import EnvelopeRoute
+    from api.v1.schemas.envelope import APIResponse
+
+    health_router = APIRouter(route_class=EnvelopeRoute)
+
+    @health_router.get(
         "/api/health",
-        response_model=HealthResponse,
+        response_model=APIResponse[HealthResponse],
         tags=["Health"],
         summary="健康检查",
         description="用于负载均衡器或监控系统检查服务状态"
@@ -195,6 +200,8 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
             status="ok",
             timestamp=datetime.now().isoformat()
         )
+
+    app.include_router(health_router)
     
     # ============================================================
     # 静态文件托管（前端 SPA）
@@ -211,7 +218,8 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         async def serve_spa(request: Request, full_path: str):
             """SPA 路由回退 - 非 API 路由返回 index.html"""
             if full_path.startswith("api/"):
-                return None
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Not Found")
             
             file_path = static_dir / full_path
             if file_path.exists() and file_path.is_file():

@@ -9,6 +9,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: unify all API responses into the ``APIResponse`` envelope (T4.1)
+
+Implements rule §3 ("API Response Format") from ``code-quality.mdc``: every
+``/api/*`` endpoint now returns the canonical
+``{code, message, data, timestamp}`` envelope, both on success and on error.
+
+**Backend**
+
+- ``api/v1/schemas/envelope.py`` (new): defines ``APIResponse[T]`` (Pydantic
+  generic), ``ApiErrorCode`` (``IntEnum`` taxonomy: 0 success, 1xxx client,
+  2xxx upstream, 9xxx server) and ``success_response`` / ``error_response``
+  helpers. Timestamp uses Beijing time (ISO-8601 with offset).
+- ``api/v1/envelope_route.py`` (new): ``EnvelopeRoute`` (``APIRoute``
+  subclass) wraps every handler return value into ``APIResponse(data=…)``
+  before FastAPI runs ``response_model`` validation. Handlers keep the
+  ergonomic ``return X`` style; pre-built ``Response`` /
+  ``StreamingResponse`` / ``EventSourceResponse`` instances pass through.
+- ``api/middlewares/error_handler.py``: rewritten to emit the envelope for
+  every exception path. Maps project exceptions
+  (``RateLimitError`` / ``NetworkError`` / ``DataSourceUnavailableError`` /
+  ``ValidationError`` / ``DataFetchError``) and ``HTTPException`` to a
+  fixed ``ApiErrorCode``. Legacy ``detail={"error": …, "message": …}``
+  shape is no longer special-cased — endpoints must use plain-string
+  ``detail`` (or raise project exceptions) and let the handler envelope.
+- ``api/middlewares/auth.py``: 401 unauthorized now returns the envelope
+  via ``error_response(ApiErrorCode.UNAUTHORIZED, …)``.
+- ``api/v1/endpoints/*.py`` (11 files): every ``router = APIRouter()``
+  swapped for ``APIRouter(route_class=EnvelopeRoute)``; all 28
+  ``response_model=X`` annotations updated to
+  ``response_model=APIResponse[X]`` (OpenAPI now reflects the wire
+  contract).
+- ``api/v1/endpoints/auth.py``: 11 ``JSONResponse(content={"error": …})``
+  calls migrated to ``error_response(ApiErrorCode.…, msg)``;
+  ``content={"ok": True}`` → ``success_response()``.
+- ``api/v1/endpoints/analysis.py``: 202 Accepted and 409 duplicate-task
+  paths now wrap their bodies via ``success_response`` /
+  ``error_response`` so the envelope is consistent across status codes.
+  The 409 ``data`` field carries the structured
+  ``{stock_code, existing_task_id}`` for the front-end.
+- 39 ``raise HTTPException(detail={"error": …, "message": …})`` call
+  sites across ``stocks.py`` / ``analysis.py`` / ``picker_backtest.py`` /
+  ``system_config.py`` / ``backtest.py`` / ``history.py`` reduced to
+  plain-string ``detail`` so the global handler can envelope them
+  uniformly.
+- ``api/app.py``: ``/api/health`` moved onto an ``EnvelopeRoute`` router
+  so it is enveloped like the v1 endpoints; SPA fallback for paths
+  starting with ``/api/`` now raises ``HTTPException(404)`` instead of
+  silently returning ``None`` (which previously surfaced as 200 ``null``).
+
+**Frontend (``apps/dsa-web``)**
+
+- ``src/api/index.ts``: response interceptor auto-unwraps the envelope —
+  for any 2xx response with ``code === 0`` it replaces ``response.data``
+  with ``response.data.data`` so existing callers keep working unchanged.
+  Non-2xx (e.g. 409 with ``validateStatus``) keeps the raw envelope so
+  callers can read structured error fields.
+- ``src/api/analysis.ts``: ``analyzeAsync`` 409 branch reads the new
+  envelope shape (``envelope.message`` + ``envelope.data.stock_code`` /
+  ``envelope.data.existing_task_id``) when constructing
+  ``DuplicateTaskError``.
+
+**Tests**
+
+- ``tests/test_auth_api.py``: assertions migrated from
+  ``response.json()["ok"]`` / ``response.json()["error"]`` to the
+  envelope (``code === 0`` for success, ``code === 1001`` for
+  ``VALIDATION_ERROR``).
+- ``tests/test_system_config_api.py``: GET / PUT assertions migrated to
+  read ``response.json()["data"]``; the 409 conflict assertion now
+  checks ``code === 1099`` and ``message`` containing
+  ``"config_version"``.
+- Suite: 647 passed (the two remaining failures —
+  ``Config._load_from_env`` and ``SearchService`` — are pre-existing and
+  unrelated to this change).
+
 ### Refactor: trim the four remaining 800+ line modules (T3.4)
 
 - ``main.py`` (842 → 671): the 172-line ``parse_arguments`` function

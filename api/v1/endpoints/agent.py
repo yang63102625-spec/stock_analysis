@@ -14,6 +14,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.config import get_config
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 # Tool name -> Chinese display name mapping
 TOOL_DISPLAY_NAMES: Dict[str, str] = {
@@ -34,7 +36,7 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 class ChatRequest(BaseModel):
     message: str
@@ -56,7 +58,7 @@ class StrategyInfo(BaseModel):
 class StrategiesResponse(BaseModel):
     strategies: List[StrategyInfo]
 
-@router.get("/strategies", response_model=StrategiesResponse)
+@router.get("/strategies", response_model=APIResponse[StrategiesResponse])
 async def get_strategies():
     """
     Get available agent strategies.
@@ -71,7 +73,7 @@ async def get_strategies():
     ]
     return StrategiesResponse(strategies=strategies)
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=APIResponse[ChatResponse])
 async def agent_chat(request: ChatRequest):
     """
     Chat with the AI Agent.
@@ -122,7 +124,7 @@ class SessionMessagesResponse(BaseModel):
     messages: List[Dict[str, Any]]
 
 
-@router.get("/chat/sessions", response_model=SessionsResponse)
+@router.get("/chat/sessions", response_model=APIResponse[SessionsResponse])
 async def list_chat_sessions(limit: int = 50):
     """获取聊天会话列表"""
     from src.storage import get_db
@@ -130,7 +132,7 @@ async def list_chat_sessions(limit: int = 50):
     return SessionsResponse(sessions=sessions)
 
 
-@router.get("/chat/sessions/{session_id}", response_model=SessionMessagesResponse)
+@router.get("/chat/sessions/{session_id}", response_model=APIResponse[SessionMessagesResponse])
 async def get_chat_session_messages(session_id: str, limit: int = 100):
     """获取单个会话的完整消息"""
     from src.storage import get_db

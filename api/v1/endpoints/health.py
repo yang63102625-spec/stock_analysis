@@ -14,11 +14,13 @@ from datetime import datetime
 from fastapi import APIRouter
 
 from api.v1.schemas.common import HealthResponse
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/health", response_model=APIResponse[HealthResponse])
 async def health_check() -> HealthResponse:
     """
     健康检查接口

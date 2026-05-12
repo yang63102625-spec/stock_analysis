@@ -16,10 +16,12 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 # Configurable via PICKER_TIMEOUT env (seconds). Default 300s for slow networks/APIs.
 _PICKER_TIMEOUT = int(os.getenv("PICKER_TIMEOUT", "300"))
@@ -133,7 +135,7 @@ def _get_db():
     return DatabaseManager.get_instance()
 
 
-@router.post("/recommend", response_model=PickerResponse)
+@router.post("/recommend", response_model=APIResponse[PickerResponse])
 async def recommend_stocks(body: Optional[PickerRecommendRequest] = Body(None)):
     """
     Two-stage stock recommendation:
@@ -181,7 +183,7 @@ async def recommend_stocks(body: Optional[PickerRecommendRequest] = Body(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/history", response_model=PickerHistoryListResponse)
+@router.get("/history", response_model=APIResponse[PickerHistoryListResponse])
 async def list_picker_history(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -195,7 +197,7 @@ async def list_picker_history(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/history/{record_id}", response_model=PickerResponse)
+@router.get("/history/{record_id}", response_model=APIResponse[PickerResponse])
 async def get_picker_history_detail(record_id: int):
     """Full detail of a single picker run."""
     try:

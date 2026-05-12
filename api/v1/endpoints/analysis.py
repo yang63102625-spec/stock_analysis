@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.deps import get_config_dep
+from api.v1.envelope_route import EnvelopeRoute
 from api.v1.schemas.analysis import (
     AnalyzeRequest,
     AnalysisResultResponse,
@@ -51,10 +52,11 @@ from src.services.task_queue import (
     TaskStatus as TaskStatusEnum,
 )
 from src.utils.data_processing import normalize_model_used, parse_json_field
+from api.v1.schemas.envelope import APIResponse, ApiErrorCode, error_response, success_response
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 
 # ============================================================
@@ -63,7 +65,7 @@ router = APIRouter()
 
 @router.post(
     "/analyze",
-    response_model=AnalysisResultResponse,
+    response_model=APIResponse[AnalysisResultResponse],
     responses={
         200: {"description": "分析完成（同步模式）", "model": AnalysisResultResponse},
         202: {"description": "分析任务已接受（异步模式）", "model": TaskAccepted},
@@ -111,10 +113,7 @@ def trigger_analysis(
     if not stock_codes:
         raise HTTPException(
             status_code=400,
-            detail={
-                "error": "validation_error",
-                "message": "必须提供 stock_code 或 stock_codes 参数"
-            }
+            detail="必须提供 stock_code 或 stock_codes 参数"
         )
 
     # 统一大小写后去重，确保 ['aapl', 'AAPL'] 被识别为同一股票（Issue #355）
@@ -159,20 +158,23 @@ def _handle_async_analysis(
         )
         return JSONResponse(
             status_code=202,
-            content=task_accepted.model_dump()
+            content=success_response(task_accepted.model_dump()),
         )
-        
+
     except DuplicateTaskError as e:
         # 股票正在分析中，返回 409 Conflict
-        error_response = DuplicateTaskErrorResponse(
-            error="duplicate_task",
-            message=str(e),
-            stock_code=e.stock_code,
-            existing_task_id=e.existing_task_id,
-        )
+        # ``data`` keeps the structured fields (stock_code / existing_task_id)
+        # so the front-end can branch on them without parsing the message.
         return JSONResponse(
             status_code=409,
-            content=error_response.model_dump()
+            content=error_response(
+                ApiErrorCode.HTTP_ERROR,
+                str(e),
+                data={
+                    "stock_code": e.stock_code,
+                    "existing_task_id": e.existing_task_id,
+                },
+            ),
         )
 
 
@@ -202,10 +204,7 @@ def _handle_sync_analysis(
         if result is None:
             raise HTTPException(
                 status_code=500,
-                detail={
-                    "error": "analysis_failed",
-                    "message": f"分析股票 {stock_code} 失败"
-                }
+                detail=f"分析股票 {stock_code} 失败"
             )
 
         # 构建报告结构
@@ -228,10 +227,7 @@ def _handle_sync_analysis(
         logger.error(f"分析失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": f"分析过程发生错误: {str(e)}"
-            }
+            detail=f"分析过程发生错误: {str(e)}"
         )
 
 
@@ -241,7 +237,7 @@ def _handle_sync_analysis(
 
 @router.get(
     "/tasks",
-    response_model=TaskListResponse,
+    response_model=APIResponse[TaskListResponse],
     responses={
         200: {"description": "任务列表"},
     },
@@ -394,7 +390,7 @@ def _format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
 
 @router.get(
     "/status/{task_id}",
-    response_model=TaskStatus,
+    response_model=APIResponse[TaskStatus],
     responses={
         200: {"description": "任务状态"},
         404: {"description": "任务不存在", "model": ErrorResponse},
@@ -498,19 +494,13 @@ def get_analysis_status(task_id: str) -> TaskStatus:
         logger.error(f"查询任务状态失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": f"查询任务状态失败: {str(e)}"
-            }
+            detail=f"查询任务状态失败: {str(e)}"
         )
 
     # 3. 任务不存在
     raise HTTPException(
         status_code=404,
-        detail={
-            "error": "not_found",
-            "message": f"任务 {task_id} 不存在或已过期"
-        }
+        detail=f"任务 {task_id} 不存在或已过期"
     )
 
 

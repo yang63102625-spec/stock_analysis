@@ -62,15 +62,18 @@ export const analysisApi = {
       }
     );
 
-    // 处理 409 重复提交错误
+    // 409 duplicate-submit error: backend returns the unified APIResponse
+    // envelope; the response interceptor only auto-unwraps successful (2xx)
+    // responses, so for 409 ``response.data`` is still the raw envelope
+    // ``{code, message, data: {stock_code, existing_task_id}, timestamp}``.
     if (response.status === 409) {
-      const errorData = toCamelCase<{
-        error: string;
-        message: string;
-        stockCode: string;
-        existingTaskId: string;
-      }>(response.data);
-      throw new DuplicateTaskError(errorData.stockCode, errorData.existingTaskId, errorData.message);
+      const envelope = response.data as {
+        message?: string;
+        data?: { stock_code?: string; existing_task_id?: string };
+      } | null;
+      const stockCode = envelope?.data?.stock_code ?? '';
+      const existingTaskId = envelope?.data?.existing_task_id ?? '';
+      throw new DuplicateTaskError(stockCode, existingTaskId, envelope?.message);
     }
 
     return toCamelCase<{ taskId: string; status: string; message?: string }>(response.data);

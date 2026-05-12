@@ -11,12 +11,14 @@ from fastapi import APIRouter, Depends, Query
 from api.deps import get_database_manager
 from api.v1.schemas.usage import UsageSummaryResponse
 from src.storage import DatabaseManager
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
 _CST = timezone(timedelta(hours=8))  # Beijing time (UTC+8)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 _VALID_PERIODS = {"today", "month", "all"}
 
@@ -35,7 +37,7 @@ def _date_range(period: str):
 
 @router.get(
     "/summary",
-    response_model=UsageSummaryResponse,
+    response_model=APIResponse[UsageSummaryResponse],
     summary="LLM token usage summary",
     description="Aggregate token consumption by period, call type, and model.",
 )

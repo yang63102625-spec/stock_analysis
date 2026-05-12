@@ -53,13 +53,15 @@ class SystemConfigApiTestCase(unittest.TestCase):
         response = self.client.get("/api/v1/system/config")
         self.assertEqual(response.status_code, 200)
 
-        payload = response.json()
+        envelope = response.json()
+        self.assertEqual(envelope["code"], 0)
+        payload = envelope["data"]
         item_map = {item["key"]: item for item in payload["items"]}
         self.assertEqual(item_map["GEMINI_API_KEY"]["value"], "secret-key-value")
         self.assertFalse(item_map["GEMINI_API_KEY"]["is_masked"])
 
     def test_put_config_updates_secret_and_plain_field(self) -> None:
-        current = self.client.get("/api/v1/system/config").json()
+        current = self.client.get("/api/v1/system/config").json()["data"]
 
         response = self.client.put(
             "/api/v1/system/config",
@@ -74,7 +76,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
-        payload = response.json()
+        payload = response.json()["data"]
         self.assertEqual(payload["applied_count"], 2)
         self.assertEqual(payload["skipped_masked_count"], 0)
 
@@ -91,8 +93,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 409)
-        payload = response.json()
-        self.assertEqual(payload["error"], "config_version_conflict")
+        body = response.json()
+        # Conflict is raised as HTTPException(409) → ApiErrorCode.HTTP_ERROR (1099).
+        self.assertEqual(body.get("code"), 1099)
+        self.assertIn("config_version", body.get("message", ""))
 
 
 if __name__ == "__main__":

@@ -20,15 +20,17 @@ from api.v1.schemas.system_config import (
     ValidateSystemConfigResponse,
 )
 from src.services.system_config_service import ConfigConflictError, ConfigValidationError, SystemConfigService
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 
 @router.get(
     "/config",
-    response_model=SystemConfigResponse,
+    response_model=APIResponse[SystemConfigResponse],
     responses={
         200: {"description": "Configuration loaded"},
         401: {"description": "Unauthorized", "model": ErrorResponse},
@@ -49,16 +51,13 @@ def get_system_config(
         logger.error("Failed to load system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": "Failed to load system configuration",
-            },
+            detail="Failed to load system configuration",
         )
 
 
 @router.put(
     "/config",
-    response_model=UpdateSystemConfigResponse,
+    response_model=APIResponse[UpdateSystemConfigResponse],
     responses={
         200: {"description": "Configuration updated"},
         400: {"description": "Validation failed", "model": SystemConfigValidationErrorResponse},
@@ -103,16 +102,13 @@ def update_system_config(
         logger.error("Failed to update system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": "Failed to update system configuration",
-            },
+            detail="Failed to update system configuration",
         )
 
 
 @router.post(
     "/config/validate",
-    response_model=ValidateSystemConfigResponse,
+    response_model=APIResponse[ValidateSystemConfigResponse],
     responses={
         200: {"description": "Validation completed"},
         500: {"description": "Internal server error", "model": ErrorResponse},
@@ -132,16 +128,13 @@ def validate_system_config(
         logger.error("Failed to validate system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": "Failed to validate system configuration",
-            },
+            detail="Failed to validate system configuration",
         )
 
 
 @router.get(
     "/config/schema",
-    response_model=SystemConfigSchemaResponse,
+    response_model=APIResponse[SystemConfigSchemaResponse],
     responses={
         200: {"description": "Schema loaded"},
         500: {"description": "Internal server error", "model": ErrorResponse},
@@ -160,8 +153,5 @@ def get_system_config_schema(
         logger.error("Failed to load system configuration schema: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": "Failed to load system configuration schema",
-            },
+            detail="Failed to load system configuration schema",
         )

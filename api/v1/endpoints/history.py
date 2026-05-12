@@ -30,15 +30,17 @@ from api.v1.schemas.common import ErrorResponse
 from src.storage import DatabaseManager
 from src.services.history_service import HistoryService
 from src.utils.data_processing import normalize_model_used
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 
 @router.get(
     "",
-    response_model=HistoryListResponse,
+    response_model=APIResponse[HistoryListResponse],
     responses={
         200: {"description": "历史记录列表"},
         500: {"description": "服务器错误", "model": ErrorResponse},
@@ -108,16 +110,13 @@ def get_history_list(
         logger.error(f"查询历史列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": f"查询历史列表失败: {str(e)}"
-            }
+            detail=f"查询历史列表失败: {str(e)}"
         )
 
 
 @router.get(
     "/{record_id}",
-    response_model=AnalysisReport,
+    response_model=APIResponse[AnalysisReport],
     responses={
         200: {"description": "报告详情"},
         404: {"description": "报告不存在", "model": ErrorResponse},
@@ -155,10 +154,7 @@ def get_history_detail(
         if result is None:
             raise HTTPException(
                 status_code=404,
-                detail={
-                    "error": "not_found",
-                    "message": f"未找到 id/query_id={record_id} 的分析记录"
-                }
+                detail=f"未找到 id/query_id={record_id} 的分析记录"
             )
         
         # 从 context_snapshot 中提取价格信息
@@ -225,16 +221,13 @@ def get_history_detail(
         logger.error(f"查询历史详情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": f"查询历史详情失败: {str(e)}"
-            }
+            detail=f"查询历史详情失败: {str(e)}"
         )
 
 
 @router.get(
     "/{record_id}/news",
-    response_model=NewsIntelResponse,
+    response_model=APIResponse[NewsIntelResponse],
     responses={
         200: {"description": "新闻情报列表"},
         500: {"description": "服务器错误", "model": ErrorResponse},
@@ -283,8 +276,5 @@ def get_history_news(
         logger.error(f"查询新闻情报失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": f"查询新闻情报失败: {str(e)}"
-            }
+            detail=f"查询新闻情报失败: {str(e)}"
         )

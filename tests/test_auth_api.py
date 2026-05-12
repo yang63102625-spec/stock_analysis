@@ -64,7 +64,9 @@ class AuthApiTestCase(unittest.TestCase):
     def test_auth_status_when_password_not_set(self) -> None:
         response = self.client.get("/api/v1/auth/status")
         self.assertEqual(response.status_code, 200)
-        data = response.json()
+        envelope = response.json()
+        self.assertEqual(envelope["code"], 0)
+        data = envelope["data"]
         self.assertTrue(data["authEnabled"])
         self.assertFalse(data["passwordSet"])
         self.assertFalse(data["loggedIn"])
@@ -76,7 +78,7 @@ class AuthApiTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("dsa_session", response.cookies)
-        self.assertTrue(response.json().get("ok"))
+        self.assertEqual(response.json().get("code"), 0)
 
     def test_login_first_time_mismatch_rejected(self) -> None:
         response = self.client.post(
@@ -84,7 +86,10 @@ class AuthApiTestCase(unittest.TestCase):
             json={"password": "pass1", "passwordConfirm": "pass2"},
         )
         self.assertEqual(response.status_code, 400)
-        self.assertIn("password_mismatch", response.json().get("error", ""))
+        body = response.json()
+        # ApiErrorCode.VALIDATION_ERROR == 1001
+        self.assertEqual(body.get("code"), 1001)
+        self.assertIn("Passwords do not match", body.get("message", ""))
 
     def test_login_after_set_normal_login(self) -> None:
         self.client.post(
@@ -96,7 +101,7 @@ class AuthApiTestCase(unittest.TestCase):
             json={"password": "mypass456"},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json().get("ok"))
+        self.assertEqual(response.json().get("code"), 0)
 
     def test_login_wrong_password_returns_401(self) -> None:
         self.client.post(

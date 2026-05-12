@@ -16,10 +16,12 @@ from api.v1.schemas.picker_backtest import (
 )
 from src.services.picker_backtest_service import PickerBacktestService
 from src.storage import DatabaseManager
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 # In-memory cache for last run (fallback to DB on cold start)
 _last_run: Optional[Dict[str, Any]] = None
@@ -43,7 +45,7 @@ def _last_run_or_db() -> Optional[Dict[str, Any]]:
 
 @router.post(
     "/run",
-    response_model=PickerBacktestRunResponse,
+    response_model=APIResponse[PickerBacktestRunResponse],
     summary="Run picker backtest",
     description="Run quantitative picker backtest over historical dates. Uses top N by score (no LLM).",
 )
@@ -87,7 +89,7 @@ def run_picker_backtest(request: PickerBacktestRunRequest) -> PickerBacktestRunR
         logger.error(f"Picker backtest failed: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "internal_error", "message": str(exc)},
+            detail=str(exc),
         )
 
 

@@ -19,15 +19,17 @@ from api.v1.schemas.backtest import (
 from api.v1.schemas.common import ErrorResponse
 from src.services.backtest_service import BacktestService
 from src.storage import DatabaseManager
+from api.v1.schemas.envelope import APIResponse
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 
 @router.post(
     "/run",
-    response_model=BacktestRunResponse,
+    response_model=APIResponse[BacktestRunResponse],
     responses={
         200: {"description": "回测执行完成"},
         500: {"description": "服务器错误", "model": ErrorResponse},
@@ -54,13 +56,13 @@ def run_backtest(
         logger.error(f"回测执行失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "internal_error", "message": f"回测执行失败: {str(exc)}"},
+            detail=f"回测执行失败: {str(exc)}",
         )
 
 
 @router.get(
     "/results",
-    response_model=BacktestResultsResponse,
+    response_model=APIResponse[BacktestResultsResponse],
     responses={
         200: {"description": "回测结果列表"},
         500: {"description": "服务器错误", "model": ErrorResponse},
@@ -89,13 +91,13 @@ def get_backtest_results(
         logger.error(f"查询回测结果失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "internal_error", "message": f"查询回测结果失败: {str(exc)}"},
+            detail=f"查询回测结果失败: {str(exc)}",
         )
 
 
 @router.get(
     "/performance",
-    response_model=PerformanceMetrics,
+    response_model=APIResponse[PerformanceMetrics],
     responses={
         200: {"description": "整体回测表现"},
         404: {"description": "无回测汇总", "model": ErrorResponse},
@@ -113,7 +115,7 @@ def get_overall_performance(
         if summary is None:
             raise HTTPException(
                 status_code=404,
-                detail={"error": "not_found", "message": "未找到整体回测汇总"},
+                detail="未找到整体回测汇总",
             )
         return PerformanceMetrics(**summary)
     except HTTPException:
@@ -122,13 +124,13 @@ def get_overall_performance(
         logger.error(f"查询整体表现失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "internal_error", "message": f"查询整体表现失败: {str(exc)}"},
+            detail=f"查询整体表现失败: {str(exc)}",
         )
 
 
 @router.get(
     "/performance/{code}",
-    response_model=PerformanceMetrics,
+    response_model=APIResponse[PerformanceMetrics],
     responses={
         200: {"description": "单股回测表现"},
         404: {"description": "无回测汇总", "model": ErrorResponse},
@@ -147,7 +149,7 @@ def get_stock_performance(
         if summary is None:
             raise HTTPException(
                 status_code=404,
-                detail={"error": "not_found", "message": f"未找到 {code} 的回测汇总"},
+                detail=f"未找到 {code} 的回测汇总",
             )
         return PerformanceMetrics(**summary)
     except HTTPException:
@@ -156,7 +158,7 @@ def get_stock_performance(
         logger.error(f"查询单股表现失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "internal_error", "message": f"查询单股表现失败: {str(exc)}"},
+            detail=f"查询单股表现失败: {str(exc)}",
         )
 
 
@@ -189,6 +191,6 @@ def get_score_analysis(
         logger.error(f"评分有效性分析失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={"error": "internal_error", "message": f"评分有效性分析失败: {str(exc)}"},
+            detail=f"评分有效性分析失败: {str(exc)}",
         )
 

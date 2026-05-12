@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from api.v1.schemas.envelope import ApiErrorCode, error_response, success_response
 from src.auth import (
     COOKIE_NAME,
     SESSION_MAX_AGE_HOURS_DEFAULT,
@@ -26,10 +27,11 @@ from src.auth import (
     verify_password,
     verify_session,
 )
+from api.v1.envelope_route import EnvelopeRoute
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(route_class=EnvelopeRoute)
 
 
 class LoginRequest(BaseModel):
@@ -106,24 +108,21 @@ async def auth_login(request: Request, body: LoginRequest):
     if not is_auth_enabled():
         return JSONResponse(
             status_code=400,
-            content={"error": "auth_disabled", "message": "Authentication is not configured"},
+            content=error_response(ApiErrorCode.HTTP_ERROR, "Authentication is not configured"),
         )
 
     password = (body.password or "").strip()
     if not password:
         return JSONResponse(
             status_code=400,
-            content={"error": "password_required", "message": "请输入密码"},
+            content=error_response(ApiErrorCode.VALIDATION_ERROR, "请输入密码"),
         )
 
     ip = get_client_ip(request)
     if not check_rate_limit(ip):
         return JSONResponse(
             status_code=429,
-            content={
-                "error": "rate_limited",
-                "message": "Too many failed attempts. Please try again later.",
-            },
+            content=error_response(ApiErrorCode.RATE_LIMIT, "Too many failed attempts. Please try again later."),
         )
 
     password_set = is_password_set()
@@ -135,21 +134,21 @@ async def auth_login(request: Request, body: LoginRequest):
             record_login_failure(ip)
             return JSONResponse(
                 status_code=400,
-                content={"error": "password_mismatch", "message": "Passwords do not match"},
+                content=error_response(ApiErrorCode.VALIDATION_ERROR, "Passwords do not match"),
             )
         err = set_initial_password(password)
         if err:
             record_login_failure(ip)
             return JSONResponse(
                 status_code=400,
-                content={"error": "invalid_password", "message": err},
+                content=error_response(ApiErrorCode.UNAUTHORIZED, err),
             )
     else:
         if not verify_password(password):
             record_login_failure(ip)
             return JSONResponse(
                 status_code=401,
-                content={"error": "invalid_password", "message": "密码错误"},
+                content=error_response(ApiErrorCode.UNAUTHORIZED, "密码错误"),
             )
 
     clear_rate_limit(ip)
@@ -157,10 +156,10 @@ async def auth_login(request: Request, body: LoginRequest):
     if not session_val:
         return JSONResponse(
             status_code=500,
-            content={"error": "internal_error", "message": "Failed to create session"},
+            content=error_response(ApiErrorCode.INTERNAL_ERROR, "Failed to create session"),
         )
 
-    resp = JSONResponse(content={"ok": True})
+    resp = JSONResponse(content=success_response())
     params = _cookie_params(request)
     resp.set_cookie(
         key=COOKIE_NAME,
@@ -184,7 +183,7 @@ async def auth_change_password(body: ChangePasswordRequest):
     if not is_password_changeable():
         return JSONResponse(
             status_code=400,
-            content={"error": "not_changeable", "message": "Password cannot be changed via web"},
+            content=error_response(ApiErrorCode.FORBIDDEN, "Password cannot be changed via web"),
         )
 
     current = (body.current_password or "").strip()
@@ -194,19 +193,19 @@ async def auth_change_password(body: ChangePasswordRequest):
     if not current:
         return JSONResponse(
             status_code=400,
-            content={"error": "current_required", "message": "请输入当前密码"},
+            content=error_response(ApiErrorCode.VALIDATION_ERROR, "请输入当前密码"),
         )
     if new_pwd != new_confirm:
         return JSONResponse(
             status_code=400,
-            content={"error": "password_mismatch", "message": "两次输入的新密码不一致"},
+            content=error_response(ApiErrorCode.VALIDATION_ERROR, "两次输入的新密码不一致"),
         )
 
     err = change_password(current, new_pwd)
     if err:
         return JSONResponse(
             status_code=400,
-            content={"error": "invalid_password", "message": err},
+            content=error_response(ApiErrorCode.UNAUTHORIZED, err),
         )
     return Response(status_code=204)
 
