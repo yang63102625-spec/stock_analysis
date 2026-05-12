@@ -3,6 +3,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { STRATEGY_LABELS, type ScreenedStock } from '../../../api/picker';
 
+const fmt = (v: number | null | undefined, digits = 2): string =>
+  v == null || !Number.isFinite(v) ? '—' : v.toFixed(digits);
+
+const numOrZero = (v: number | null | undefined): number =>
+  v == null || !Number.isFinite(v) ? 0 : v;
+
 export const ScreenedPoolTable: React.FC<{ pool: ScreenedStock[] }> = ({ pool }) => {
   const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
@@ -68,25 +74,25 @@ export const ScreenedPoolTable: React.FC<{ pool: ScreenedStock[] }> = ({ pool })
               >
                 <td className="px-4 py-2 font-mono text-muted">{s.code}</td>
                 <td className="px-4 py-2 text-primary font-medium">{s.name}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{s.price.toFixed(2)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${s.change_pct > 0 ? 'text-red-600' : s.change_pct < 0 ? 'text-emerald-600' : 'text-muted'}`}>
-                  {s.change_pct > 0 ? '+' : ''}{s.change_pct.toFixed(2)}%
+                <td className="px-4 py-2 text-right tabular-nums">{fmt(s.price, 2)}</td>
+                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.change_pct) > 0 ? 'text-red-600' : numOrZero(s.change_pct) < 0 ? 'text-emerald-600' : 'text-muted'}`}>
+                  {numOrZero(s.change_pct) > 0 ? '+' : ''}{fmt(s.change_pct, 2)}{s.change_pct == null ? '' : '%'}
                 </td>
-                <td className={`px-4 py-2 text-right tabular-nums ${s.volume_ratio > 1.5 ? 'text-red-600 font-medium' : ''}`}>
-                  {s.volume_ratio.toFixed(1)}
+                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.volume_ratio) > 1.5 ? 'text-red-600 font-medium' : ''}`}>
+                  {fmt(s.volume_ratio, 1)}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">{s.turnover_rate.toFixed(1)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{s.pe.toFixed(0)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{s.market_cap_yi.toFixed(0)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${s.change_pct_60d > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                  {s.change_pct_60d > 0 ? '+' : ''}{s.change_pct_60d.toFixed(1)}%
+                <td className="px-4 py-2 text-right tabular-nums">{fmt(s.turnover_rate, 1)}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{fmt(s.pe, 0)}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{fmt(s.market_cap_yi, 0)}</td>
+                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.change_pct_60d) > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                  {numOrZero(s.change_pct_60d) > 0 ? '+' : ''}{fmt(s.change_pct_60d, 1)}{s.change_pct_60d == null ? '' : '%'}
                 </td>
                 {showStrategyCol && (
                   <td className="px-4 py-2 text-right text-xs text-muted">
                     {(s.strategies || []).map((st) => STRATEGY_LABELS[st] ?? st).join(',')}
                   </td>
                 )}
-                <td className="px-4 py-2 text-right tabular-nums font-semibold text-cyan">{s.score.toFixed(0)}</td>
+                <td className="px-4 py-2 text-right tabular-nums font-semibold text-cyan">{fmt(s.score, 0)}</td>
               </tr>
             ))}
           </tbody>
