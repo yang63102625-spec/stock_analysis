@@ -58,7 +58,7 @@ LEGACY_SYMBOLS = [
     ("data_provider.akshare.utils", "_is_hk_code"),
     ("data_provider.akshare.utils", "_is_us_code"),
     # Other fetchers
-    ("data_provider.efinance_fetcher", "EfinanceFetcher"),
+    ("data_provider.efinance", "EfinanceFetcher"),
     ("data_provider.baostock_fetcher", "BaostockFetcher"),
     ("data_provider.yfinance_fetcher", "YfinanceFetcher"),
     ("data_provider.pytdx_fetcher", "PytdxFetcher"),

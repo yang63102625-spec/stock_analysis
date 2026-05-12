@@ -228,7 +228,7 @@ def _handle_get_stock_info(stock_code: str) -> dict:
     """Get stock fundamental information including industry, financials, and valuation."""
     # Try EfinanceFetcher.get_base_info first (most complete)
     try:
-        from data_provider.efinance_fetcher import EfinanceFetcher
+        from data_provider.efinance import EfinanceFetcher
         fetcher = EfinanceFetcher()
         info = fetcher.get_base_info(stock_code)
         if info:

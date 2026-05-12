@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: trim the four remaining 800+ line modules (T3.4)
+
+- ``main.py`` (842 → 671): the 172-line ``parse_arguments`` function
+  moved to ``src/cli/args.py`` (re-exported via ``src.cli``).
+- ``src/notification_service/aggregator.py`` (919 → 523): the long
+  ``generate_dashboard_report`` and ``generate_wechat_dashboard``
+  methods extracted into ``_dashboard_mixin.py``;
+  ``ReportAggregatorMixin`` now inherits from ``_DashboardMixin``.
+- ``src/stock_analyzer.py`` (1125 → 556): enums + ``TrendAnalysisResult``
+  moved to ``src/_stock_analyzer_types.py``; the 343-line
+  ``_generate_signal`` plus ``format_analysis`` moved to
+  ``src/_stock_analyzer_signals.py``. Public surface unchanged
+  (``__all__`` re-exports the seven canonical symbols).
+- ``data_provider/efinance_fetcher.py`` (1169 lines, gone) replaced by
+  the ``data_provider/efinance/`` sub-package, mirroring the existing
+  ``akshare`` / ``tushare`` layout: ``utils.py``, ``base.py``
+  (``_EfinanceCore``), ``historical.py``, ``realtime.py``,
+  ``market.py``, ``fetcher.py``. All callers updated to
+  ``from data_provider.efinance import EfinanceFetcher`` —
+  ``tests/test_backward_compat_imports.py`` likewise.
+
 ### Refactor: split ``src/core/pipeline.py`` (1616 lines) into ``pipeline/`` package
 
 - ``src/core/pipeline.py`` is gone; the class composition lives in five

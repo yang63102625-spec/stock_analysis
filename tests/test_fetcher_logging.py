@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.exceptions import DataFetchError
 
 from data_provider.base import BaseFetcher, DataFetcherManager
-from data_provider.efinance_fetcher import EfinanceFetcher
+from data_provider.efinance import EfinanceFetcher
 
 
 def _sample_df() -> pd.DataFrame:

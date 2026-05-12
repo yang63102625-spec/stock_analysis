@@ -94,7 +94,7 @@ class DataFetcherManager(_RealtimeMixin, _NamesMixin, _MarketMixin):
           3. BaostockFetcher (Priority 3)
           4. YfinanceFetcher (Priority 4)
         """
-        from ..efinance_fetcher import EfinanceFetcher
+        from ..efinance import EfinanceFetcher
         from ..akshare import AkshareFetcher
         from ..tushare import TushareFetcher
         from ..pytdx_fetcher import PytdxFetcher

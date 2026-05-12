@@ -30,7 +30,7 @@
 """
 
 from .base import BaseFetcher, DataFetcherManager
-from .efinance_fetcher import EfinanceFetcher
+from .efinance import EfinanceFetcher
 from .akshare import AkshareFetcher, is_hk_stock_code
 from .tushare import TushareFetcher
 from .pytdx_fetcher import PytdxFetcher
