@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: code quality phase 2.2 (split StockScreener)
+
+- ``src/services/picker/quantitative_filter.py`` (1671 lines) split into the
+  ``src.services.picker.screener`` sub-package: ``base.py`` (shared state +
+  small helpers + risk-filter delegations), ``data_fetch.py`` (spot/Tushare
+  bulk + realtime overlay + normalisation), ``filters_scoring.py`` (basic
+  filter / hard veto / momentum / volume / scoring), ``pipeline.py``
+  (``screen()`` and ``screen_as_of()``), ``eod_buyback.py`` (the dedicated
+  realtime EOD path), ``screener.py`` (composes the mixins).
+- Each split file is ≤556 lines (largest: ``data_fetch.py``).
+- Legacy ``src/services/picker/quantitative_filter.py`` kept as a 12-line shim
+  re-exporting ``StockScreener``; existing imports continue to work
+  unchanged.
+
 ### Refactor: code quality phase 2.1 (split Tushare/Akshare fetchers)
 
 - ``data_provider/tushare_fetcher.py`` (2056 lines) split into the
