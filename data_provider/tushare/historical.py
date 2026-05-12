@@ -20,6 +20,7 @@ from tenacity import (
 from src.exceptions import DataFetchError, RateLimitError
 
 from ..base import STANDARD_COLUMNS
+from ..validators import validate_ohlcv_dataframe
 from ..realtime_types import ChipDistribution, safe_float
 from .utils import _is_etf_code, _is_us_code
 

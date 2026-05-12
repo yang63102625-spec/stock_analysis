@@ -31,6 +31,7 @@ from tenacity import (
 from src.exceptions import DataFetchError
 
 from .base import BaseFetcher, STANDARD_COLUMNS, is_bse_code
+from .validators import validate_ohlcv_dataframe
 from .rate_limit_mixin import RateLimitMixin
 import os
 
@@ -352,6 +353,10 @@ class PytdxFetcher(RateLimitMixin, BaseFetcher):
         # 添加股票代码列
         df['code'] = stock_code
         
+        df = validate_ohlcv_dataframe(
+            df,
+            context=f"pytdx historical ({stock_code})",
+        )
         # 只保留需要的列
         keep_cols = ['code'] + STANDARD_COLUMNS
         existing_cols = [col for col in keep_cols if col in df.columns]

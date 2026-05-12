@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: shared DataFrame validators wired into all OHLCV fetchers (T4.2)
+
+Implements rule §7 from ``code-quality.mdc`` ("Data Validation Rules").
+
+- ``data_provider/validators.py`` (new): canonical validator module.
+  - ``validate_ohlcv_dataframe(df, *, context, ...)`` — non-empty
+    check, required-column check, optional numeric coercion, plus
+    financial-integrity checks (negative price/volume rejected;
+    ``close == 0`` flagged as warning during a trading session;
+    ``|pct_chg| > 20%`` flagged as warning).
+  - ``validate_dataframe(df, *, required_columns, dtype_map)`` —
+    generic non-OHLCV variant for fundamentals / moneyflow frames.
+  - ``validate_required_columns`` and ``coerce_numeric_columns``
+    exposed as low-level helpers.
+- All six historical-data fetchers now call
+  ``validate_ohlcv_dataframe`` before truncating to ``STANDARD_COLUMNS``:
+  ``data_provider/yfinance_fetcher.py``,
+  ``data_provider/pytdx_fetcher.py``,
+  ``data_provider/baostock_fetcher.py``,
+  ``data_provider/efinance/historical.py``,
+  ``data_provider/akshare/historical.py``,
+  ``data_provider/tushare/historical.py``.
+- ``tests/test_dataframe_validators.py`` (new, 11 cases): covers empty
+  / missing-column / negative-value / zero-close / extreme-pct-chg
+  paths plus the dtype-coercion helper.
+
 ### Refactor: unify all API responses into the ``APIResponse`` envelope (T4.1)
 
 Implements rule §3 ("API Response Format") from ``code-quality.mdc``: every

@@ -12,6 +12,7 @@ import requests
 from src.exceptions import DataFetchError, RateLimitError
 
 from ..base import STANDARD_COLUMNS, is_bse_code
+from ..validators import validate_ohlcv_dataframe
 from .utils import EASTMONEY_HISTORY_ENDPOINT, _classify_eastmoney_error
 
 logger = logging.getLogger(__name__)
@@ -238,6 +239,10 @@ class _HistoricalMixin:
         if 'code' not in df.columns:
             df['code'] = stock_code
         
+        df = validate_ohlcv_dataframe(
+            df,
+            context=f"efinance historical ({stock_code})",
+        )
         # 只保留需要的列
         keep_cols = ['code'] + STANDARD_COLUMNS
         existing_cols = [col for col in keep_cols if col in df.columns]

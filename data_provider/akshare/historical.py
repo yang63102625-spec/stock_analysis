@@ -20,6 +20,7 @@ from tenacity import (
 from src.exceptions import DataFetchError, RateLimitError
 
 from ..base import STANDARD_COLUMNS, normalize_stock_code
+from ..validators import validate_ohlcv_dataframe
 from ..us_index_mapping import is_us_index_code
 from .utils import _is_etf_code, _is_hk_code, _is_us_code, _to_sina_tx_symbol
 
@@ -481,6 +482,10 @@ class _HistoricalMixin:
         # 添加股票代码列
         df['code'] = stock_code
         
+        df = validate_ohlcv_dataframe(
+            df,
+            context=f"akshare historical ({stock_code})",
+        )
         # 只保留需要的列
         keep_cols = ['code'] + STANDARD_COLUMNS
         existing_cols = [col for col in keep_cols if col in df.columns]
