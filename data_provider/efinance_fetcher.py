@@ -210,7 +210,7 @@ class EfinanceFetcher(RateLimitMixin, BaseFetcher):
         """
         self._rate_limit_min = sleep_min
         self._rate_limit_max = sleep_max
-        self._last_request_time: Optional[float] = None
+        # _last_request_time is lazy-initialised by RateLimitMixin._enforce_rate_limit.
         # 东财补丁开启才执行打补丁操作
         if get_config().enable_eastmoney_patch:
             eastmoney_patch()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 from patch.eastmoney_patch import eastmoney_patch
 from src.config import get_config
@@ -34,6 +33,6 @@ class _AkshareCore(RateLimitMixin, BaseFetcher):
         """
         self._rate_limit_min = sleep_min
         self._rate_limit_max = sleep_max
-        self._last_request_time: Optional[float] = None
+        # _last_request_time is lazy-initialised by RateLimitMixin._enforce_rate_limit.
         if get_config().enable_eastmoney_patch:
             eastmoney_patch()
