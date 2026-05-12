@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: split ``src/core/pipeline.py`` (1616 lines) into ``pipeline/`` package
+
+- ``src/core/pipeline.py`` is gone; the class composition lives in five
+  files under ``src/core/pipeline/``, each ≤ 785 lines (rule §1):
+  - ``__init__.py`` — class signature + ``__init__`` +
+    ``fetch_and_save_stock_data`` + re-exports the patch targets used
+    by tests (``get_config`` / ``get_db`` / ``DataFetcherManager`` …).
+  - ``_analysis_mixin.py`` — per-stock analysis (``analyze_stock``,
+    context enhancement, agent invocation, result conversion).
+  - ``_market_env_mixin.py`` — market-environment cache + context
+    augmentation helpers.
+  - ``_run_mixin.py`` — top-level ``run`` and ``process_single_stock``.
+  - ``_notify_mixin.py`` — aggregate-report and notification dispatch.
+- ``tests/test_pipeline_realtime_indicators.py`` patch paths updated
+  from ``src.core.pipeline.{is_market_open,get_market_for_stock}`` to
+  ``src.core.pipeline._market_env_mixin.{...}`` to match the new
+  import location.
+
+### Refactor: split ``src/core/config_registry.py`` (1581 lines) into ``config_registry/`` package
+
+- The monolithic field-metadata file is gone. The contents are split
+  into ``categories.py``, ``fields_a.py``, ``fields_b.py``,
+  ``_inference.py`` and ``__init__.py`` — each ≤ 695 lines (rule §1).
+- The 94 field definitions are split alphabetically into ``fields_a``
+  (base / ai_model / data_source / first half of notification) and
+  ``fields_b`` (rest of notification / system / agent / backtest), then
+  merged in ``__init__.py`` via ``{**_FIELD_DEFS_A, **_FIELD_DEFS_B}``.
+- Public API (``get_category_definitions`` / ``get_field_definition`` /
+  ``get_registered_field_keys`` / ``build_schema_response`` /
+  ``SCHEMA_VERSION``) is unchanged; the only call site
+  (``src/services/system_config_service.py``) requires no edits.
+
 ### Refactor: split ``data_provider/base.py`` (1445 lines) into ``base/`` sub-package
 
 - ``data_provider/base.py`` is gone; its contents live in seven focused

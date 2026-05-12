@@ -114,8 +114,8 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertNotIn("close", result.columns)
 
-    @patch("src.core.pipeline.is_market_open", return_value=True)
-    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    @patch("src.core.pipeline._market_env_mixin.is_market_open", return_value=True)
+    @patch("src.core.pipeline._market_env_mixin.get_market_for_stock", return_value="cn")
     def test_appends_row_when_last_date_before_today(
         self, _mock_market, _mock_open
     ) -> None:
@@ -127,8 +127,8 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
         self.assertEqual(last["close"], 15.72)
         self.assertEqual(last["date"], date.today())
 
-    @patch("src.core.pipeline.is_market_open", return_value=True)
-    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    @patch("src.core.pipeline._market_env_mixin.is_market_open", return_value=True)
+    @patch("src.core.pipeline._market_env_mixin.get_market_for_stock", return_value="cn")
     def test_updates_last_row_when_last_date_is_today(
         self, _mock_market, _mock_open
     ) -> None:
