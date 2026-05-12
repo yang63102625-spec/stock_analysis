@@ -1,11 +1,23 @@
 import type React from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { StockPick } from '../../../api/picker';
 import { ATTENTION_CFG } from '../constants';
 
 export const PickCard: React.FC<{ pick: StockPick; index: number }> = ({ pick, index }) => {
   const cfg = ATTENTION_CFG[pick.attention] || ATTENTION_CFG.medium;
+  const navigate = useNavigate();
+  const goToChat = () => {
+    const params = new URLSearchParams({ stock: pick.code });
+    if (pick.name) params.set('name', pick.name);
+    navigate(`/chat?${params.toString()}`);
+  };
   return (
-    <div className="group relative bg-card border border-border rounded-2xl p-6
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={goToChat}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToChat(); } }}
+      className="group relative bg-card border border-border rounded-2xl p-6 cursor-pointer
                     hover:border-border-accent hover:shadow-md transition-all">
       <span className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${cfg.dot} opacity-80`} />
 

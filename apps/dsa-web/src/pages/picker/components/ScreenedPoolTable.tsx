@@ -1,9 +1,16 @@
 import type React from 'react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { STRATEGY_LABELS, type ScreenedStock } from '../../../api/picker';
 
 export const ScreenedPoolTable: React.FC<{ pool: ScreenedStock[] }> = ({ pool }) => {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
+  const goToChat = (s: ScreenedStock) => {
+    const params = new URLSearchParams({ stock: s.code });
+    if (s.name) params.set('name', s.name);
+    navigate(`/chat?${params.toString()}`);
+  };
   if (!pool.length) return null;
 
   const shown = expanded ? pool : pool.slice(0, 10);
@@ -54,7 +61,11 @@ export const ScreenedPoolTable: React.FC<{ pool: ScreenedStock[] }> = ({ pool })
           </thead>
           <tbody>
             {shown.map((s) => (
-              <tr key={s.code} className="border-t border-border/50 hover:bg-surface-hover/50">
+              <tr
+                key={s.code}
+                onClick={() => goToChat(s)}
+                className="border-t border-border/50 hover:bg-surface-hover/50 cursor-pointer"
+              >
                 <td className="px-4 py-2 font-mono text-muted">{s.code}</td>
                 <td className="px-4 py-2 text-primary font-medium">{s.name}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{s.price.toFixed(2)}</td>

@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ChatPage from './pages/ChatPage';
 import PickerPage from './pages/PickerPage';
+import PickerHistoryDetailPage from './pages/PickerHistoryDetailPage';
 import { ApiErrorAlert, Spinner } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAgentChatStore } from './stores/agentChatStore';
@@ -252,6 +253,7 @@ const AppContent: React.FC = () => {
                     <Route path="/" element={<HomePage/>}/>
                     <Route path="/chat" element={<ChatPage/>}/>
                     <Route path="/picker" element={<PickerPage/>}/>
+                    <Route path="/picker/history/:id" element={<PickerHistoryDetailPage/>}/>
                     <Route path="/backtest" element={<BacktestPage/>}/>
                     <Route path="/settings" element={<SettingsPage/>}/>
                     <Route path="/login" element={<LoginPage/>}/>

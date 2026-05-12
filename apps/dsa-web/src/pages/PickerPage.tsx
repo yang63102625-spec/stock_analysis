@@ -1,4 +1,5 @@
 import type React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Spinner } from '../components/common';
 import { usePicker } from './picker/hooks/usePicker';
 import { usePickerHistory } from './picker/hooks/usePickerHistory';
@@ -7,13 +8,15 @@ import { PickerEmptyState } from './picker/components/PickerEmptyState';
 import { STRATEGY_OPTIONS } from './picker/constants';
 
 const PickerPage: React.FC = () => {
+  const navigate = useNavigate();
   const p = usePicker();
   const h = usePickerHistory();
 
   const onRun = () => p.handleRun(() => { h.reload(); });
+  const onSelectHistory = (id: number) => navigate(`/picker/history/${id}`);
 
-  const showingResult = p.result && !p.loading && !p.detailLoading;
-  const showEmptyState = !p.loading && !p.detailLoading && !p.result && !p.error;
+  const showingResult = p.result && !p.loading;
+  const showEmptyState = !p.loading && !p.result && !p.error;
 
   const toggleStrategy = (s: typeof STRATEGY_OPTIONS[number]['value']) => {
     if (p.pickerStrategies.includes(s)) {
@@ -97,37 +100,31 @@ const PickerPage: React.FC = () => {
         </div>
 
         {/* Loading */}
-        {(p.loading || p.detailLoading) && (
+        {p.loading && (
           <div className="flex flex-col items-center py-20">
             <div className="relative">
               <div className="w-24 h-24 rounded-full border-2 border-cyan/10 flex items-center justify-center">
                 <Spinner size="lg" />
               </div>
-              {p.loading && <div className="absolute -inset-3 rounded-full border border-cyan/5 animate-ping" style={{ animationDuration: '2s' }} />}
+              <div className="absolute -inset-3 rounded-full border border-cyan/5 animate-ping" style={{ animationDuration: '2s' }} />
             </div>
-            <p className="mt-8 text-base text-primary font-semibold">
-              {p.detailLoading ? '加载历史记录...' : '两阶段分析进行中'}
-            </p>
-            {p.loading && (
-              <>
-                <div className="mt-4 flex gap-8 text-sm text-muted">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-cyan animate-pulse" />
-                    <span>量化筛选</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-purple/50" />
-                    <span>AI 精选</span>
-                  </div>
-                </div>
-                <p className="mt-6 text-xs text-muted">全市场扫描 + 多层过滤 + 新闻检索 + AI 综合分析，预计 30-90 秒</p>
-              </>
-            )}
+            <p className="mt-8 text-base text-primary font-semibold">两阶段分析进行中</p>
+            <div className="mt-4 flex gap-8 text-sm text-muted">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-cyan animate-pulse" />
+                <span>量化筛选</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple/50" />
+                <span>AI 精选</span>
+              </div>
+            </div>
+            <p className="mt-6 text-xs text-muted">全市场扫描 + 多层过滤 + 新闻检索 + AI 综合分析，预计 30-90 秒</p>
           </div>
         )}
 
         {/* Error */}
-        {p.error && !p.loading && !p.detailLoading && (
+        {p.error && !p.loading && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-6 mb-8 text-center">
             <p className="text-base text-red-700 font-medium">{p.error}</p>
             <button onClick={onRun} className="mt-3 text-sm text-red-600 underline hover:no-underline font-medium">
@@ -137,12 +134,7 @@ const PickerPage: React.FC = () => {
         )}
 
         {/* Results */}
-        {showingResult && (
-          <ResultView
-            result={p.result!}
-            onBack={p.viewingHistoryId ? p.handleBackToList : undefined}
-          />
-        )}
+        {showingResult && <ResultView result={p.result!} />}
 
         {/* Empty state */}
         {showEmptyState && (
@@ -152,7 +144,7 @@ const PickerPage: React.FC = () => {
             historyLoading={h.historyLoading}
             historyVisibleCount={h.historyVisibleCount}
             onShowMore={() => h.setHistoryVisibleCount((c) => c + 10)}
-            onSelect={p.handleViewHistory}
+            onSelect={onSelectHistory}
           />
         )}
 

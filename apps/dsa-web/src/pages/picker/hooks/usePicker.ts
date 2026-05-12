@@ -1,37 +1,29 @@
 import { useState, useCallback } from 'react';
 import {
   fetchRecommendations,
-  fetchPickerDetail,
   type PickerResponse,
   type PickerStrategy,
 } from '../../../api/picker';
 
 export interface UsePicker {
   loading: boolean;
-  detailLoading: boolean;
   result: PickerResponse | null;
   error: string;
   pickerStrategies: PickerStrategy[];
   setPickerStrategies: (v: PickerStrategy[]) => void;
-  viewingHistoryId: number | null;
   handleRun: (onAfterRun?: () => void) => Promise<void>;
-  handleViewHistory: (id: number) => Promise<void>;
-  handleBackToList: () => void;
 }
 
 export function usePicker(): UsePicker {
   const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [result, setResult] = useState<PickerResponse | null>(null);
   const [error, setError] = useState('');
   const [pickerStrategies, setPickerStrategies] = useState<PickerStrategy[]>(['buy_pullback']);
-  const [viewingHistoryId, setViewingHistoryId] = useState<number | null>(null);
 
   const handleRun = useCallback(async (onAfterRun?: () => void) => {
     setLoading(true);
     setError('');
     setResult(null);
-    setViewingHistoryId(null);
     try {
       const strategies: PickerStrategy[] = pickerStrategies.length > 0 ? pickerStrategies : ['buy_pullback'];
       const data = await fetchRecommendations({ picker_strategies: strategies });
@@ -53,32 +45,9 @@ export function usePicker(): UsePicker {
     }
   }, [pickerStrategies]);
 
-  const handleViewHistory = useCallback(async (id: number) => {
-    setDetailLoading(true);
-    setError('');
-    setResult(null);
-    setViewingHistoryId(id);
-    try {
-      const data = await fetchPickerDetail(id);
-      setResult(data);
-    } catch {
-      setError('加载历史记录失败');
-      setViewingHistoryId(null);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
-
-  const handleBackToList = useCallback(() => {
-    setResult(null);
-    setViewingHistoryId(null);
-    setError('');
-  }, []);
-
   return {
-    loading, detailLoading, result, error,
+    loading, result, error,
     pickerStrategies, setPickerStrategies,
-    viewingHistoryId,
-    handleRun, handleViewHistory, handleBackToList,
+    handleRun,
   };
 }
