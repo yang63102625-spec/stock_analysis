@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: split ``src/analyzer.py`` (1561 lines) into ``src/analyzer/`` package
+
+- ``src/analyzer.py`` is gone; its contents live in eight focused modules
+  under ``src/analyzer/`` and every file is now ≤ 513 lines (rule §1):
+  - ``__init__.py`` — public surface re-exports.
+  - ``integrity.py`` — content-integrity helpers + chip_structure fallback.
+  - ``stock_name.py`` — multi-source stock-name resolver.
+  - ``result.py`` — ``AnalysisResult`` dataclass.
+  - ``_llm_client.py`` — ``_LLMClientMixin`` (LiteLLM Router init,
+    ``generate_text``).
+  - ``_prompt_builder.py`` — ``_PromptBuilderMixin`` (prompt assembly,
+    market-snapshot helpers, formatters).
+  - ``_response_parser.py`` — ``_ResponseParserMixin`` (JSON / text
+    parsing into ``AnalysisResult``).
+  - ``gemini.py`` — ``GeminiAnalyzer`` (composes the three mixins) +
+    system-prompt constants + ``analyze`` / ``batch_analyze`` /
+    integrity helper methods + ``get_analyzer`` factory.
+- Public surface is unchanged: every existing
+  ``from src.analyzer import …`` call site keeps working without
+  modification.
+- ``__main__`` diagnostic block (~33 lines) dropped — production code
+  paths are exercised by ``tests/`` and ``scripts/diagnose_env.py``.
+
 ### Refactor: unified TTLCache for all data-provider module caches
 
 - Replaced six raw module-level cache dictionaries with the unified
