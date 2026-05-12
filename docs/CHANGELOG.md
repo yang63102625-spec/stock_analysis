@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: code quality phase 2.3 (split storage layer)
+
+- ``src/storage.py`` (2175 lines) replaced by the ``src.storage`` sub-package:
+  ``models.py`` (all 9 ORM models + ``Base``), ``manager_base.py``
+  (singleton/engine/session lifecycle + schema migrations),
+  ``daily_data.py`` (StockDaily queries + ``save_daily_data``),
+  ``news.py`` (NewsIntel CRUD), ``analysis.py`` (AnalysisHistory CRUD +
+  ``get_analysis_context`` + helpers), ``picker.py`` (picker history +
+  picker backtest history), ``conversation.py`` (chat session/messages),
+  ``llm_usage.py`` (LLMUsage audit log), ``manager.py`` (composes the
+  mixins; module-level ``get_db`` / ``persist_llm_usage``).
+- Largest split file is ``analysis.py`` at 613 lines; the package
+  ``__init__.py`` re-exports every public symbol so existing imports
+  (``from src.storage import DatabaseManager`` / ``get_db`` /
+  ``persist_llm_usage`` / any ORM model) continue to work without changes.
+- ``DatabaseManager.__init__`` keeps registering the atexit cleanup hook
+  via ``type(self)._cleanup_engine`` so the inheritance chain stays
+  decoupled from a hard-coded ``DatabaseManager`` reference.
+
 ### Refactor: code quality phase 2.2 (split StockScreener)
 
 - ``src/services/picker/quantitative_filter.py`` (1671 lines) split into the
