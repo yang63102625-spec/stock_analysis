@@ -1,6 +1,37 @@
 import axios from 'axios';
 
+/**
+ * Numeric error codes mirrored from ``api/v1/schemas/envelope.py``
+ * (``ApiErrorCode``). Treat the values as part of the wire contract.
+ */
+export const ApiErrorCode = {
+  SUCCESS: 0,
+  VALIDATION_ERROR: 1001,
+  NOT_FOUND: 1002,
+  UNAUTHORIZED: 1003,
+  FORBIDDEN: 1004,
+  HTTP_ERROR: 1099,
+  RATE_LIMIT: 2001,
+  NETWORK_ERROR: 2002,
+  DATA_SOURCE_UNAVAILABLE: 2003,
+  INTERNAL_ERROR: 9000,
+  UNKNOWN_ERROR: 9999,
+} as const;
+
+export type ApiErrorCodeValue = typeof ApiErrorCode[keyof typeof ApiErrorCode];
+
 export type ApiErrorCategory =
+  // Categories backed by backend ``ApiErrorCode`` (preferred fast-path).
+  | 'rate_limit'
+  | 'upstream_network'
+  | 'data_source_unavailable'
+  | 'validation_error'
+  | 'unauthorized'
+  | 'not_found'
+  | 'forbidden'
+  | 'internal_error'
+  // Semantic categories detected via response payload text (LLM / agent
+  // specifics not represented in the numeric taxonomy).
   | 'agent_disabled'
   | 'missing_params'
   | 'llm_not_configured'
@@ -8,10 +39,35 @@ export type ApiErrorCategory =
   | 'invalid_tool_call'
   | 'upstream_llm_400'
   | 'upstream_timeout'
-  | 'upstream_network'
   | 'local_connection_failed'
   | 'http_error'
   | 'unknown';
+
+const CODE_CATEGORY: Record<number, ApiErrorCategory> = {
+  [ApiErrorCode.RATE_LIMIT]: 'rate_limit',
+  [ApiErrorCode.NETWORK_ERROR]: 'upstream_network',
+  [ApiErrorCode.DATA_SOURCE_UNAVAILABLE]: 'data_source_unavailable',
+  [ApiErrorCode.VALIDATION_ERROR]: 'validation_error',
+  [ApiErrorCode.UNAUTHORIZED]: 'unauthorized',
+  [ApiErrorCode.NOT_FOUND]: 'not_found',
+  [ApiErrorCode.FORBIDDEN]: 'forbidden',
+  [ApiErrorCode.HTTP_ERROR]: 'http_error',
+  [ApiErrorCode.INTERNAL_ERROR]: 'internal_error',
+  [ApiErrorCode.UNKNOWN_ERROR]: 'unknown',
+};
+
+const CODE_TITLE: Record<number, string> = {
+  [ApiErrorCode.RATE_LIMIT]: '请求频率受限',
+  [ApiErrorCode.NETWORK_ERROR]: '服务端无法访问外部依赖',
+  [ApiErrorCode.DATA_SOURCE_UNAVAILABLE]: '数据源暂时不可用',
+  [ApiErrorCode.VALIDATION_ERROR]: '请求参数校验失败',
+  [ApiErrorCode.UNAUTHORIZED]: '需要登录',
+  [ApiErrorCode.NOT_FOUND]: '资源不存在',
+  [ApiErrorCode.FORBIDDEN]: '没有权限访问该资源',
+  [ApiErrorCode.HTTP_ERROR]: '请求失败',
+  [ApiErrorCode.INTERNAL_ERROR]: '服务端错误',
+  [ApiErrorCode.UNKNOWN_ERROR]: '未知错误',
+};
 
 export interface ParsedApiError {
   title: string;
@@ -274,6 +330,24 @@ export function isLocalConnectionFailure(error: unknown): boolean {
   return parseApiError(error).category === 'local_connection_failed';
 }
 
+function extractEnvelopeCode(data: unknown): number | null {
+  if (!isRecord(data)) {
+    return null;
+  }
+  // Backend always emits {code, message, data, timestamp}; the axios
+  // interceptor only unwraps on success, so error payloads keep this shape.
+  const code = (data as { code?: unknown }).code;
+  return typeof code === 'number' ? code : null;
+}
+
+function extractEnvelopeMessage(data: unknown): string | null {
+  if (!isRecord(data)) {
+    return null;
+  }
+  const message = (data as { message?: unknown }).message;
+  return typeof message === 'string' && message.trim() ? message.trim() : null;
+}
+
 export function parseApiError(error: unknown): ParsedApiError {
   const response = getResponse(error);
   const status = response?.status;
@@ -284,6 +358,14 @@ export function parseApiError(error: unknown): ParsedApiError {
   const rawMessage = pickString(payloadText, response?.statusText, errorMessage, causeMessage, code)
     ?? '请求未成功完成，请稍后重试。';
   const matchText = buildMatchText([rawMessage, errorMessage, causeMessage, code, response?.statusText]);
+
+  // Fast-path: backend APIResponse envelope provides a stable numeric code.
+  // We still run the string-based heuristics below for semantic categories
+  // (e.g. agent_disabled / model_tool_incompatible) that the numeric
+  // taxonomy does not cover, but envelope-code matches win for the cases
+  // they handle.
+  const envelopeCode = extractEnvelopeCode(response?.data);
+  const envelopeMessage = extractEnvelopeMessage(response?.data);
 
   if (includesAny(matchText, ['agent mode is not enabled', 'agent_mode'])) {
     return createParsedApiError({
@@ -356,6 +438,8 @@ export function parseApiError(error: unknown): ParsedApiError {
     });
   }
 
+  // ECONNABORTED is an axios-level signal that has no backend envelope —
+  // keep the dedicated branch so the user still sees the right hint.
   if (includesAny(matchText, ['timeout', 'timed out', 'read timeout', 'connect timeout']) || code === 'ECONNABORTED') {
     return createParsedApiError({
       title: '连接上游服务超时',
@@ -366,26 +450,18 @@ export function parseApiError(error: unknown): ParsedApiError {
     });
   }
 
-  if (
-    status === 502
-    || status === 503
-    || includesAny(matchText, [
-      'dns',
-      'enotfound',
-      'name or service not known',
-      'temporary failure in name resolution',
-      'proxy',
-      'tunnel',
-      '502',
-      '503',
-    ])
-  ) {
+  // Envelope-code fast-path for categories backed by the numeric taxonomy.
+  // Runs after the LLM/agent string heuristics above (those capture
+  // sub-categories the numeric codes can't distinguish).
+  if (envelopeCode !== null && envelopeCode !== ApiErrorCode.SUCCESS) {
+    const category = CODE_CATEGORY[envelopeCode] ?? 'unknown';
+    const title = CODE_TITLE[envelopeCode] ?? '请求失败';
     return createParsedApiError({
-      title: '服务端无法访问外部依赖',
-      message: '页面已连接到本地服务，但本地服务访问外部模型或数据接口失败，请检查代理、DNS 或出网配置。',
+      title,
+      message: envelopeMessage ?? title,
       rawMessage,
       status,
-      category: 'upstream_network',
+      category,
     });
   }
 
