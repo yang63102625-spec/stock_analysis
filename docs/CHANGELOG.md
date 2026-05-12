@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 4 wrap-up (T4.4)
+
+After T4.1–T4.3 the suite stands at 662 tests passing (4 added in
+T4.3, 11 added in T4.2, 13 migrated in T4.1). Two pre-existing
+failures remain and are explicitly out of scope:
+
+- ``tests/test_agent_pipeline.py::TestAgentConfig`` — depends on a
+  removed ``Config._load_from_env`` helper.
+- ``tests/test_agent_pipeline.py::TestPipelineRouting`` — depends
+  on an undefined ``SearchService`` symbol.
+
+**Known rule §1 overflows** (file-size limit 800 lines):
+
+- ``src/enhanced_market_analyzer.py`` — 825 lines.
+- ``src/services/backtest_service.py`` — 815 lines.
+
+Both predate Phase 3 and were not touched by Phase 4 changes; they
+will be split in a follow-up commit (same mixin / sub-module pattern
+used in Phase 3 — see T3.1–T3.4 entries below). Tracking in the
+plan as a deferred Phase-3 item rather than blocking the Phase-4
+deliverables.
+
 ### Refactor: thread-safety + typed circuit-breaker state (T4.3)
 
 Implements rule §6 ("Thread Safety") for the two pieces of shared
