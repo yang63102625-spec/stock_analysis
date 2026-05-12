@@ -8,6 +8,7 @@
 """
 
 import logging
+import threading
 import time
 from collections import defaultdict
 from typing import Dict, List, Optional, Type, Callable
@@ -21,10 +22,17 @@ logger = logging.getLogger(__name__)
 class RateLimiter:
     """
     简单的频率限制器
-    
+
     基于滑动窗口算法，限制每个用户的请求频率。
+
+    Thread-safety
+    -------------
+    Bot platforms (DingTalk / Feishu / Discord) dispatch each incoming
+    message on a freshly spawned worker thread, so ``_requests`` is
+    accessed concurrently. A single :class:`threading.Lock` guards
+    every read-modify-write sequence (rule §6).
     """
-    
+
     def __init__(self, max_requests: int = 10, window_seconds: int = 60):
         """
         Args:
@@ -34,46 +42,39 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: Dict[str, List[float]] = defaultdict(list)
-    
+        self._lock = threading.Lock()
+
+    def _prune_locked(self, user_id: str, now: float) -> List[float]:
+        """Drop expired timestamps for *user_id*. Caller holds ``_lock``."""
+        window_start = now - self.window_seconds
+        kept = [t for t in self._requests[user_id] if t > window_start]
+        self._requests[user_id] = kept
+        return kept
+
     def is_allowed(self, user_id: str) -> bool:
         """
         检查用户是否允许请求
-        
+
         Args:
             user_id: 用户标识
-            
+
         Returns:
             是否允许
         """
         now = time.time()
-        window_start = now - self.window_seconds
-        
-        # 清理过期记录
-        self._requests[user_id] = [
-            t for t in self._requests[user_id] 
-            if t > window_start
-        ]
-        
-        # 检查是否超限
-        if len(self._requests[user_id]) >= self.max_requests:
-            return False
-        
-        # 记录本次请求
-        self._requests[user_id].append(now)
-        return True
-    
+        with self._lock:
+            kept = self._prune_locked(user_id, now)
+            if len(kept) >= self.max_requests:
+                return False
+            kept.append(now)
+            return True
+
     def get_remaining(self, user_id: str) -> int:
         """获取剩余可用请求数"""
         now = time.time()
-        window_start = now - self.window_seconds
-        
-        # 清理过期记录
-        self._requests[user_id] = [
-            t for t in self._requests[user_id] 
-            if t > window_start
-        ]
-        
-        return max(0, self.max_requests - len(self._requests[user_id]))
+        with self._lock:
+            kept = self._prune_locked(user_id, now)
+            return max(0, self.max_requests - len(kept))
 
 
 class CommandDispatcher:

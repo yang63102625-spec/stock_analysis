@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: thread-safety + typed circuit-breaker state (T4.3)
+
+Implements rule §6 ("Thread Safety") for the two pieces of shared
+mutable state that are read/modified from worker threads.
+
+- ``data_provider/realtime_types.py``:
+  - The previous ``Dict[str, Dict[str, Any]]`` per-source state is
+    replaced by a typed ``_SourceState`` dataclass
+    (``state``, ``failures``, ``last_failure_time``, ``half_open_calls``).
+  - ``CircuitBreaker`` now wraps every read-modify-write sequence in
+    ``threading.Lock`` (``is_available`` / ``record_success`` /
+    ``record_failure`` / ``get_status`` / ``reset`` / ``_get_state``).
+    The breaker is consulted concurrently from realtime fetcher
+    threads and bot dispatchers, so the previous lock-free
+    implementation could lose ``failures += 1`` increments under
+    contention.
+- ``bot/dispatcher.py``:
+  - ``RateLimiter`` (sliding-window) now holds a ``threading.Lock``
+    around the prune-then-check-then-append window operation. Bot
+    platforms (DingTalk / Feishu / Discord) spawn a fresh worker
+    thread per incoming message, so the read-modify-write on
+    ``self._requests[user_id]`` was racy and could let users exceed
+    the configured cap.
+  - Pruning logic factored into ``_prune_locked`` to share between
+    ``is_allowed`` and ``get_remaining``.
+- ``tests/test_thread_safety.py`` (new, 4 cases): hammers the
+  breaker from 16 concurrent workers (no corruption / state stays
+  consistent) and asserts ``RateLimiter`` enforces the cap exactly
+  under contention (200 attempts / cap=50 → 50 granted).
+
 ### Refactor: shared DataFrame validators wired into all OHLCV fetchers (T4.2)
 
 Implements rule §7 from ``code-quality.mdc`` ("Data Validation Rules").
