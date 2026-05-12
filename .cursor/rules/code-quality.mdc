@@ -35,6 +35,22 @@ All developers (human and AI) MUST follow these rules to prevent recurring probl
 
 ---
 
+## 1b. Single Source of Truth (No Shims, No Legacy Paths)
+
+This project keeps **only the latest version** of every module. Multi-version coexistence (old path + new path) is forbidden.
+
+- **No backward-compatibility shims.** When a module is renamed, moved, or split, you MUST update every caller to import from the new canonical path in the same change. Do NOT leave a stub file at the old location that re-exports from the new one.
+- **No "legacy" duplicate modules.** A given public symbol (class, function, constant) MUST live at exactly one canonical import path. If you need to introduce a redesigned replacement, delete the old implementation and update all call sites in the same commit.
+- **No re-export shims `__init__.py` for the sole purpose of preserving an old import path.** Package `__init__.py` files SHOULD only re-export symbols that are part of the package's intended public surface — not to keep historical paths alive.
+- **When refactoring**:
+  1. Move/rename the implementation to its new canonical location.
+  2. `rg` for every old import path and rewrite each call site (production code, tests, scripts, CI workflows, docs) in the same change.
+  3. Delete the old file (`git rm`).
+  4. Run the full test suite to verify nothing references the deleted path.
+- **Exception**: external public API contracts (REST endpoints, CLI flags, environment variables, database schemas) follow standard deprecation rules — not in scope here. This rule is specifically about Python import paths inside the repo.
+
+---
+
 ## 2. DRY Principle (Don't Repeat Yourself)
 
 ### General

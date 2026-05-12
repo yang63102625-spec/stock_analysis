@@ -28,7 +28,9 @@ from tenacity import (
     before_sleep_log,
 )
 
-from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code
+from src.exceptions import DataFetchError
+
+from .base import BaseFetcher, STANDARD_COLUMNS, is_bse_code
 from .rate_limit_mixin import RateLimitMixin
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource
 from .us_index_mapping import get_us_index_yf_symbol, is_us_index_code, is_us_stock_code

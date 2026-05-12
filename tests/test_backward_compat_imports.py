@@ -43,9 +43,6 @@ LEGACY_SYMBOLS = [
     # data_provider public surface
     ("data_provider.base", "BaseFetcher"),
     ("data_provider.base", "DataFetcherManager"),
-    ("data_provider.base", "DataFetchError"),
-    ("data_provider.base", "RateLimitError"),
-    ("data_provider.base", "DataSourceUnavailableError"),
     # Tushare canonical sub-package
     ("data_provider.tushare", "TushareFetcher"),
     ("data_provider.tushare.utils", "_is_etf_code"),

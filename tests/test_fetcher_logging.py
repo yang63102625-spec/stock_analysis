@@ -10,7 +10,9 @@ import requests
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from data_provider.base import BaseFetcher, DataFetchError, DataFetcherManager
+from src.exceptions import DataFetchError
+
+from data_provider.base import BaseFetcher, DataFetcherManager
 from data_provider.efinance_fetcher import EfinanceFetcher
 
 

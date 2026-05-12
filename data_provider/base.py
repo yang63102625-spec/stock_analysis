@@ -165,19 +165,11 @@ def canonical_stock_code(code: str) -> str:
     return (code or "").strip().upper()
 
 
-class DataFetchError(Exception):
-    """数据获取异常基类"""
-    pass
-
-
-class RateLimitError(DataFetchError):
-    """API 速率限制异常"""
-    pass
-
-
-class DataSourceUnavailableError(DataFetchError):
-    """数据源不可用异常"""
-    pass
+from src.exceptions import (
+    DataFetchError,
+    DataSourceUnavailableError,
+    RateLimitError,
+)
 
 
 class BaseFetcher(ABC):

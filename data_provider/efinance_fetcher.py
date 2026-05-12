@@ -41,7 +41,9 @@ from tenacity import (
 
 from patch.eastmoney_patch import eastmoney_patch
 from src.config import get_config
-from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
+from src.exceptions import DataFetchError, RateLimitError
+
+from .base import BaseFetcher, STANDARD_COLUMNS, is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
 from .rate_limit_mixin import RateLimitMixin, USER_AGENTS
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,

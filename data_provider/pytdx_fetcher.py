@@ -28,7 +28,9 @@ from tenacity import (
     before_sleep_log,
 )
 
-from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code
+from src.exceptions import DataFetchError
+
+from .base import BaseFetcher, STANDARD_COLUMNS, is_bse_code
 from .rate_limit_mixin import RateLimitMixin
 import os
 

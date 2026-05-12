@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ``TushareFetcher`` from their respective canonical sub-packages.
 - ``tests/test_backward_compat_imports.py`` rewritten to assert the
   canonical public surface only (legacy shim entries removed).
+- Exception classes (``DataFetchError`` / ``RateLimitError`` /
+  ``DataSourceUnavailableError``) consolidated: they now live only in
+  ``src.exceptions``. ``data_provider/base.py`` imports them from there
+  instead of defining its own copies, and every fetcher / test was
+  updated to import from ``src.exceptions`` directly.
+- New rule added in ``.cursor/rules/code-quality.mdc`` (section 1b) and
+  ``AGENTS.md`` § 1: **single source of truth — no shims, no legacy
+  paths.** Renames/moves must update all callers and delete the old
+  file in the same change.
 
 ### Refactor: code quality phase 2.4 (split search service)
 
@@ -77,9 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (``screen()`` and ``screen_as_of()``), ``eod_buyback.py`` (the dedicated
   realtime EOD path), ``screener.py`` (composes the mixins).
 - Each split file is ≤556 lines (largest: ``data_fetch.py``).
-- Legacy ``src/services/picker/quantitative_filter.py`` kept as a 12-line shim
-  re-exporting ``StockScreener``; existing imports continue to work
-  unchanged.
 
 ### Refactor: code quality phase 2.1 (split Tushare/Akshare fetchers)
 
@@ -88,19 +94,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ``historical.py`` (daily/ETF/chip), ``realtime.py`` (full-market snapshots,
   ``rt_k`` and ``daily_basic`` caches), ``market.py`` (indices/market_stats/sector),
   ``utils.py`` (helpers/constants), ``fetcher.py`` (composes the mixins).
-  Each file is now ≤800 lines; the legacy module path is kept as a shim re-exporting
-  ``TushareFetcher`` plus the module-level cache dicts/locks/circuit-breakers consumed
-  by ``src/services/picker/quantitative_filter.py``.
+  Each file is now ≤800 lines.
 - ``data_provider/akshare_fetcher.py`` (1869 lines) split into the
   ``data_provider.akshare`` sub-package along the same axes
   (``base``/``historical``/``realtime``/``market``/``utils``/``fetcher``).
-  Shim re-exports ``SINA_REALTIME_ENDPOINT``, ``TENCENT_REALTIME_ENDPOINT``,
-  ``_to_sina_tx_symbol``, ``_is_hk_code`` etc. that were used by tests/`test.sh`.
 - ``tests/test_akshare_realtime_logging.py``: ``monkeypatch.setattr`` targets
-  retargeted from the legacy single-file path to the new
-  ``data_provider.akshare.realtime`` module so the patch hits the actual call site.
-- ``tests/test_backward_compat_imports.py``: extended to cover the new sub-packages
-  and the module-level cache symbols (preventing accidental shim regressions).
+  retargeted to the new ``data_provider.akshare.realtime`` module so the patch
+  hits the actual call site.
 
 ### Refactor: code quality phase 1 (anti-crawl / exception / cache convergence)
 
@@ -108,9 +108,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   attribute guarded by an instance-level ``threading.Lock`` (no more class-shared race).
 - `tushare_fetcher`, `baostock_fetcher`, `yfinance_fetcher`, `pytdx_fetcher` now inherit
   ``RateLimitMixin`` so all six A-share fetchers share the same anti-crawl helpers.
-- `src/exceptions.py`: unified taxonomy (``RateLimitError``, ``NetworkError``,
-  ``DataSourceUnavailableError``, ``ValidationError``, ``UnknownError``) — re-exports
-  the existing classes from ``data_provider.base`` so legacy imports keep working.
+- `src/exceptions.py`: unified taxonomy (``DataFetchError`` base +
+  ``RateLimitError`` / ``NetworkError`` / ``DataSourceUnavailableError`` /
+  ``ValidationError`` / ``UnknownError``) is now the single source of truth.
+  ``data_provider.base`` and every fetcher imports the classes from here.
 - `BaseFetcher._classify_exception(exc)` returns the taxonomy class (companion to the
   existing string-tuple ``_classify_error``).
 - `data_provider/caching_manager.py`: added ``TTLCache`` (per-entry TTL, hit/miss

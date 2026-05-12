@@ -17,7 +17,9 @@ from tenacity import (
     wait_exponential,
 )
 
-from ..base import DataFetchError, RateLimitError, STANDARD_COLUMNS, normalize_stock_code
+from src.exceptions import DataFetchError, RateLimitError
+
+from ..base import STANDARD_COLUMNS, normalize_stock_code
 from ..us_index_mapping import is_us_index_code
 from .utils import _is_etf_code, _is_hk_code, _is_us_code, _to_sina_tx_symbol
 
