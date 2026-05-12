@@ -673,10 +673,9 @@ class StockScreener:
             # Overlay realtime data
             if not is_historical:
                 try:
-                    from data_provider.tushare_fetcher import _realtime_list_cache
-                    import data_provider.tushare_fetcher as _ts_mod
-                    _realtime_list_cache['timestamp'] = 0.0
-                    _ts_mod._rt_k_cache_time = 0.0
+                    from data_provider.tushare import realtime as _ts_rt
+                    _ts_rt._realtime_list_cache['timestamp'] = 0.0
+                    _ts_rt._rt_k_cache_time = 0.0
                     logger.debug("[Screener] Forced realtime cache expiry before supplement")
                 except (ImportError, KeyError) as e:
                     logger.warning(f"[Screener] Could not force cache expiry: {e}")

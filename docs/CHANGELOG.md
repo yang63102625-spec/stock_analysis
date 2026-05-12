@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: code quality phase 2.1 (split Tushare/Akshare fetchers)
+
+- ``data_provider/tushare_fetcher.py`` (2056 lines) split into the
+  ``data_provider.tushare`` sub-package: ``base.py`` (init/rate-limit/code conv),
+  ``historical.py`` (daily/ETF/chip), ``realtime.py`` (full-market snapshots,
+  ``rt_k`` and ``daily_basic`` caches), ``market.py`` (indices/market_stats/sector),
+  ``utils.py`` (helpers/constants), ``fetcher.py`` (composes the mixins).
+  Each file is now ≤800 lines; the legacy module path is kept as a shim re-exporting
+  ``TushareFetcher`` plus the module-level cache dicts/locks/circuit-breakers consumed
+  by ``src/services/picker/quantitative_filter.py``.
+- ``data_provider/akshare_fetcher.py`` (1869 lines) split into the
+  ``data_provider.akshare`` sub-package along the same axes
+  (``base``/``historical``/``realtime``/``market``/``utils``/``fetcher``).
+  Shim re-exports ``SINA_REALTIME_ENDPOINT``, ``TENCENT_REALTIME_ENDPOINT``,
+  ``_to_sina_tx_symbol``, ``_is_hk_code`` etc. that were used by tests/`test.sh`.
+- ``tests/test_akshare_realtime_logging.py``: ``monkeypatch.setattr`` targets
+  retargeted from the legacy single-file path to the new
+  ``data_provider.akshare.realtime`` module so the patch hits the actual call site.
+- ``tests/test_backward_compat_imports.py``: extended to cover the new sub-packages
+  and the module-level cache symbols (preventing accidental shim regressions).
+
 ### Refactor: code quality phase 1 (anti-crawl / exception / cache convergence)
 
 - `data_provider/rate_limit_mixin.py`: ``_last_request_time`` is now a per-instance

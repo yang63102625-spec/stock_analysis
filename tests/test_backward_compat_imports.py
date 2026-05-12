@@ -48,7 +48,23 @@ LEGACY_SYMBOLS = [
     ("data_provider.base", "RateLimitError"),
     ("data_provider.base", "DataSourceUnavailableError"),
     ("data_provider.tushare_fetcher", "TushareFetcher"),
+    # Tushare shim must keep re-exporting module-level cache state used by
+    # callers (quantitative_filter forces realtime cache expiry through it).
+    ("data_provider.tushare_fetcher", "_realtime_list_cache"),
+    ("data_provider.tushare_fetcher", "_rt_k_cache_time"),
+    ("data_provider.tushare_fetcher", "_is_etf_code"),
+    ("data_provider.tushare_fetcher", "_is_us_code"),
+    # Tushare new sub-package
+    ("data_provider.tushare", "TushareFetcher"),
     ("data_provider.akshare_fetcher", "AkshareFetcher"),
+    ("data_provider.akshare_fetcher", "SINA_REALTIME_ENDPOINT"),
+    ("data_provider.akshare_fetcher", "TENCENT_REALTIME_ENDPOINT"),
+    ("data_provider.akshare_fetcher", "_to_sina_tx_symbol"),
+    ("data_provider.akshare_fetcher", "_is_hk_code"),
+    ("data_provider.akshare_fetcher", "_is_us_code"),
+    # Akshare new sub-package
+    ("data_provider.akshare", "AkshareFetcher"),
+    ("data_provider.akshare", "is_hk_stock_code"),
     ("data_provider.efinance_fetcher", "EfinanceFetcher"),
     ("data_provider.baostock_fetcher", "BaostockFetcher"),
     ("data_provider.yfinance_fetcher", "YfinanceFetcher"),

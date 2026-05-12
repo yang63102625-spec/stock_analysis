@@ -73,9 +73,9 @@ def akshare_fetcher(monkeypatch):
 
 def test_sina_realtime_success_logs_endpoint(caplog, monkeypatch, akshare_fetcher):
     breaker = _DummyCircuitBreaker()
-    monkeypatch.setattr("data_provider.akshare_fetcher.get_realtime_circuit_breaker", lambda: breaker)
+    monkeypatch.setattr("data_provider.akshare.realtime.get_realtime_circuit_breaker", lambda: breaker)
     monkeypatch.setattr(
-        "data_provider.akshare_fetcher.requests.get",
+        "data_provider.akshare.realtime.requests.get",
         lambda *args, **kwargs: _DummyResponse(200, _make_sina_payload()),
     )
 
@@ -92,12 +92,12 @@ def test_sina_realtime_success_logs_endpoint(caplog, monkeypatch, akshare_fetche
 
 def test_sina_realtime_remote_disconnect_logs_category(caplog, monkeypatch, akshare_fetcher):
     breaker = _DummyCircuitBreaker()
-    monkeypatch.setattr("data_provider.akshare_fetcher.get_realtime_circuit_breaker", lambda: breaker)
+    monkeypatch.setattr("data_provider.akshare.realtime.get_realtime_circuit_breaker", lambda: breaker)
 
     def _raise_disconnect(*args, **kwargs):
         raise requests.exceptions.ConnectionError("Remote end closed connection without response")
 
-    monkeypatch.setattr("data_provider.akshare_fetcher.requests.get", _raise_disconnect)
+    monkeypatch.setattr("data_provider.akshare.realtime.requests.get", _raise_disconnect)
 
     with caplog.at_level(logging.INFO):
         quote = akshare_fetcher._get_stock_realtime_quote_sina("601006")
@@ -113,9 +113,9 @@ def test_sina_realtime_remote_disconnect_logs_category(caplog, monkeypatch, aksh
 
 def test_tencent_realtime_http_status_logs_endpoint(caplog, monkeypatch, akshare_fetcher):
     breaker = _DummyCircuitBreaker()
-    monkeypatch.setattr("data_provider.akshare_fetcher.get_realtime_circuit_breaker", lambda: breaker)
+    monkeypatch.setattr("data_provider.akshare.realtime.get_realtime_circuit_breaker", lambda: breaker)
     monkeypatch.setattr(
-        "data_provider.akshare_fetcher.requests.get",
+        "data_provider.akshare.realtime.requests.get",
         lambda *args, **kwargs: _DummyResponse(503, "service unavailable"),
     )
 
@@ -133,9 +133,9 @@ def test_tencent_realtime_http_status_logs_endpoint(caplog, monkeypatch, akshare
 
 def test_tencent_realtime_success_logs_endpoint(caplog, monkeypatch, akshare_fetcher):
     breaker = _DummyCircuitBreaker()
-    monkeypatch.setattr("data_provider.akshare_fetcher.get_realtime_circuit_breaker", lambda: breaker)
+    monkeypatch.setattr("data_provider.akshare.realtime.get_realtime_circuit_breaker", lambda: breaker)
     monkeypatch.setattr(
-        "data_provider.akshare_fetcher.requests.get",
+        "data_provider.akshare.realtime.requests.get",
         lambda *args, **kwargs: _DummyResponse(200, _make_tencent_payload()),
     )
 
