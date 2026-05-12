@@ -24,131 +24,18 @@ import pandas as pd
 from src.config import get_config
 from src.search_service import SearchService
 from src.market_analyzer import MarketAnalyzer, MarketOverview, MarketIndex
+from src._enhanced_market_types import (
+    EnhancedMarketReport,
+    ExternalEnvironment,
+    MarketSentiment,
+    SectorHotspot,
+    SentimentAnalysis,
+    TechnicalAnalysis,
+)
 from data_provider.base import DataFetcherManager
 
 logger = logging.getLogger(__name__)
 
-
-class MarketSentiment(Enum):
-    """市场情绪枚举"""
-    EXTREME_FEAR = "极度恐慌"
-    FEAR = "恐慌"
-    NEUTRAL = "中性"
-    GREED = "贪婪"
-    EXTREME_GREED = "极度贪婪"
-
-
-@dataclass
-class SentimentAnalysis:
-    """市场情绪分析数据"""
-    sentiment: MarketSentiment = MarketSentiment.NEUTRAL
-    fear_greed_index: float = 50.0  # 0-100，50为中性
-    market_heat: float = 0.0        # 市场热度 0-100
-    fund_flow_trend: str = "平衡"    # 资金流向趋势
-    volatility_level: str = "正常"   # 波动率水平
-    
-    # 细分指标
-    volume_ratio: float = 1.0       # 量比（今日/5日均量）
-    turnover_rate: float = 0.0      # 换手率
-    new_high_low_ratio: float = 0.0 # 新高新低比
-    
-    def get_sentiment_description(self) -> str:
-        """获取情绪描述"""
-        descriptions = {
-            MarketSentiment.EXTREME_FEAR: "市场极度恐慌，抄底机会可能出现",
-            MarketSentiment.FEAR: "市场情绪偏向恐慌，谨慎观望为主",
-            MarketSentiment.NEUTRAL: "市场情绪相对平稳，观察方向选择",
-            MarketSentiment.GREED: "市场情绪偏向乐观，注意风险控制",
-            MarketSentiment.EXTREME_GREED: "市场极度乐观，警惕回调风险"
-        }
-        return descriptions.get(self.sentiment, "情绪中性")
-
-
-@dataclass
-class SectorHotspot:
-    """板块热点分析"""
-    name: str                       # 板块名称
-    change_pct: float              # 涨跌幅
-    fund_inflow: float = 0.0       # 资金流入（亿元）
-    leading_stocks: List[str] = field(default_factory=list)  # 龙头股票
-    concept_tags: List[str] = field(default_factory=list)    # 概念标签
-    sustainability: str = "待观察"   # 持续性评估
-    catalyst: str = ""             # 催化剂
-    risk_warning: str = ""         # 风险提示
-
-
-@dataclass
-class ExternalEnvironment:
-    """外界环境分析"""
-    policy_impact: str = ""        # 政策面影响
-    international_market: str = "" # 国际市场表现
-    macro_data: str = ""          # 宏观经济数据
-    currency_trend: str = ""      # 汇率走势
-    commodity_trend: str = ""     # 大宗商品
-    
-    # 具体数据
-    us_futures: Dict[str, float] = field(default_factory=dict)  # 美股期货
-    asia_markets: Dict[str, float] = field(default_factory=dict) # 亚太市场
-    vix_index: float = 0.0        # 恐慌指数
-
-
-@dataclass
-class TechnicalAnalysis:
-    """技术面分析"""
-    key_support: float = 0.0      # 关键支撑位
-    key_resistance: float = 0.0   # 关键阻力位
-    trend_direction: str = "震荡" # 趋势方向
-    volume_price_relation: str = "" # 量价关系
-    market_structure: str = ""    # 市场结构
-    
-    # 技术指标
-    ma_alignment: str = ""        # 均线排列
-    macd_signal: str = ""        # MACD信号
-    rsi_level: float = 50.0      # RSI水平
-    
-    def get_trend_emoji(self) -> str:
-        """获取趋势emoji"""
-        trend_map = {
-            "强势上涨": "🚀",
-            "温和上涨": "📈", 
-            "震荡整理": "🔄",
-            "温和下跌": "📉",
-            "快速下跌": "💥"
-        }
-        return trend_map.get(self.trend_direction, "🔄")
-
-
-@dataclass
-class EnhancedMarketReport:
-    """增强版市场报告"""
-    date: str
-    basic_overview: MarketOverview
-    sentiment_analysis: SentimentAnalysis
-    sector_hotspots: List[SectorHotspot] = field(default_factory=list)
-    external_environment: ExternalEnvironment = field(default_factory=ExternalEnvironment)
-    technical_analysis: TechnicalAnalysis = field(default_factory=TechnicalAnalysis)
-    market_news: List[Dict] = field(default_factory=list)
-    
-    # 策略建议
-    strategy_advice: str = ""
-    position_suggestion: str = ""
-    risk_level: str = "中等"
-    
-    def get_overall_rating(self) -> Tuple[str, str]:
-        """获取整体评级和建议"""
-        # 基于多个维度计算综合评级
-        sentiment_score = self.sentiment_analysis.fear_greed_index
-        
-        if sentiment_score >= 80:
-            return "高风险", "建议减仓观望，警惕回调"
-        elif sentiment_score >= 60:
-            return "中高风险", "适度参与，控制仓位"
-        elif sentiment_score >= 40:
-            return "中性", "均衡配置，观察方向"
-        elif sentiment_score >= 20:
-            return "中低风险", "可适度加仓，精选个股"
-        else:
-            return "低风险", "积极布局，关注反弹机会"
 
 
 class EnhancedMarketAnalyzer(MarketAnalyzer):

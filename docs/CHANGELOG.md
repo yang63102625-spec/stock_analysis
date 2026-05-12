@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: split the last two 800+ line modules (T4.4-followup)
+
+Closes the rule §1 overflow tracked in the T4.4 wrap-up below — no
+file in the repository now exceeds 800 lines.
+
+- ``src/enhanced_market_analyzer.py`` (825 → 712): the five
+  dataclasses + ``MarketSentiment`` enum that previously sat at the
+  top of the file moved to ``src/_enhanced_market_types.py`` (140
+  lines). ``EnhancedMarketAnalyzer`` re-imports them at module level
+  so existing
+  ``from src.enhanced_market_analyzer import EnhancedMarketReport``
+  call sites keep working.
+- ``src/services/backtest_service.py`` (815 → 635): the
+  score-effectiveness helpers (``analyze_score_effectiveness``,
+  ``_pearson_correlation``, ``_generate_score_conclusion``) moved
+  into ``src/services/_backtest_score_mixin.py`` as
+  ``_ScoreEffectivenessMixin``; ``BacktestService`` inherits from it
+  so the public surface is unchanged.
+- Concurrent fix: three lingering imports of the deleted
+  ``src.services.picker.quantitative_filter`` shim
+  (``picker/__init__.py``, ``picker/constants.py``,
+  ``picker/service.py``, ``picker/realtime_filter.py``) updated to
+  import ``StockScreener`` from ``src.services.picker.screener``
+  directly. The shim was removed in commit ``32de82a`` ("drop all
+  legacy backward-compatibility shims") but the call sites had not
+  yet been migrated.
+
 ### Phase 4 wrap-up (T4.4)
 
 After T4.1–T4.3 the suite stands at 662 tests passing (4 added in

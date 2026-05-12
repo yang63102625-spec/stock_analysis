@@ -37,7 +37,7 @@ def filter_by_realtime(
 
     # Pre-warm realtime caches
     try:
-        from data_provider.tushare import TushareFetcher
+        from data_provider.tushare_fetcher import TushareFetcher
         if data_manager:
             for fetcher in getattr(data_manager, '_fetchers', []):
                 if isinstance(fetcher, TushareFetcher) and fetcher.is_available():
