@@ -44,6 +44,7 @@ from tenacity import (
 from patch.eastmoney_patch import eastmoney_patch
 from src.config import get_config
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS, is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
+from .rate_limit_mixin import RateLimitMixin, USER_AGENTS
 from .realtime_types import (
     UnifiedRealtimeQuote, ChipDistribution, RealtimeSource,
     get_realtime_circuit_breaker, get_chip_circuit_breaker,
@@ -59,14 +60,7 @@ SINA_REALTIME_ENDPOINT = "hq.sinajs.cn/list"
 TENCENT_REALTIME_ENDPOINT = "qt.gtimg.cn/q"
 
 
-# User-Agent 池，用于随机轮换
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-]
+# User-Agent pool is now imported from rate_limit_mixin.USER_AGENTS
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +257,7 @@ def _build_realtime_failure_message(
     )
 
 
-class AkshareFetcher(BaseFetcher):
+class AkshareFetcher(RateLimitMixin, BaseFetcher):
     """
     Akshare 数据源实现
     
@@ -287,49 +281,14 @@ class AkshareFetcher(BaseFetcher):
             sleep_min: 最小休眠时间（秒）
             sleep_max: 最大休眠时间（秒）
         """
-        self.sleep_min = sleep_min
-        self.sleep_max = sleep_max
+        self._rate_limit_min = sleep_min
+        self._rate_limit_max = sleep_max
         self._last_request_time: Optional[float] = None
         # 东财补丁开启才执行打补丁操作
         if get_config().enable_eastmoney_patch:
             eastmoney_patch()
     
-    def _set_random_user_agent(self) -> None:
-        """
-        设置随机 User-Agent
-        
-        通过修改 requests Session 的 headers 实现
-        这是关键的反爬策略之一
-        """
-        try:
-            import akshare as ak
-            # akshare 内部使用 requests，我们通过环境变量或直接设置来影响
-            # 实际上 akshare 可能不直接暴露 session，这里通过 fake_useragent 作为补充
-            random_ua = random.choice(USER_AGENTS)
-            logger.debug(f"设置 User-Agent: {random_ua[:50]}...")
-        except Exception as e:
-            logger.debug(f"设置 User-Agent 失败: {e}")
-    
-    def _enforce_rate_limit(self) -> None:
-        """
-        强制执行速率限制
-        
-        策略：
-        1. 检查距离上次请求的时间间隔
-        2. 如果间隔不足，补充休眠时间
-        3. 然后再执行随机 jitter 休眠
-        """
-        if self._last_request_time is not None:
-            elapsed = time.time() - self._last_request_time
-            min_interval = self.sleep_min
-            if elapsed < min_interval:
-                additional_sleep = min_interval - elapsed
-                logger.debug(f"补充休眠 {additional_sleep:.2f} 秒")
-                time.sleep(additional_sleep)
-        
-        # 执行随机 jitter 休眠
-        self.random_sleep(self.sleep_min, self.sleep_max)
-        self._last_request_time = time.time()
+    # _set_random_user_agent and _enforce_rate_limit are provided by RateLimitMixin
     
     @retry(
         stop=stop_after_attempt(3),  # 最多重试3次

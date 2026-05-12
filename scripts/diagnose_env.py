@@ -12,14 +12,21 @@ A股自选股智能分析系统 - 环境验证测试
 5. 通知推送测试
 
 使用方法：
-    python test_env.py              # 运行所有测试
-    python test_env.py --db         # 仅查看数据库
-    python test_env.py --llm        # 仅测试 LLM
-    python test_env.py --fetch      # 仅测试数据获取
-    python test_env.py --notify     # 仅测试通知
+    python scripts/diagnose_env.py              # 运行所有测试
+    python scripts/diagnose_env.py --db         # 仅查看数据库
+    python scripts/diagnose_env.py --llm        # 仅测试 LLM
+    python scripts/diagnose_env.py --fetch      # 仅测试数据获取
+    python scripts/diagnose_env.py --notify     # 仅测试通知
 
 """
 import os
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path when running from scripts/.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 # Proxy config - controlled by USE_PROXY env var, off by default.
 # Set USE_PROXY=true in .env if you need a local proxy (e.g. mainland China).
 # GitHub Actions always skips this regardless of USE_PROXY.

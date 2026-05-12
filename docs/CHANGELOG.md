@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: code quality phase 1 (anti-crawl / exception / cache convergence)
+
+- `data_provider/rate_limit_mixin.py`: ``_last_request_time`` is now a per-instance
+  attribute guarded by an instance-level ``threading.Lock`` (no more class-shared race).
+- `tushare_fetcher`, `baostock_fetcher`, `yfinance_fetcher`, `pytdx_fetcher` now inherit
+  ``RateLimitMixin`` so all six A-share fetchers share the same anti-crawl helpers.
+- `src/exceptions.py`: unified taxonomy (``RateLimitError``, ``NetworkError``,
+  ``DataSourceUnavailableError``, ``ValidationError``, ``UnknownError``) — re-exports
+  the existing classes from ``data_provider.base`` so legacy imports keep working.
+- `BaseFetcher._classify_exception(exc)` returns the taxonomy class (companion to the
+  existing string-tuple ``_classify_error``).
+- `data_provider/caching_manager.py`: added ``TTLCache`` (per-entry TTL, hit/miss
+  stats, ``threading.RLock``) and ``trading_session_ttl`` helper.
+- `data_provider/fundamentals_fetcher.py`: migrated the bespoke
+  ``FundamentalsCache`` dataclass + four manual double-check-locked ``_ensure_*``
+  helpers onto ``TTLCache`` (drops ~80 lines of boilerplate, no behaviour change).
+- Cleanup: moved root-level diagnostic scripts ``test_env.py``,
+  ``test_enhanced_review.py``, ``test_realtime_filter_demo.py``,
+  ``test_verification.py`` and ``scripts/test_picker_backtest.py`` to
+  ``scripts/diagnose_env.py`` / ``check_enhanced_review.py`` /
+  ``demo_realtime_filter.py`` / ``verify_search_service.py`` /
+  ``run_picker_backtest.py``. Updated docs and ``.gitignore``.
+- Entry-point inventory: ``main.py`` (CLI), ``server.py`` (FastAPI),
+  ``webui.py`` (env-var launcher) and ``analyzer_service.py`` (programmatic
+  service facade documented in ``SKILL.md``) all kept — each has a distinct,
+  user-visible role.
+
 ### Cleanup: remove backtest engine v1 entirely
 
 - Dropped the `backtest_engine_version` config knob, the `BACKTEST_ENGINE_VERSION` env var,
@@ -223,7 +250,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `PICKER_REALTIME_DAILY_CHG_MAX` (float, optional): Max daily gain % (e.g. 8 to avoid chasing too high)
   - `PICKER_REALTIME_MAX_VOLUME_RATIO` (float, default 0): Filter abnormal volume spikes (0 = no limit)
 - New guide: `docs/realtime-picker-guide.md` with 3 ready-to-use templates (conservative/balanced/aggressive)
-- Demo script: `test_realtime_filter_demo.py` shows filtering logic in action
+- Demo script: `scripts/demo_realtime_filter.py` shows filtering logic in action
 
 ### Changed
 - Picker pipeline now has 3 stages:

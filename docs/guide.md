@@ -100,4 +100,4 @@ python main.py --schedule     # 定时任务模式
 
 **渠道模式**：`LLM_CHANNELS=name1,name2`，每个渠道配置 `LLM_{NAME}_API_KEY`、`LLM_{NAME}_BASE_URL`、`LLM_{NAME}_MODELS`。
 
-验证：`python test_env.py --llm`
+验证：`python scripts/diagnose_env.py --llm`

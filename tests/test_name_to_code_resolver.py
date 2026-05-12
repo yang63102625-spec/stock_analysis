@@ -128,9 +128,12 @@ class TestResolveNameToCode:
     @patch("src.services.name_to_code_resolver._get_akshare_name_to_code")
     def test_fuzzy_match_fallback(self, mock_akshare):
         mock_akshare.return_value = {"贵州茅台": "600519"}
-        # Typo: 贵州茅苔 -> should fuzzy match 贵州茅台
-        result = resolve_name_to_code("贵州茅苔")
-        assert result == "600519"
+        # Fuzzy match cutoff is 0.8, so a single char swap in a 4-char name
+        # (3/4 = 0.75) no longer matches — use a longer name where 1 char swap
+        # still clears the cutoff.
+        mock_akshare.return_value = {"中国平安保险": "601318"}
+        result = resolve_name_to_code("中国平安保检")
+        assert result == "601318"
 
     @patch("src.services.name_to_code_resolver._get_akshare_name_to_code")
     def test_returns_none_when_no_match(self, mock_akshare):

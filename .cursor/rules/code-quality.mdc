@@ -1,0 +1,273 @@
+---
+description: Code quality rules derived from global code review findings (P0/P1/P2 issues)
+globs: src/**/*.py, api/**/*.py, data_provider/**/*.py, bot/**/*.py, tests/**/*.py, *.py
+alwaysApply: true
+---
+
+# Code Quality Rules
+
+These rules are derived from a comprehensive code review that identified critical quality issues.
+All developers (human and AI) MUST follow these rules to prevent recurring problems.
+
+---
+
+## 1. Module Structure Rules
+
+### File Size Limits
+- A single Python file MUST NOT exceed **800 lines** (including comments and blank lines). If it does, split into sub-modules.
+- A single class MUST NOT exceed **500 lines**. Extract helper classes, mixins, or utility modules when approaching this limit.
+- A single function/method MUST NOT exceed **80 lines**. Break long functions into smaller, well-named private methods.
+
+### Single Responsibility
+- Each module MUST have a clear, single responsibility stated in its module-level docstring.
+- If a module name requires "and" to describe its purpose, it MUST be split.
+- Analyzer modules (`analyzer.py`, `stock_analyzer.py`, `market_analyzer.py`, `enhanced_market_analyzer.py`) MUST have non-overlapping responsibilities — do NOT add logic that duplicates another analyzer.
+
+### Entry Points
+- The project MUST have at most **3 entry point files**: one for CLI, one for API server, one for dev tools.
+- Entry point files should be thin wrappers (< 50 lines) that import and invoke the actual logic.
+
+### Test File Location
+- ALL test files (`test_*.py`) MUST reside under `tests/` directory. NEVER place test files in the project root.
+
+### Configuration Splitting
+- If a configuration class/module exceeds **200 lines**, it MUST be split into sub-configuration modules (e.g., `config/data_source.py`, `config/notification.py`, `config/picker.py`).
+
+---
+
+## 2. DRY Principle (Don't Repeat Yourself)
+
+### General
+- If the same logic appears in **2 or more places**, it MUST be extracted into a shared function, method, mixin, or base class.
+- Copy-pasting code blocks across files is strictly prohibited.
+
+### Data Provider Anti-Crawl Strategies
+- Rate limiting, User-Agent rotation, and retry logic in `data_provider/` MUST be implemented in `BaseFetcher` or a shared mixin.
+- Individual fetchers MUST NOT implement their own rate_limit/user_agent/retry logic — they should inherit or compose the shared implementation.
+
+### Formatters
+- Formatting logic MUST be centralized in a single module. Platform-specific differences (e.g., WeChat, Feishu) should be handled via parameters or strategy pattern, NOT via separate formatter files with duplicated logic.
+
+---
+
+## 3. Exception Handling Rules
+
+### Unified Exception Taxonomy
+- The project MUST use a standardized exception hierarchy with these categories:
+  - `RateLimitError` — API rate limit exceeded
+  - `NetworkError` — Connection timeout, DNS failure, etc.
+  - `DataSourceUnavailableError` — Data source is down or returns invalid data
+  - `ValidationError` — Input or data validation failure
+  - `UnknownError` — Unexpected errors (last resort)
+
+### API Response Format
+- ALL API endpoints MUST return a unified response format:
+  ```json
+  {"code": 0, "message": "success", "data": {...}, "timestamp": "2025-01-01T00:00:00Z"}
+  ```
+- Error responses MUST follow the same structure with appropriate error codes and messages.
+
+### Bare Except Prohibition
+- **NEVER** use bare `except:` or `except Exception:` without re-raising or logging.
+- Always catch **specific** exception types. Use `except Exception as e:` only at the outermost layer (e.g., main entry point) to prevent crashes, and MUST log the full traceback.
+
+### Network Call Requirements
+- ALL network calls (HTTP requests, API calls) MUST set an explicit `timeout` parameter.
+- ALL external API calls MUST have retry logic with exponential backoff.
+- ALL critical external API calls MUST have circuit breaker protection (fail-fast after consecutive failures).
+
+---
+
+## 4. Resource Management Rules
+
+### Thread Pool
+- `ThreadPoolExecutor` MUST be reused at the **class level or module level**. NEVER create a new executor instance per function call.
+- Example of correct usage:
+  ```python
+  class MyService:
+      _executor = ThreadPoolExecutor(max_workers=4)  # class-level, reused
+  ```
+
+### Database Connections
+- Database connections MUST use connection pooling. NEVER open a new connection per query.
+
+### Resource Lifecycle
+- ALL external resources (files, network connections, thread pools, database connections) MUST have explicit lifecycle management using context managers (`with` statement) or explicit `close()`/`shutdown()` calls.
+- Thread pools MUST be shut down gracefully on application exit.
+
+---
+
+## 5. Caching Rules
+
+### Centralized Cache Management
+- Cache MUST be managed through a unified interface (e.g., `CachingManager`). Individual modules MUST NOT implement their own module-level global cache dicts.
+- NEVER write patterns like `_cache = {}` at module level in fetcher files.
+
+### TTL Strategy
+- Every cached entry MUST have an explicit TTL (Time-To-Live).
+- Financial real-time data MUST use dynamic TTL: short TTL during trading hours, longer TTL after market close.
+
+### Cache Observability
+- Cache keys MUST be traceable and support hit/miss statistics for debugging and monitoring.
+
+---
+
+## 6. Thread Safety Rules
+
+### Singleton Pattern
+- Singleton implementations MUST use **Double-Check Locking** with `threading.Lock`:
+  ```python
+  class Singleton:
+      _instance = None
+      _lock = threading.Lock()
+      
+      @classmethod
+      def get_instance(cls):
+          if cls._instance is None:
+              with cls._lock:
+                  if cls._instance is None:
+                      cls._instance = cls()
+          return cls._instance
+  ```
+
+### Global Mutable State
+- ALL global mutable state (module-level dicts, lists, sets) MUST be protected with `threading.Lock` if accessed from multiple threads.
+- Prefer `threading.Lock` or `threading.RLock` — do NOT rely on the GIL for thread safety.
+
+### Shared Collections
+- Any `dict` or `list` shared across threads MUST be accessed within a lock context.
+
+---
+
+## 7. Data Validation Rules
+
+### DataFrame Validation
+- Every `DataFrame` returned from an external data source MUST be validated:
+  1. **Non-empty check**: `df is not None and not df.empty`
+  2. **Required columns exist**: verify expected column names are present
+  3. **Data type correctness**: ensure numeric columns are numeric, date columns are dates
+- Create a shared validation utility (e.g., `validate_dataframe(df, required_columns, dtype_map)`)
+
+### API Parameter Validation
+- ALL API request parameters MUST be validated using **Pydantic models**. NEVER use raw `dict` for request body parsing.
+
+### Financial Data Integrity
+- Financial data MUST be checked for anomalies:
+  - Negative prices → reject or flag
+  - Negative volumes → reject or flag
+  - Price = 0 when market is open → flag as suspicious
+  - Percentage changes > ±20% for A-shares → flag for review (considering limit-up/limit-down rules)
+
+---
+
+## 8. Type Annotation Rules
+
+### No Untyped Cross-Module Parameters
+- **NEVER** use `Dict[str, Any]` as a parameter type for cross-module function calls. Use `TypedDict`, `dataclass`, or Pydantic `BaseModel` instead.
+- Within a single function's internal logic, `Dict[str, Any]` is acceptable for intermediate processing.
+
+### Public Method Annotations
+- ALL public methods (no leading underscore) MUST have complete type annotations for both parameters and return values.
+- Private methods SHOULD have type annotations; they are strongly recommended but not strictly required.
+
+### Optional Return Documentation
+- When a function returns `Optional[T]`, the docstring MUST explain under what conditions `None` is returned.
+
+---
+
+## 9. Data Source Rules (Project-Specific)
+
+### Priority
+- **Tushare** is the highest-priority data source for all real-time and historical data. See `data-source-priority.mdc` for details.
+
+### Fetcher Architecture
+- ALL data fetchers MUST inherit from `BaseFetcher` and implement the standard interface.
+- Fetchers MUST NOT have standalone rate-limiting or retry logic — use the shared base class mechanisms.
+
+### Real-Time Data Caching
+- Real-time market data MUST use dynamic cache TTL:
+  - During trading hours (9:30-11:30, 13:00-15:00 CST): short TTL (e.g., 5-30 seconds)
+  - Outside trading hours: longer TTL (e.g., 5-60 minutes)
+
+---
+
+## 10. Async Code Rules
+
+### I/O-Bound Operations
+- For I/O-bound operations (HTTP requests, file I/O, database queries), prefer `asyncio` + `aiohttp`/`aiofiles` over `ThreadPoolExecutor` when the surrounding code is already async.
+- Do NOT mix `asyncio.run()` calls within an already-running event loop.
+
+### Thread Pool Fallback
+- Use `ThreadPoolExecutor` only when calling synchronous third-party libraries that cannot be awaited, and run them via `loop.run_in_executor()`.
+
+---
+
+## Violation Examples (What NOT to Do)
+
+```python
+# BAD: Bare except
+try:
+    data = fetch_data()
+except:
+    pass
+
+# BAD: New executor per call
+def process():
+    with ThreadPoolExecutor() as pool:  # Creates new pool every call!
+        pool.submit(task)
+
+# BAD: Module-level cache without TTL
+_cache = {}  # No TTL, no eviction, grows forever
+
+# BAD: Dict[str, Any] crossing module boundaries
+def analyze_stock(params: Dict[str, Any]) -> Dict[str, Any]:
+    ...
+
+# BAD: No timeout on network call
+response = requests.get(url)  # Missing timeout!
+
+# BAD: Duplicated retry logic in fetcher
+class MyFetcher:
+    def fetch(self):
+        for i in range(3):  # Should use BaseFetcher retry
+            try: ...
+            except: ...
+```
+
+## Correct Examples (What TO Do)
+
+```python
+# GOOD: Specific exception + logging
+try:
+    data = fetch_data()
+except requests.Timeout as e:
+    logger.warning(f"Timeout fetching data: {e}")
+    return None
+except requests.RequestException as e:
+    logger.error(f"Network error: {e}", exc_info=True)
+    raise DataSourceUnavailableError(str(e)) from e
+
+# GOOD: Class-level executor reuse
+class DataService:
+    _executor = ThreadPoolExecutor(max_workers=4)
+
+# GOOD: Typed cross-module parameter
+@dataclass
+class StockFilter:
+    min_price: float
+    max_pe: Optional[float] = None
+    sectors: List[str] = field(default_factory=list)
+
+# GOOD: Network call with timeout
+response = requests.get(url, timeout=10)
+
+# GOOD: DataFrame validation
+def validate_stock_data(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        raise ValidationError("Empty DataFrame")
+    required = ["ts_code", "close", "vol"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValidationError(f"Missing columns: {missing}")
+    return df
+```

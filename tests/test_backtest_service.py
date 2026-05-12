@@ -44,6 +44,9 @@ class BacktestServiceTestCase(unittest.TestCase):
                     analysis_summary="test",
                     stop_loss=95.0,
                     take_profit=110.0,
+                    # v2 backtest engine drives positions from buy_signal, not from
+                    # operation_advice text. BUY -> long -> direction_expected=up.
+                    buy_signal="BUY",
                     created_at=old_created_at,
                     context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
                 )
@@ -130,11 +133,11 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(result.first_hit_trading_days, 1)
         self.assertEqual(result.first_hit_date, date(2024, 1, 2))
 
-        # Simulated execution
+        # Simulated execution. The trade_levels engine applies slippage and
+        # strategy-specific exit rules, so concrete sim values are covered by
+        # ``tests/test_trade_levels.py``. Here we only assert that the long
+        # entry price equals the start price.
         self.assertAlmostEqual(result.simulated_entry_price, 100.0)
-        self.assertAlmostEqual(result.simulated_exit_price, 110.0)
-        self.assertEqual(result.simulated_exit_reason, "take_profit")
-        self.assertAlmostEqual(result.simulated_return_pct, 10.0)
 
     def test_summaries_created_after_run(self) -> None:
         """Verify both overall and per-stock BacktestSummary rows are created."""
@@ -210,6 +213,8 @@ class BacktestServiceTestCase(unittest.TestCase):
                     analysis_summary="test2",
                     stop_loss=None,
                     take_profit=None,
+                    # STRONG_AVOID -> direction_expected=down; price drop -> win.
+                    buy_signal="STRONG_AVOID",
                     created_at=old_created_at,
                     context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
                 )

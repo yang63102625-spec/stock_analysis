@@ -34,6 +34,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
+from .rate_limit_mixin import RateLimitMixin
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution, safe_float, safe_int
 from src.config import get_config
 import os
@@ -41,6 +42,10 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+# Shared executor for Tushare network calls. Reusing a single pool avoids
+# the cost of creating and tearing down threads on every request.
+_SHARED_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tushare_fetch")
 
 def _get_dynamic_cache_ttl() -> float:
     """Return dynamic cache TTL based on A-share trading session.
@@ -143,7 +148,7 @@ def _is_us_code(stock_code: str) -> bool:
     return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
-class TushareFetcher(BaseFetcher):
+class TushareFetcher(RateLimitMixin, BaseFetcher):
     """
     Tushare Pro 数据源实现
     
@@ -733,14 +738,13 @@ class TushareFetcher(BaseFetcher):
             if current_time < _realtime_list_disabled_until:
                 return None
 
-            # --- fetch with timeout (explicit pool to avoid shutdown(wait=True) blocking) ---
+            # --- fetch with timeout (shared executor to avoid thread leak) ---
             import tushare as ts
 
             def _call():
                 return ts.realtime_list(src='dc')
 
-            pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts_realtime_list")
-            future = pool.submit(_call)
+            future = _SHARED_EXECUTOR.submit(_call)
             try:
                 df = future.result(timeout=timeout)
 
@@ -766,8 +770,6 @@ class TushareFetcher(BaseFetcher):
                 logger.warning(f"[realtime_list] failed: {e}")
                 self._record_realtime_list_failure()
                 return None
-            finally:
-                pool.shutdown(wait=False, cancel_futures=True)
 
     @staticmethod
     def _record_realtime_list_failure():
@@ -844,8 +846,7 @@ class TushareFetcher(BaseFetcher):
                 def _call(p=pattern):
                     return self._api.rt_k(ts_code=p)
 
-                pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts_rt_k")
-                future = pool.submit(_call)
+                future = _SHARED_EXECUTOR.submit(_call)
                 try:
                     df = future.result(timeout=timeout)
                 except FuturesTimeoutError:
@@ -856,8 +857,6 @@ class TushareFetcher(BaseFetcher):
                     logger.warning("[rt_k] fetch failed for pattern %s: %s", pattern, e)
                     self._record_rt_k_failure()
                     continue
-                finally:
-                    pool.shutdown(wait=False, cancel_futures=True)
 
                 if df is None or df.empty:
                     logger.debug("[rt_k] empty response for pattern %s", pattern)
@@ -1448,14 +1447,11 @@ class TushareFetcher(BaseFetcher):
             codes_str = ','.join(tushare_codes)
 
             # Wall-clock timeout to avoid hanging on network issues
-            pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts_rt_idx_k")
-            future = pool.submit(self._api.rt_idx_k, ts_code=codes_str)
+            future = _SHARED_EXECUTOR.submit(self._api.rt_idx_k, ts_code=codes_str)
             try:
                 df = future.result(timeout=8)
             except Exception:
                 df = None
-            finally:
-                pool.shutdown(wait=False, cancel_futures=True)
 
             if df is None or df.empty:
                 logger.debug("[Tushare] rt_idx_k returned empty")
@@ -1908,14 +1904,11 @@ class TushareFetcher(BaseFetcher):
             logger.debug("[板块排行] Trying Tushare rt_sw_k (realtime)...")
 
             # Wall-clock timeout to avoid hanging on network issues
-            pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts_rt_sw_k")
-            future = pool.submit(self._api.rt_sw_k)
+            future = _SHARED_EXECUTOR.submit(self._api.rt_sw_k)
             try:
                 df_rt = future.result(timeout=8)
             except Exception:
                 df_rt = None
-            finally:
-                pool.shutdown(wait=False, cancel_futures=True)
 
             if df_rt is None or df_rt.empty:
                 logger.debug("[板块排行] rt_sw_k returned empty")

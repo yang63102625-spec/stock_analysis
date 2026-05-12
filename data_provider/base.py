@@ -422,6 +422,62 @@ class BaseFetcher(ABC):
         logger.debug(f"随机休眠 {sleep_time:.2f} 秒...")
         time.sleep(sleep_time)
 
+    def _classify_error(self, exc: Exception) -> tuple:
+        """Classify exception into standard categories (legacy string API).
+
+        Returns:
+            Tuple of (category: str, description: str)
+            Categories: 'rate_limit', 'network_error', 'data_source_unavailable',
+                       'validation_error', 'timeout', 'unknown'
+        """
+        error_msg = str(exc).lower()
+        if any(kw in error_msg for kw in ['quota', '配额', 'rate', 'limit', '频率']):
+            return ("rate_limit", str(exc))
+        elif any(kw in error_msg for kw in ['timeout', '超时', 'timed out']):
+            return ("timeout", str(exc))
+        elif any(kw in error_msg for kw in ['connect', 'network', '网络', 'refused', 'reset']):
+            return ("network_error", str(exc))
+        elif any(kw in error_msg for kw in ['not found', '404', 'unavailable', '不可用']):
+            return ("data_source_unavailable", str(exc))
+        elif isinstance(exc, (ValueError, KeyError, TypeError)):
+            return ("validation_error", str(exc))
+        else:
+            return ("unknown", str(exc))
+
+    def _classify_exception(self, exc: Exception) -> type:
+        """Map an arbitrary exception to the unified taxonomy class.
+
+        This is the structured counterpart of ``_classify_error``. It returns
+        the *class* from :mod:`src.exceptions` that best describes ``exc`` so
+        callers can raise/wrap it without re-parsing strings.
+        """
+        # Local import to avoid a circular import at module load time
+        # (src.exceptions re-exports DataFetchError / RateLimitError /
+        # DataSourceUnavailableError from this module).
+        from src.exceptions import (
+            NetworkError,
+            UnknownError,
+            ValidationError,
+        )
+
+        if isinstance(exc, RateLimitError):
+            return RateLimitError
+        if isinstance(exc, DataSourceUnavailableError):
+            return DataSourceUnavailableError
+
+        error_msg = str(exc).lower()
+        if any(kw in error_msg for kw in ['quota', '配额', 'rate', 'limit', '频率']):
+            return RateLimitError
+        if any(kw in error_msg for kw in ['timeout', '超时', 'timed out',
+                                            'connect', 'network', '网络',
+                                            'refused', 'reset']):
+            return NetworkError
+        if any(kw in error_msg for kw in ['not found', '404', 'unavailable', '不可用']):
+            return DataSourceUnavailableError
+        if isinstance(exc, (ValueError, KeyError, TypeError)):
+            return ValidationError
+        return UnknownError
+
 
 class DataFetcherManager:
     """

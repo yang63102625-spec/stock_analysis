@@ -29,6 +29,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code
+from .rate_limit_mixin import RateLimitMixin
 import os
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ def _is_us_code(stock_code: str) -> bool:
     return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
-class PytdxFetcher(BaseFetcher):
+class PytdxFetcher(RateLimitMixin, BaseFetcher):
     """
     通达信数据源实现
     

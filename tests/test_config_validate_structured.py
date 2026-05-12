@@ -258,7 +258,9 @@ class TestDeprecatedFieldHints:
                 return None
             return real_getenv(key, default)
 
-        with patch("src.config.os.getenv", side_effect=mock_getenv):
+        # ``src.config`` is now a package; the actual ``os.getenv`` lookup
+        # happens inside ``src.config.loader``.
+        with patch("src.config.loader.os.getenv", side_effect=mock_getenv):
             issues = cfg.validate_structured()
         deprec = [i for i in issues if i.field == "OPENAI_VISION_MODEL"]
         assert not deprec, "Should not report deprecation when OPENAI_VISION_MODEL is unset"

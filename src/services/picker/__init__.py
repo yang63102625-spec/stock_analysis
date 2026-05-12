@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Backward compatibility shim - actual implementation in src/services/picker/"""
-from src.services.picker import (  # noqa: F401
-    StockPickerService,
-    StockScreener,
+"""Stock picker subpackage - modularized from stock_picker_service.py."""
+from src.services.picker.service import StockPickerService
+from src.services.picker.constants import (
     PICKER_MAX_BIAS_PCT,
     VOLUME_RATIO_MIN,
     TURNOVER_MIN_PCT,
@@ -41,6 +40,7 @@ from src.services.picker import (  # noqa: F401
     get_tushare_api,
     create_screener_from_config,
 )
+from src.services.picker.quantitative_filter import StockScreener
 
 __all__ = [
     "StockPickerService",

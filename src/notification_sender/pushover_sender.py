@@ -11,7 +11,7 @@ from datetime import datetime
 import requests
 
 from src.config import Config
-from src.formatters import markdown_to_plain_text
+from src.notification_service.formatters import markdown_to_plain_text
 
 
 logger = logging.getLogger(__name__)

@@ -34,7 +34,7 @@ h h# 实时行情筛选优化 - 完成总结
 
 ### 测试与验证
 
-1. **test_realtime_filter_demo.py**
+1. **scripts/demo_realtime_filter.py**
    - 演示脚本，展示筛选逻辑
    - 可运行示例，结果可视化
 
@@ -186,7 +186,7 @@ python main.py --picker-only --no-notify
 - **快速开始**：[docs/realtime-filter-quickstart.md](docs/realtime-filter-quickstart.md)
 - **完整指南**：[docs/realtime-picker-guide.md](docs/realtime-picker-guide.md)
 - **更新日志**：[docs/CHANGELOG.md](docs/CHANGELOG.md)
-- **演示脚本**：[test_realtime_filter_demo.py](test_realtime_filter_demo.py)
+- **演示脚本**：[scripts/demo_realtime_filter.py](scripts/demo_realtime_filter.py)
 
 ---
 
@@ -270,4 +270,4 @@ picks = llm.select_stocks(candidates, intel)
 **更多帮助**：  
 - 快速参考：[realtime-filter-quickstart.md](docs/realtime-filter-quickstart.md)
 - 完整指南：[realtime-picker-guide.md](docs/realtime-picker-guide.md)
-- 演示脚本：运行 `python test_realtime_filter_demo.py`
+- 演示脚本：运行 `python scripts/demo_realtime_filter.py`

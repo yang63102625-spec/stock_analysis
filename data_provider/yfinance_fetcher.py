@@ -29,6 +29,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code
+from .rate_limit_mixin import RateLimitMixin
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource
 from .us_index_mapping import get_us_index_yf_symbol, is_us_index_code, is_us_stock_code
 import os
@@ -36,7 +37,7 @@ import os
 logger = logging.getLogger(__name__)
 
 
-class YfinanceFetcher(BaseFetcher):
+class YfinanceFetcher(RateLimitMixin, BaseFetcher):
     """
     Yahoo Finance 数据源实现
     

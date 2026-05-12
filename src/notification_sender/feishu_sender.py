@@ -11,7 +11,7 @@ import requests
 import time
 
 from src.config import Config
-from src.formatters import format_feishu_markdown, chunk_content_by_max_bytes
+from src.notification_service.formatters import format_feishu_markdown, chunk_content_by_max_bytes
 
 
 logger = logging.getLogger(__name__)

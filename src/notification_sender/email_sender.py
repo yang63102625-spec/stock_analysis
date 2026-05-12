@@ -16,7 +16,7 @@ from email.utils import formataddr
 import smtplib
 
 from src.config import Config
-from src.formatters import markdown_to_html_document
+from src.notification_service.formatters import markdown_to_html_document
 
 
 logger = logging.getLogger(__name__)

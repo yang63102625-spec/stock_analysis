@@ -5,10 +5,10 @@
 *.env.local
 .env.*.local
 
-# 测试文件（可能包含敏感配置）
-# 仅忽略仓库根目录下的临时 test_*.py 脚本；tests/ 目录下的单元测试需要纳入版本控制。
+# Test files at the repo root are forbidden by code-quality.mdc; keep ignoring
+# any stray test_*.py to avoid them being committed accidentally. Real tests
+# live under tests/, diagnostic scripts under scripts/.
 /test_*.py
-!test_env.py
 
 # Python
 __pycache__/
@@ -68,7 +68,9 @@ local/
 
 run.sh
 
-verify_*.py
+# Ignore stray verify_*.py scripts at the repo root (one-shot verification
+# scripts); permanent diagnostic scripts live under scripts/ and are tracked.
+/verify_*.py
 
 # ignore claude files
 .claude/

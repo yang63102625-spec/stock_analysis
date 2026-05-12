@@ -327,7 +327,7 @@ formatter = WechatFormatter(config)
 1. 检查 `.env` 配置是否正确
 2. 查看日志文件了解详细错误
 3. 确认API密钥配置有效
-4. 参考测试脚本 `test_enhanced_review.py`
+4. 参考诊断脚本 `scripts/check_enhanced_review.py`
 
 ---
 

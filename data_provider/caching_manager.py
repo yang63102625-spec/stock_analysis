@@ -1,22 +1,161 @@
 # -*- coding: utf-8 -*-
 """
-Caching wrapper for DataFetcherManager.
+Caching utilities for the data provider layer.
 
-Used by picker backtest to avoid duplicate get_daily_data fetches for the same
-(stock_code, date_range) within a run. Thread-safe.
+This module exposes two complementary primitives:
+
+1. :class:`CachingDataFetcherManager` — a backtest-time wrapper around
+   :class:`DataFetcherManager` that memoises ``get_daily_data`` results within
+   a single run. Already used in production.
+
+2. :class:`TTLCache` — a generic thread-safe cache with per-entry TTL and
+   hit/miss observability. Used by fetchers that previously kept their own
+   module-level dicts (e.g. :mod:`data_provider.fundamentals_fetcher`).
+
+Trading-session aware TTL helpers
+---------------------------------
+:func:`trading_session_ttl` returns a short TTL during the A-share trading
+window (09:30-11:30 / 13:00-15:00 CST, with a small pre-open buffer) and a
+longer TTL outside it. Callers can pass it to ``TTLCache.get_or_set``::
+
+    from data_provider.caching_manager import TTLCache, trading_session_ttl
+
+    cache = TTLCache()
+    df = cache.get_or_set(
+        key=("realtime", code),
+        ttl=trading_session_ttl(short=30.0, long_=600.0),
+        loader=lambda: fetch_realtime(code),
+    )
 """
 
+from __future__ import annotations
+
 import threading
-from typing import Optional, Tuple
+import time
+from datetime import datetime
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import pandas as pd
 
 from .base import DataFetcherManager
 
 
+# ---------------------------------------------------------------------------
+# Generic TTL cache
+# ---------------------------------------------------------------------------
+
+
+class TTLCache:
+    """Thread-safe in-memory cache with per-entry TTL and hit/miss stats.
+
+    The cache is intentionally minimal — no LRU eviction, no async loaders —
+    because most fetcher caches in this project are bounded by the size of
+    the A-share universe (~5000 entries).
+    """
+
+    def __init__(self, name: str = "ttl_cache") -> None:
+        self.name = name
+        self._lock = threading.RLock()
+        # key -> (value, expires_at_epoch)
+        self._store: Dict[Any, Tuple[Any, float]] = {}
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, key: Any) -> Optional[Any]:
+        """Return cached value or ``None`` if missing/expired."""
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                self._misses += 1
+                return None
+            value, expires_at = entry
+            if time.time() >= expires_at:
+                # Expired — drop and report miss.
+                self._store.pop(key, None)
+                self._misses += 1
+                return None
+            self._hits += 1
+            return value
+
+    def set(self, key: Any, value: Any, ttl: float) -> None:
+        """Store ``value`` under ``key`` with ``ttl`` seconds lifetime."""
+        if ttl <= 0:
+            return
+        with self._lock:
+            self._store[key] = (value, time.time() + ttl)
+
+    def get_or_set(self, key: Any, ttl: float, loader: Callable[[], Any]) -> Any:
+        """Return cached value or compute via ``loader`` and cache the result.
+
+        ``loader`` is invoked **outside** the lock so a slow load does not
+        block other readers; a stampede on the same key is acceptable for
+        this use case (the second caller simply replaces the entry).
+        """
+        cached = self.get(key)
+        if cached is not None:
+            return cached
+        value = loader()
+        # Allow loaders to return ``None`` without polluting the cache
+        # (callers that need to cache None should pass a sentinel).
+        if value is not None:
+            self.set(key, value, ttl)
+        return value
+
+    def invalidate(self, key: Any) -> None:
+        with self._lock:
+            self._store.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+            self._hits = 0
+            self._misses = 0
+
+    def stats(self) -> Dict[str, int]:
+        with self._lock:
+            total = self._hits + self._misses
+            hit_rate_pct = int(self._hits * 100 / total) if total else 0
+            return {
+                "name": self.name,
+                "size": len(self._store),
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate_pct": hit_rate_pct,
+            }
+
+
+def trading_session_ttl(short: float = 30.0, long_: float = 600.0) -> float:
+    """Return ``short`` during A-share trading hours, ``long_`` otherwise.
+
+    Trading window (Asia/Shanghai):
+        - 09:15 - 11:30 (call auction + morning session)
+        - 13:00 - 15:00 (afternoon session)
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    except ImportError:  # pragma: no cover - zoneinfo is stdlib in 3.9+
+        import pytz
+
+        now = datetime.now(pytz.timezone("Asia/Shanghai"))
+
+    t = now.hour * 100 + now.minute
+    if (915 <= t <= 1130) or (1300 <= t <= 1500):
+        return short
+    return long_
+
+
+# ---------------------------------------------------------------------------
+# Daily-data cache wrapper (existing API, unchanged)
+# ---------------------------------------------------------------------------
+
+
 class CachingDataFetcherManager:
-    """Wraps DataFetcherManager with an in-memory cache for get_daily_data.
-    Exposes _fetchers for get_tushare_api compatibility."""
+    """Wraps :class:`DataFetcherManager` with an in-memory cache for
+    ``get_daily_data``. Exposes ``_fetchers`` for ``get_tushare_api``
+    compatibility.
+    """
 
     def __init__(self, underlying: DataFetcherManager):
         self._underlying = underlying
@@ -61,3 +200,10 @@ class CachingDataFetcherManager:
         """Return (hits, misses) for debugging."""
         with self._lock:
             return self._hits, self._misses
+
+
+__all__ = [
+    "TTLCache",
+    "trading_session_ttl",
+    "CachingDataFetcherManager",
+]

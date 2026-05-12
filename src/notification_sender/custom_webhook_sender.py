@@ -10,7 +10,7 @@ import json
 import requests
 
 from src.config import Config
-from src.formatters import chunk_content_by_max_bytes, slice_at_max_bytes
+from src.notification_service.formatters import chunk_content_by_max_bytes, slice_at_max_bytes
 
 
 logger = logging.getLogger(__name__)

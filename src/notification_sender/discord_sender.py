@@ -9,7 +9,7 @@ import logging
 import requests
 
 from src.config import Config
-from src.formatters import chunk_content_by_max_words
+from src.notification_service.formatters import chunk_content_by_max_words
 
 
 logger = logging.getLogger(__name__)
