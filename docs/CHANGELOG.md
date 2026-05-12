@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: split ``data_provider/base.py`` (1445 lines) into ``base/`` sub-package
+
+- ``data_provider/base.py`` is gone; its contents live in seven focused
+  files under ``data_provider/base/``, each ≤ 327 lines (rule §1):
+  - ``__init__.py`` — public surface re-exports.
+  - ``codes.py`` — stock-code helpers and exception summarisation.
+  - ``fetcher.py`` — ``BaseFetcher`` ABC.
+  - ``_realtime_mixin.py`` / ``_names_mixin.py`` / ``_market_mixin.py``
+    — three internal mixins composed by ``DataFetcherManager``.
+  - ``manager.py`` — ``DataFetcherManager`` (multi-mixin) singleton.
+- All existing call sites (``api/`` / ``bot/`` / ``main.py`` / ``src/``
+  / ``tests/``) keep working unchanged — public surface re-exported
+  from ``data_provider.base``.
+- Three latent stale imports surfaced and fixed during the split:
+  ``from .akshare_fetcher`` / ``from .tushare_fetcher`` were left over
+  from earlier shim removal; rewritten to the canonical
+  ``from ..akshare`` / ``from ..tushare`` package paths.
+
 ### Refactor: split ``src/analyzer.py`` (1561 lines) into ``src/analyzer/`` package
 
 - ``src/analyzer.py`` is gone; its contents live in eight focused modules
