@@ -270,6 +270,35 @@ test_syntax() {
     success "语法检查通过"
 }
 
+# Test: Frontend (apps/dsa-web) lint + typecheck
+# Requires Node.js 18+; skips gracefully if npm or the workspace is unavailable.
+test_frontend() {
+    header "测试场景: 前端 (apps/dsa-web)"
+
+    if ! command -v npm &> /dev/null; then
+        warn "npm 未安装，跳过前端检查"
+        return 0
+    fi
+
+    local fe_dir="apps/dsa-web"
+    if [ ! -d "$fe_dir" ]; then
+        warn "前端目录 $fe_dir 不存在，跳过"
+        return 0
+    fi
+
+    info "进入 $fe_dir 执行 lint + typecheck..."
+    (
+        cd "$fe_dir" || exit 1
+        if [ ! -d node_modules ]; then
+            info "安装前端依赖 (npm ci --no-audit --no-fund)..."
+            npm ci --no-audit --no-fund
+        fi
+        npm run lint
+        npm run typecheck
+    )
+    success "前端检查通过"
+}
+
 # 测试14: Flake8 静态检查
 test_flake8() {
     header "测试场景: Flake8 静态检查"
@@ -375,6 +404,10 @@ main() {
             shift
             test_flake8 "$@"
             ;;
+        frontend|fe|web)
+            shift
+            test_frontend "$@"
+            ;;
         all)
             shift
             test_all "$@"
@@ -399,6 +432,7 @@ main() {
             echo "  yfinance    - YFinance转换测试"
             echo "  syntax      - 语法检查"
             echo "  flake8      - 静态检查"
+            echo "  frontend    - 前端 lint + typecheck (apps/dsa-web)"
             echo "  all         - 运行所有测试"
             echo ""
             echo "示例:"
