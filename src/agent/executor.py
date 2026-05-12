@@ -14,12 +14,13 @@ import json
 import logging
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from json_repair import repair_json
 
+from src._concurrency import get_executor
 from src.agent.llm_adapter import LLMToolAdapter
 from src.agent.tools.registry import ToolRegistry
 from src.storage import persist_llm_usage as _persist_usage
@@ -555,17 +556,18 @@ class AgentExecutor:
                         if progress_callback:
                             progress_callback({"type": "tool_start", "step": step + 1, "tool": tc.name})
 
-                    with ThreadPoolExecutor(max_workers=min(len(response.tool_calls), 5)) as pool:
-                        futures = {pool.submit(_exec_single_tool, tc): tc for tc in response.tool_calls}
-                        for future in as_completed(futures):
-                            tc_item, result_str, success, tool_duration = future.result()
-                            if progress_callback:
-                                progress_callback({"type": "tool_done", "step": step + 1, "tool": tc_item.name, "success": success, "duration": tool_duration})
-                            tool_calls_log.append({
-                                "step": step + 1, "tool": tc_item.name, "arguments": tc_item.arguments,
-                                "success": success, "duration": tool_duration, "result_length": len(result_str),
-                            })
-                            tool_results.append({"tc": tc_item, "result_str": result_str})
+                    n_workers = min(len(response.tool_calls), 5)
+                    pool = get_executor(n_workers, "agent_tools")
+                    futures = {pool.submit(_exec_single_tool, tc): tc for tc in response.tool_calls}
+                    for future in as_completed(futures):
+                        tc_item, result_str, success, tool_duration = future.result()
+                        if progress_callback:
+                            progress_callback({"type": "tool_done", "step": step + 1, "tool": tc_item.name, "success": success, "duration": tool_duration})
+                        tool_calls_log.append({
+                            "step": step + 1, "tool": tc_item.name, "arguments": tc_item.arguments,
+                            "success": success, "duration": tool_duration, "result_length": len(result_str),
+                        })
+                        tool_results.append({"tc": tc_item, "result_str": result_str})
 
                 # Append tool results to messages (ordered by original tool_calls order)
                 tc_order = {tc.id: i for i, tc in enumerate(response.tool_calls)}

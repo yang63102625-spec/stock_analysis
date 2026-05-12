@@ -7,13 +7,14 @@ Handles market intelligence gathering, LLM prompt building, calling, and result 
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
+from concurrent.futures import as_completed
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from json_repair import repair_json
 
+from src._concurrency import FuturesTimeout, get_executor, run_with_timeout
 from src.services.picker.constants import (
     PICK_SYSTEM_PROMPT,
     PickerModeParams,
@@ -58,7 +59,8 @@ class AISelector:
                 logger.warning(f"[StockPicker] {label} failed: {e}")
                 return (label, None)
 
-        pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="intel")
+        pool = get_executor(3, "intel")
+        fut_indices = fut_stats = fut_sectors = None
         try:
             fut_indices = pool.submit(
                 _safe_call, "indices", lambda: self._data_manager.get_main_indices("cn")
@@ -123,7 +125,9 @@ class AISelector:
                     f"unfinished: {timed_out}"
                 )
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            for f in (fut_indices, fut_stats, fut_sectors):
+                if f is not None and not f.done():
+                    f.cancel()
 
         elapsed = time.time() - gather_start
         if elapsed >= self._INTEL_TOTAL_TIMEOUT:
@@ -182,18 +186,15 @@ class AISelector:
             return None
 
         to_fetch = [s.code for s in candidates[:max_stocks]]
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="chip") as pool:
-            futures = {pool.submit(_fetch_one, code): code for code in to_fetch}
-            for fut in futures:
-                code = futures[fut]
-                try:
-                    data = fut.result(timeout=timeout_per_stock)
-                    if data:
-                        chip_map[code] = data
-                except FuturesTimeout:
-                    logger.debug(f"[StockPicker] Chip fetch timeout for {code}")
-                except Exception as e:
-                    logger.debug(f"[StockPicker] Chip fetch error for {code}: {e}")
+        for code in to_fetch:
+            try:
+                data = run_with_timeout(lambda c=code: _fetch_one(c), timeout_per_stock, "chip")
+                if data:
+                    chip_map[code] = data
+            except FuturesTimeout:
+                logger.debug(f"[StockPicker] Chip fetch timeout for {code}")
+            except Exception as e:
+                logger.debug(f"[StockPicker] Chip fetch error for {code}: {e}")
 
         if chip_map:
             logger.info(f"[StockPicker] Fetched chip data for {len(chip_map)}/{len(to_fetch)} candidates")

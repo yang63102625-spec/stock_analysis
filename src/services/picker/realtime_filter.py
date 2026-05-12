@@ -17,6 +17,8 @@ from src.services.picker.screener import StockScreener
 
 logger = logging.getLogger(__name__)
 
+_REALTIME_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="realtime")
+
 
 def filter_by_realtime(
     candidates: List[ScreenedStock],
@@ -67,28 +69,31 @@ def filter_by_realtime(
             return (code, None)
 
     realtime_quotes: Dict[str, Optional] = {}
-    with ThreadPoolExecutor(max_workers=10, thread_name_prefix="realtime") as executor:
-        futures = {executor.submit(_fetch_one_quote, stock.code): stock.code for stock in candidates}
-        try:
-            for future in as_completed(futures, timeout=60):
-                try:
-                    code, quote = future.result(timeout=10)
-                    realtime_quotes[code] = quote
-                except FuturesTimeout:
-                    code = futures[future]
-                    logger.debug(f"[RealTime] Timeout fetching {code}")
-                    realtime_quotes[code] = None
-                except Exception as e:
-                    code = futures[future]
-                    logger.debug(f"[RealTime] Error fetching {code}: {e}")
-                    realtime_quotes[code] = None
-        except FuturesTimeout:
-            timed_out = [c for f, c in futures.items() if not f.done()]
-            for c in timed_out:
-                realtime_quotes.setdefault(c, None)
-            logger.warning(
-                f"[RealTime] Global timeout (60s): {len(timed_out)} futures unfinished: {timed_out}"
-            )
+    futures = {_REALTIME_EXECUTOR.submit(_fetch_one_quote, stock.code): stock.code for stock in candidates}
+    try:
+        for future in as_completed(futures, timeout=60):
+            try:
+                code, quote = future.result(timeout=10)
+                realtime_quotes[code] = quote
+            except FuturesTimeout:
+                code = futures[future]
+                logger.debug(f"[RealTime] Timeout fetching {code}")
+                realtime_quotes[code] = None
+            except Exception as e:
+                code = futures[future]
+                logger.debug(f"[RealTime] Error fetching {code}: {e}")
+                realtime_quotes[code] = None
+    except FuturesTimeout:
+        timed_out = [c for f, c in futures.items() if not f.done()]
+        for c in timed_out:
+            realtime_quotes.setdefault(c, None)
+        logger.warning(
+            f"[RealTime] Global timeout (60s): {len(timed_out)} futures unfinished: {timed_out}"
+        )
+    finally:
+        for fut in futures:
+            if not fut.done():
+                fut.cancel()
 
     # Helper: safe float conversion
     def _safe_float(val) -> Optional[float]:

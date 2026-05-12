@@ -10,7 +10,7 @@ import logging
 import os
 import random
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -25,6 +25,7 @@ from tenacity import (
 
 from src.config import get_config
 from src.exceptions import DataFetchError, RateLimitError
+from src._concurrency import run_with_timeout
 
 from ..base import BaseFetcher, is_st_stock, normalize_stock_code
 from ..rate_limit_mixin import RateLimitMixin, USER_AGENTS
@@ -103,26 +104,16 @@ class _EfinanceCore(RateLimitMixin, BaseFetcher):
     # _set_random_user_agent and _enforce_rate_limit are provided by RateLimitMixin
     
     def _run_with_timeout(self, fn, label: str, timeout: float = None):
-        """Execute *fn* in a thread with a wall-clock timeout.
-
-        Returns the result of *fn* on success, or raises DataFetchError /
-        original exception on timeout / failure so the caller can handle it.
-        """
         timeout = timeout or self._EFINANCE_CALL_TIMEOUT
-        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ef_timeout")
-        fut = pool.submit(fn)
         try:
-            return fut.result(timeout=timeout)
+            return run_with_timeout(fn, timeout, label)
         except FuturesTimeout:
-            fut.cancel()
             logger.warning(
                 f"[efinance] {label} timed out after {timeout}s"
             )
             raise DataFetchError(
                 f"efinance {label} timed out after {timeout}s"
             )
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
     
     @retry(
         stop=stop_after_attempt(1),  # 减少到1次，避免触发限流

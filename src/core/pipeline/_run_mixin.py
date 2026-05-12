@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from typing import List, Optional
+
+from src._concurrency import get_executor
 
 from src.analyzer import AnalysisResult
 from src.enums import ReportType
@@ -170,41 +172,37 @@ class _RunMixin:
         
         results: List[AnalysisResult] = []
         
-        # 使用线程池并发处理
-        # 注意：max_workers 设置较低（默认3）以避免触发反爬
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交任务
-            future_to_code = {
-                executor.submit(
-                    self.process_single_stock,
-                    code,
-                    skip_analysis=dry_run,
-                    single_stock_notify=single_stock_notify and send_notification,
-                    report_type=report_type,  # Issue #119: 传递报告类型
-                    analysis_query_id=uuid.uuid4().hex,
-                ): code
-                for code in stock_codes
-            }
-            
-            # 收集结果
-            for idx, future in enumerate(as_completed(future_to_code)):
-                code = future_to_code[future]
-                try:
-                    result = future.result()
-                    if result:
-                        results.append(result)
+        executor = get_executor(self.max_workers, "pipeline")
+        future_to_code = {
+            executor.submit(
+                self.process_single_stock,
+                code,
+                skip_analysis=dry_run,
+                single_stock_notify=single_stock_notify and send_notification,
+                report_type=report_type,  # Issue #119: 传递报告类型
+                analysis_query_id=uuid.uuid4().hex,
+            ): code
+            for code in stock_codes
+        }
+        
+        for idx, future in enumerate(as_completed(future_to_code)):
+            code = future_to_code[future]
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
 
-                    # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
-                    if idx < len(stock_codes) - 1 and analysis_delay > 0:
-                        # 注意：此 sleep 发生在“主线程收集 future 的循环”中，
-                        # 并不会阻止线程池中的任务同时发起网络请求。
-                        # 因此它对降低并发请求峰值的效果有限；真正的峰值主要由 max_workers 决定。
-                        # 该行为目前保留（按需求不改逻辑）。
-                        logger.debug(f"等待 {analysis_delay} 秒后继续下一只股票...")
-                        time.sleep(analysis_delay)
+                # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
+                if idx < len(stock_codes) - 1 and analysis_delay > 0:
+                    # 注意：此 sleep 发生在“主线程收集 future 的循环”中，
+                    # 并不会阻止线程池中的任务同时发起网络请求。
+                    # 因此它对降低并发请求峰值的效果有限；真正的峰值主要由 max_workers 决定。
+                    # 该行为目前保留（按需求不改逻辑）。
+                    logger.debug(f"等待 {analysis_delay} 秒后继续下一只股票...")
+                    time.sleep(analysis_delay)
 
-                except Exception as e:
-                    logger.error(f"[{code}] 任务执行失败: {e}")
+            except Exception as e:
+                logger.error(f"[{code}] 任务执行失败: {e}")
         
         # 统计
         elapsed_time = time.time() - start_time

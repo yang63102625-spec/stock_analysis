@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import requests
 
+from src._concurrency import FuturesTimeout as _FutTimeout, run_with_timeout
+
 from ..base import is_bse_code, is_kc_cy_stock, is_st_stock, normalize_stock_code
 from ..realtime_types import safe_float
 from ..us_index_mapping import is_us_index_code
@@ -116,7 +118,6 @@ class _MarketMixin:
 
         # 东财失败后，尝试新浪接口 (with 10s wall-clock cap to avoid
         # cascading timeouts when called inside _gather_market_intel)
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -126,9 +127,7 @@ class _MarketMixin:
             def _sina_fetch():
                 return ak.stock_zh_a_spot()
 
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="sina_stats") as pool:
-                fut = pool.submit(_sina_fetch)
-                df = fut.result(timeout=10)
+            df = run_with_timeout(_sina_fetch, 10.0, "sina_stats")
 
             if df is not None and not df.empty:
                 stats = self._calc_market_stats(df)

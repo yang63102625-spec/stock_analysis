@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 BENCHMARK_CODE = "000300.SH"  # CSI 300
 
+_FORWARD_RETURNS_EXECUTOR = ThreadPoolExecutor(max_workers=5, thread_name_prefix="fwd")
+
 # Legacy fallback constants (kept for backward compat where callers still
 # reference them; new code should use simulate_forward_trade with unified rules).
 STOP_LOSS_PCT = -8.0
@@ -325,43 +327,42 @@ class PickerBacktestService:
     ) -> List[PickResult]:
         """Fetch forward returns for picks in parallel (max 5 workers to respect rate limits)."""
         results: List[PickResult] = []
-        with ThreadPoolExecutor(max_workers=5, thread_name_prefix="fwd") as pool:
-            futures = {
-                pool.submit(
-                    self._get_forward_return, s.code, trade_date, exit_date, s.price,
-                    (s.strategies[0] if s.strategies else "buy_pullback"),
-                ): s
-                for s in picks
-            }
-            for fut in as_completed(futures):
-                s = futures[fut]
-                strategy_id = s.strategies[0] if s.strategies else "buy_pullback"
-                try:
-                    sim = fut.result() or {}
-                except Exception as e:
-                    logger.debug(f"[PickerBacktest] Forward return failed {s.code}: {e}")
-                    sim = {}
+        futures = {
+            _FORWARD_RETURNS_EXECUTOR.submit(
+                self._get_forward_return, s.code, trade_date, exit_date, s.price,
+                (s.strategies[0] if s.strategies else "buy_pullback"),
+            ): s
+            for s in picks
+        }
+        for fut in as_completed(futures):
+            s = futures[fut]
+            strategy_id = s.strategies[0] if s.strategies else "buy_pullback"
+            try:
+                sim = fut.result() or {}
+            except Exception as e:
+                logger.debug(f"[PickerBacktest] Forward return failed {s.code}: {e}")
+                sim = {}
 
-                ret = sim.get("return_pct")
-                exit_price = sim.get("exit_price")
-                exit_reason = sim.get("exit_reason")
-                hold_days = sim.get("hold_days")
-                outcome = "insufficient" if ret is None else ("win" if ret > 0 else "loss")
-                results.append(
-                    PickResult(
-                        trade_date=trade_date,
-                        code=s.code,
-                        name=s.name,
-                        entry_price=s.price,
-                        exit_price=exit_price,
-                        return_pct=ret,
-                        outcome=outcome,
-                        score=s.score,
-                        exit_reason=exit_reason,
-                        hold_days=hold_days,
-                        strategy_id=strategy_id,
-                    )
+            ret = sim.get("return_pct")
+            exit_price = sim.get("exit_price")
+            exit_reason = sim.get("exit_reason")
+            hold_days = sim.get("hold_days")
+            outcome = "insufficient" if ret is None else ("win" if ret > 0 else "loss")
+            results.append(
+                PickResult(
+                    trade_date=trade_date,
+                    code=s.code,
+                    name=s.name,
+                    entry_price=s.price,
+                    exit_price=exit_price,
+                    return_pct=ret,
+                    outcome=outcome,
+                    score=s.score,
+                    exit_reason=exit_reason,
+                    hold_days=hold_days,
+                    strategy_id=strategy_id,
                 )
+            )
         return results
 
     def run(

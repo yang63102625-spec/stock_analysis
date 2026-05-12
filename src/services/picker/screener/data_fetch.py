@@ -11,13 +11,14 @@ from __future__ import annotations
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed, TimeoutError as FuturesTimeout
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src._concurrency import get_executor, run_with_timeout
 from src.config import get_config
 from src.services.picker.constants import (
     AMOUNT_MIN_LARGE_CAP,
@@ -40,7 +41,6 @@ class _DataFetchMixin:
         total_timeout: float = 120.0,
     ) -> Dict[Tuple[str, str, str, int], Tuple[pd.DataFrame, str]]:
         """Fetch get_daily_data for multiple (code, start, end, days) in parallel."""
-        from concurrent.futures import as_completed, TimeoutError as FuturesTimeout
         if not self._data_manager or not requests:
             return {}
 
@@ -61,7 +61,7 @@ class _DataFetchMixin:
 
         unique_requests = list(dict.fromkeys(requests))
         results: Dict[Tuple[str, str, str, int], Tuple[pd.DataFrame, str]] = {}
-        pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="screener_fetch")
+        pool = get_executor(max_workers, "screener_fetch")
         futures = {pool.submit(_fetch, req): req for req in unique_requests}
         try:
             for future in as_completed(futures, timeout=total_timeout):
@@ -80,7 +80,9 @@ class _DataFetchMixin:
                 f"{len(pending)} pending: {pending[:10]}"
             )
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
         return results
 
     # ── Data fetching ────────────────────────────────────────────
@@ -95,8 +97,6 @@ class _DataFetchMixin:
         """Fetch full A-share data for Phase-1 fast screening.
         Priority: Tushare(daily, fast bulk scan) -> AkShare(spot, fallback) -> efinance(quotes, last resort).
         """
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-
         # Historical mode: only Tushare supports dated queries
         if trade_date:
             df = self._try_tushare(trade_date=trade_date)
@@ -130,48 +130,42 @@ class _DataFetchMixin:
             finally:
                 _req.utils.default_headers = orig
 
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="screener") as pool:
+        logger.info(
+            f"[Screener] Trying AkShare realtime spot (wall timeout={self._spot_timeout}s) - "
+            "priority 2/3 fallback"
+        )
+        t0 = time.time()
+        try:
+            df = run_with_timeout(_try_akshare, self._spot_timeout, "screener_akshare")
             logger.info(
-                f"[Screener] Trying AkShare realtime spot (wall timeout={self._spot_timeout}s) - "
-                "priority 2/3 fallback"
+                f"[Screener] Using AkShare realtime data: {len(df)} stocks in {time.time()-t0:.1f}s"
             )
-            t0 = time.time()
-            try:
-                fut = pool.submit(_try_akshare)
-                df = fut.result(timeout=self._spot_timeout)
-                logger.info(
-                    f"[Screener] Using AkShare realtime data: {len(df)} stocks in {time.time()-t0:.1f}s"
-                )
-                return df
-            except FuturesTimeout:
-                logger.warning(f"[Screener] AkShare hard-timeout after {self._spot_timeout}s, trying next source")
-                fut.cancel()
-            except Exception as e:
-                logger.warning(f"[Screener] AkShare failed: {e}, trying next source")
+            return df
+        except FuturesTimeout:
+            logger.warning(f"[Screener] AkShare hard-timeout after {self._spot_timeout}s, trying next source")
+        except Exception as e:
+            logger.warning(f"[Screener] AkShare failed: {e}, trying next source")
 
         # --- 3. efinance realtime ---
         def _try_efinance() -> pd.DataFrame:
             import efinance as ef
             return ef.stock.get_realtime_quotes()
 
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="screener") as pool:
+        logger.info(
+            f"[Screener] Trying efinance realtime quotes (wall timeout={self._spot_timeout}s) - "
+            "priority 3/3 last resort"
+        )
+        t0 = time.time()
+        try:
+            df = run_with_timeout(_try_efinance, self._spot_timeout, "screener_efinance")
             logger.info(
-                f"[Screener] Trying efinance realtime quotes (wall timeout={self._spot_timeout}s) - "
-                "priority 3/3 last resort"
+                f"[Screener] Using efinance realtime data: {len(df)} stocks in {time.time()-t0:.1f}s"
             )
-            t0 = time.time()
-            try:
-                fut = pool.submit(_try_efinance)
-                df = fut.result(timeout=self._spot_timeout)
-                logger.info(
-                    f"[Screener] Using efinance realtime data: {len(df)} stocks in {time.time()-t0:.1f}s"
-                )
-                return self._normalize_efinance_df(df)
-            except FuturesTimeout:
-                logger.warning(f"[Screener] efinance hard-timeout after {self._spot_timeout}s")
-                fut.cancel()
-            except Exception as e:
-                logger.warning(f"[Screener] efinance failed: {e}")
+            return self._normalize_efinance_df(df)
+        except FuturesTimeout:
+            logger.warning(f"[Screener] efinance hard-timeout after {self._spot_timeout}s")
+        except Exception as e:
+            logger.warning(f"[Screener] efinance failed: {e}")
 
         logger.error("[Screener] All data sources exhausted - no spot data available")
         return None

@@ -3,12 +3,14 @@
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
+from concurrent.futures import as_completed
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+from src._concurrency import FuturesTimeout, get_executor, run_with_timeout
 
 logger = logging.getLogger("stock_analysis")
 
@@ -111,19 +113,23 @@ class SectorStrengthService:
                 sector["name"], ts_code=sector.get("ts_code") or None,
             )
 
-        with ThreadPoolExecutor(max_workers=25) as executor:
-            futures = {executor.submit(_fetch_members, s): s for s in strong_sectors}
-            try:
-                for future in as_completed(futures, timeout=180):
-                    try:
-                        name, codes = future.result(timeout=8)
-                        all_codes.update(codes)
-                    except Exception as e:
-                        failed += 1
-                        if failed <= 3:
-                            logger.debug("[SectorStrength] Failed to get members: %s", e)
-            except FuturesTimeout:
-                logger.warning("[SectorStrength] Member fetch timed out after 180s, returning partial results")
+        executor = get_executor(25, "sector_strong_codes")
+        futures = {executor.submit(_fetch_members, s): s for s in strong_sectors}
+        try:
+            for future in as_completed(futures, timeout=180):
+                try:
+                    name, codes = future.result(timeout=8)
+                    all_codes.update(codes)
+                except Exception as e:
+                    failed += 1
+                    if failed <= 3:
+                        logger.debug("[SectorStrength] Failed to get members: %s", e)
+        except FuturesTimeout:
+            logger.warning("[SectorStrength] Member fetch timed out after 180s, returning partial results")
+        finally:
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
 
         logger.info(
             "[SectorStrength] Strong sector codes: %d stocks from %d sectors (%d failed)",
@@ -183,21 +189,15 @@ class SectorStrengthService:
 
         try:
             import tushare as ts
-            from concurrent.futures import ThreadPoolExecutor
 
             api = ts.pro_api(token=config.tushare_token)
 
             logger.info("[SectorStrength] Fetching sector rankings from Tushare rt_sw_k (realtime)...")
 
-            # Wall-clock timeout to avoid hanging on network issues (same pattern as rt_idx_k)
-            pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts_rt_sw_k")
-            future = pool.submit(api.rt_sw_k)
             try:
-                df_sw = future.result(timeout=8)
+                df_sw = run_with_timeout(api.rt_sw_k, 8.0, "ts_rt_sw_k")
             except Exception:
                 df_sw = None
-            finally:
-                pool.shutdown(wait=False, cancel_futures=True)
 
             if df_sw is None or df_sw.empty:
                 logger.warning("[SectorStrength] Tushare rt_sw_k returned empty")
@@ -415,21 +415,25 @@ class SectorStrengthService:
 
         # Use 10 workers for concurrent fetching
         completed = 0
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(_fetch_one, name): name for name in sector_names}
-            try:
-                for future in as_completed(futures, timeout=300):
-                    name, hist = future.result()
-                    if hist is not None:
-                        sector_hist[name] = hist
-                    completed += 1
-                    if completed % 100 == 0:
-                        logger.info("[SectorStrength] Preloaded %d/%d sectors...", completed, len(sector_names))
-            except FuturesTimeout:
-                logger.warning(
-                    "[SectorStrength] Preload timed out after 300s, got %d/%d sectors",
-                    completed, len(sector_names),
-                )
+        executor = get_executor(10, "sector_preload")
+        futures = {executor.submit(_fetch_one, name): name for name in sector_names}
+        try:
+            for future in as_completed(futures, timeout=300):
+                name, hist = future.result()
+                if hist is not None:
+                    sector_hist[name] = hist
+                completed += 1
+                if completed % 100 == 0:
+                    logger.info("[SectorStrength] Preloaded %d/%d sectors...", completed, len(sector_names))
+        except FuturesTimeout:
+            logger.warning(
+                "[SectorStrength] Preload timed out after 300s, got %d/%d sectors",
+                completed, len(sector_names),
+            )
+        finally:
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
 
         logger.info("[SectorStrength] Preloaded %d sectors with history data", len(sector_hist))
         self._set_cached(cache_key, sector_hist)
