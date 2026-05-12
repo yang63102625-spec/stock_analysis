@@ -5,11 +5,14 @@
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^31.4.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^42.0.0",
+    "electron-builder": "^25.1.8"
   },
   "build": {
     "appId": "com.daily-stock-analysis.desktop",
@@ -36,7 +39,17 @@
       "target": "nsis"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "category": "public.app-category.finance"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "synopsis": "AI-powered stock analysis desktop launcher",
+      "description": "Desktop launcher for the Daily Stock Analysis application."
     }
   }
 }
