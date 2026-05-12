@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import requests
 
@@ -36,16 +36,15 @@ def _get_realtime_ttl() -> int:
     return _AFTERHOURS_TTL
 
 
-# Cache dicts - ttl is computed dynamically via _get_realtime_ttl().
-_realtime_cache: Dict[str, Any] = {
-    'data': None,
-    'timestamp': 0,
-}
+# Realtime caches use the unified ``TTLCache`` (per-entry TTL, thread-safe,
+# hit/miss stats). The dynamic TTL comes from ``_get_realtime_ttl()`` and is
+# passed at ``set`` time. A single key per cache holds the most recent
+# full-market snapshot.
+from ..caching_manager import TTLCache  # noqa: E402  (import below class for clarity)
 
-_etf_realtime_cache: Dict[str, Any] = {
-    'data': None,
-    'timestamp': 0,
-}
+_realtime_cache = TTLCache(name="akshare_realtime_a")
+_etf_realtime_cache = TTLCache(name="akshare_realtime_etf")
+_REALTIME_KEY = "spot"
 
 
 def _is_etf_code(stock_code: str) -> bool:

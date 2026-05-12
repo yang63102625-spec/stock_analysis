@@ -13,12 +13,13 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from ..base import is_bse_code
+from ..caching_manager import TTLCache
 from ..realtime_types import ChipDistribution  # noqa: F401  (re-export expected by callers)
 from ..realtime_types import UnifiedRealtimeQuote, safe_float, safe_int
 from .utils import _get_dynamic_cache_ttl
@@ -30,42 +31,39 @@ logger = logging.getLogger(__name__)
 _SHARED_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tushare_fetch")
 
 # ---------------------------------------------------------------------------
-# Module-level cache for ts.realtime_list() full-market snapshot.
-# realtime_list returns ~5000 rows; TTL is dynamic (see _get_dynamic_cache_ttl).
+# Module-level caches use the unified ``TTLCache`` (per-entry TTL, thread-safe,
+# hit/miss stats). Each cache has a single key that holds the most recent
+# snapshot. Locks are still kept around the *fetcher* so only one thread
+# refreshes a stale entry — TTLCache itself does not deduplicate stampedes.
 # ---------------------------------------------------------------------------
-_realtime_list_cache: Dict[str, Any] = {
-    'data': None,
-    'timestamp': 0.0,
-}
+_REALTIME_LIST_KEY = "snapshot"
+_RT_K_KEY = "snapshot"
+_DAILY_BASIC_KEY = "snapshot"
+_DAILY_VOL_AVG_KEY = "snapshot"
+# 24h: any same-day repeat call will hit; the next trading day's first call
+# misses naturally because daily_basic / daily_vol_avg are keyed by today_str
+# inside the loader, but here a single key + 24h TTL is cheaper and avoids
+# unbounded growth.
+_DAILY_TTL_SECONDS = 24 * 60 * 60
+
+_realtime_list_cache = TTLCache(name="tushare_realtime_list")
 _realtime_list_lock = threading.Lock()
 _realtime_list_fail_count = 0
 _realtime_list_disabled_until = 0.0
 _REALTIME_LIST_MAX_FAILURES = 3
 _REALTIME_LIST_COOLDOWN = 60.0  # seconds
 
-# ---------------------------------------------------------------------------
-# Module-level cache for rt_k full-market snapshot (dynamic TTL, same pattern).
-# ---------------------------------------------------------------------------
-_rt_k_cache: Dict[str, UnifiedRealtimeQuote] = {}
-_rt_k_cache_time: float = 0.0
+_rt_k_cache = TTLCache(name="tushare_rt_k")
 _rt_k_lock = threading.Lock()
 _rt_k_fail_count = 0
 _rt_k_disabled_until = 0.0
 _RT_K_MAX_FAILURES = 3
 _RT_K_COOLDOWN = 60.0  # seconds
 
-# ---------------------------------------------------------------------------
-# Module-level cache for daily_basic (refreshed once per trade date).
-# ---------------------------------------------------------------------------
-_daily_basic_cache: Optional[pd.DataFrame] = None
-_daily_basic_cache_date: str = ""
+_daily_basic_cache = TTLCache(name="tushare_daily_basic")
 _daily_basic_lock = threading.Lock()
 
-# ---------------------------------------------------------------------------
-# Module-level cache for 5-day average volume (refreshed once per trade date).
-# ---------------------------------------------------------------------------
-_daily_vol_avg_cache: Optional[Dict[str, float]] = None  # ts_code -> avg_5d_vol (手)
-_daily_vol_avg_cache_date: str = ""
+_daily_vol_avg_cache = TTLCache(name="tushare_daily_vol_avg")
 _daily_vol_avg_lock = threading.Lock()
 
 
@@ -103,29 +101,21 @@ class _RealtimeMixin:
             return None
 
         # --- fast path: cache hit (no lock needed) ---
-        if (
-            _realtime_list_cache['data'] is not None
-            and current_time - _realtime_list_cache['timestamp'] < _get_dynamic_cache_ttl()
-        ):
-            dyn_ttl = _get_dynamic_cache_ttl()
-            cache_age = int(current_time - _realtime_list_cache['timestamp'])
-            logger.debug(
-                f"[realtime_list] cache hit, age {cache_age}s / {dyn_ttl}s"
-            )
-            return _realtime_list_cache['data']
+        cached_df = _realtime_list_cache.get(_REALTIME_LIST_KEY)
+        if cached_df is not None:
+            logger.debug("[realtime_list] cache hit (TTL %ds)", _get_dynamic_cache_ttl())
+            return cached_df
 
         # --- slow path: acquire lock, double-check, then fetch ---
         with _realtime_list_lock:
             # Double-check after acquiring lock (another thread may have refreshed)
-            current_time = time.time()
-            if (
-                _realtime_list_cache['data'] is not None
-                and current_time - _realtime_list_cache['timestamp'] < _get_dynamic_cache_ttl()
-            ):
+            cached_df = _realtime_list_cache.get(_REALTIME_LIST_KEY)
+            if cached_df is not None:
                 logger.debug("[realtime_list] cache hit after lock (another thread refreshed)")
-                return _realtime_list_cache['data']
+                return cached_df
 
             # Also re-check circuit breaker inside lock
+            current_time = time.time()
             if current_time < _realtime_list_disabled_until:
                 return None
 
@@ -140,12 +130,12 @@ class _RealtimeMixin:
                 df = future.result(timeout=timeout)
 
                 if df is not None and not df.empty:
-                    _realtime_list_cache['data'] = df
-                    _realtime_list_cache['timestamp'] = time.time()
+                    dyn_ttl = _get_dynamic_cache_ttl()
+                    _realtime_list_cache.set(_REALTIME_LIST_KEY, df, dyn_ttl)
                     _realtime_list_fail_count = 0  # reset on success
                     logger.info(
                         f"[realtime_list] fetched {len(df)} rows, cache refreshed "
-                        f"(TTL={_get_dynamic_cache_ttl()}s)"
+                        f"(TTL={dyn_ttl}s)"
                     )
                     return df
                 else:
@@ -192,7 +182,7 @@ class _RealtimeMixin:
         rt_k fields: ts_code, name, open, close, high, low, pre_close, vol, amount, ...
         Note: rt_k vol is in shares (股), converted to lots (手) by /100.
         """
-        global _rt_k_cache, _rt_k_cache_time, _rt_k_fail_count, _rt_k_disabled_until
+        global _rt_k_fail_count, _rt_k_disabled_until
 
         if self._api is None:
             return {}
@@ -208,18 +198,19 @@ class _RealtimeMixin:
             return {}
 
         # --- fast path: cache hit ---
-        _dyn_ttl = _get_dynamic_cache_ttl()
-        if _rt_k_cache and current_time - _rt_k_cache_time < _dyn_ttl:
-            logger.debug("[rt_k] cache hit, age %.0fs", current_time - _rt_k_cache_time)
-            return _rt_k_cache
+        cached = _rt_k_cache.get(_RT_K_KEY)
+        if cached:
+            logger.debug("[rt_k] cache hit (TTL %ds)", _get_dynamic_cache_ttl())
+            return cached
 
         # --- slow path: lock, double-check, fetch ---
         with _rt_k_lock:
-            current_time = time.time()
-            if _rt_k_cache and current_time - _rt_k_cache_time < _get_dynamic_cache_ttl():
+            cached = _rt_k_cache.get(_RT_K_KEY)
+            if cached:
                 logger.debug("[rt_k] cache hit after lock")
-                return _rt_k_cache
+                return cached
 
+            current_time = time.time()
             if current_time < _rt_k_disabled_until:
                 return {}
 
@@ -296,10 +287,10 @@ class _RealtimeMixin:
                 # Enrich with daily_basic (PE/PB/MV/turnover)
                 self._enrich_rt_k_quotes(all_quotes)
 
-                _rt_k_cache = all_quotes
-                _rt_k_cache_time = time.time()
+                dyn_ttl = _get_dynamic_cache_ttl()
+                _rt_k_cache.set(_RT_K_KEY, all_quotes, dyn_ttl)
                 _rt_k_fail_count = 0
-                logger.info("[rt_k] fetched %d quotes, cache refreshed (TTL=%.0fs)", len(all_quotes), _get_dynamic_cache_ttl())
+                logger.info("[rt_k] fetched %d quotes, cache refreshed (TTL=%.0fs)", len(all_quotes), dyn_ttl)
             else:
                 self._record_rt_k_failure()
                 logger.warning("[rt_k] all batches returned empty")
@@ -327,22 +318,23 @@ class _RealtimeMixin:
         Returns DataFrame with columns: ts_code, turnover_rate, pe_ttm, pb,
         total_share, float_share, total_mv, circ_mv.
         """
-        global _daily_basic_cache, _daily_basic_cache_date
-
         if self._api is None:
             return None
 
         china_now = datetime.now(ZoneInfo("Asia/Shanghai"))
         today_str = china_now.strftime("%Y%m%d")
+        cache_key = (_DAILY_BASIC_KEY, today_str)
 
         # Fast path: cache still valid for today
-        if _daily_basic_cache is not None and _daily_basic_cache_date == today_str:
-            return _daily_basic_cache
+        cached = _daily_basic_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         with _daily_basic_lock:
             # Double-check
-            if _daily_basic_cache is not None and _daily_basic_cache_date == today_str:
-                return _daily_basic_cache
+            cached = _daily_basic_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
             try:
                 # Determine latest trade date
@@ -365,8 +357,7 @@ class _RealtimeMixin:
                     )
                     if df is not None and not df.empty:
                         df.columns = [c.lower() for c in df.columns]
-                        _daily_basic_cache = df
-                        _daily_basic_cache_date = today_str
+                        _daily_basic_cache.set(cache_key, df, _DAILY_TTL_SECONDS)
                         logger.info("[daily_basic] cached %d rows for trade_date=%s", len(df), try_date)
                         return df
 
@@ -383,22 +374,23 @@ class _RealtimeMixin:
         Returns dict mapping ts_code -> avg 5-day volume in 手 (lots).
         Uses Tushare daily() API to fetch last 5 trading days of volume data.
         """
-        global _daily_vol_avg_cache, _daily_vol_avg_cache_date
-
         if self._api is None:
             return None
 
         china_now = datetime.now(ZoneInfo("Asia/Shanghai"))
         today_str = china_now.strftime("%Y%m%d")
+        cache_key = (_DAILY_VOL_AVG_KEY, today_str)
 
         # Fast path: cache still valid for today
-        if _daily_vol_avg_cache is not None and _daily_vol_avg_cache_date == today_str:
-            return _daily_vol_avg_cache
+        cached = _daily_vol_avg_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         with _daily_vol_avg_lock:
             # Double-check
-            if _daily_vol_avg_cache is not None and _daily_vol_avg_cache_date == today_str:
-                return _daily_vol_avg_cache
+            cached = _daily_vol_avg_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
             try:
                 # Determine recent trade dates from daily_basic cache or trade_cal
@@ -443,8 +435,7 @@ class _RealtimeMixin:
                 avg_vol = combined.groupby("ts_code")["vol"].mean()
                 result = avg_vol.to_dict()
 
-                _daily_vol_avg_cache = result
-                _daily_vol_avg_cache_date = today_str
+                _daily_vol_avg_cache.set(cache_key, result, _DAILY_TTL_SECONDS)
                 logger.info(
                     "[daily_vol_avg] cached avg vol for %d stocks from %d trade days (dates: %s)",
                     len(result), len(all_dfs), ','.join(trade_dates[-1:0:-1]),  # show in reverse chronological order

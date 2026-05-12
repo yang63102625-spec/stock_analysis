@@ -245,10 +245,10 @@ class _DataFetchMixin:
             if not is_historical:
                 try:
                     from data_provider.tushare import realtime as _ts_rt
-                    _ts_rt._realtime_list_cache['timestamp'] = 0.0
-                    _ts_rt._rt_k_cache_time = 0.0
+                    _ts_rt._realtime_list_cache.clear()
+                    _ts_rt._rt_k_cache.clear()
                     logger.debug("[Screener] Forced realtime cache expiry before supplement")
-                except (ImportError, KeyError) as e:
+                except (ImportError, AttributeError) as e:
                     logger.warning(f"[Screener] Could not force cache expiry: {e}")
                 df_daily = self._supplement_realtime_data(df_daily)
 

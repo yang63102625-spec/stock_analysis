@@ -48,7 +48,7 @@ LEGACY_SYMBOLS = [
     ("data_provider.tushare.utils", "_is_etf_code"),
     ("data_provider.tushare.utils", "_is_us_code"),
     ("data_provider.tushare.realtime", "_realtime_list_cache"),
-    ("data_provider.tushare.realtime", "_rt_k_cache_time"),
+    ("data_provider.tushare.realtime", "_rt_k_cache"),
     # Akshare canonical sub-package
     ("data_provider.akshare", "AkshareFetcher"),
     ("data_provider.akshare", "is_hk_stock_code"),

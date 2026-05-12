@@ -38,6 +38,7 @@ from .utils import (
     TENCENT_REALTIME_ENDPOINT,
     _build_realtime_failure_message,
     _classify_realtime_http_error,
+    _REALTIME_KEY,
     _etf_realtime_cache,
     _get_realtime_ttl,
     _is_etf_code,
@@ -114,13 +115,11 @@ class _RealtimeMixin:
         
         try:
             # Check cache (skip when force_refresh is requested)
-            current_time = time.time()
             ttl = _get_realtime_ttl()
-            if (not force_refresh and _realtime_cache['data'] is not None and
-                current_time - _realtime_cache['timestamp'] < ttl):
-                df = _realtime_cache['data']
-                cache_age = int(current_time - _realtime_cache['timestamp'])
-                logger.debug(f"[缓存命中] A股实时行情(东财) - 缓存年龄 {cache_age}s/{ttl}s")
+            cached_df = None if force_refresh else _realtime_cache.get(_REALTIME_KEY)
+            if cached_df is not None:
+                df = cached_df
+                logger.debug(f"[缓存命中] A股实时行情(东财) - TTL {ttl}s")
             else:
                 # 触发全量刷新
                 logger.info(f"[缓存未命中] 触发全量刷新 A股实时行情(东财)")
@@ -152,8 +151,7 @@ class _RealtimeMixin:
                     logger.error(f"[API错误] ak.stock_zh_a_spot_em 最终失败: {last_error}")
                     circuit_breaker.record_failure(source_key, str(last_error))
                     df = pd.DataFrame()
-                _realtime_cache['data'] = df
-                _realtime_cache['timestamp'] = current_time
+                _realtime_cache.set(_REALTIME_KEY, df, ttl)
                 logger.info(f"[缓存更新] A股实时行情(东财) 缓存已刷新，TTL={ttl}s")
 
             if df is None or df.empty:
@@ -523,11 +521,11 @@ class _RealtimeMixin:
         
         try:
             # Check cache (skip when force_refresh is requested)
-            current_time = time.time()
-            if (not force_refresh and _etf_realtime_cache['data'] is not None and
-                current_time - _etf_realtime_cache['timestamp'] < _get_realtime_ttl()):
-                df = _etf_realtime_cache['data']
-                logger.debug(f"[缓存命中] 使用缓存的ETF实时行情数据")
+            ttl = _get_realtime_ttl()
+            cached_df = None if force_refresh else _etf_realtime_cache.get(_REALTIME_KEY)
+            if cached_df is not None:
+                df = cached_df
+                logger.debug(f"[缓存命中] 使用缓存的ETF实时行情数据 (TTL {ttl}s)")
             else:
                 last_error: Optional[Exception] = None
                 df = None
@@ -556,8 +554,7 @@ class _RealtimeMixin:
                     logger.error(f"[API错误] ak.fund_etf_spot_em 最终失败: {last_error}")
                     circuit_breaker.record_failure(source_key, str(last_error))
                     df = pd.DataFrame()
-                _etf_realtime_cache['data'] = df
-                _etf_realtime_cache['timestamp'] = current_time
+                _etf_realtime_cache.set(_REALTIME_KEY, df, ttl)
 
             if df is None or df.empty:
                 logger.warning(f"[实时行情] ETF实时行情数据为空，跳过 {stock_code}")

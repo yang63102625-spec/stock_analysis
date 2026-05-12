@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactor: unified TTLCache for all data-provider module caches
+
+- Replaced six raw module-level cache dictionaries with the unified
+  ``TTLCache`` (`data_provider.caching_manager`):
+  - ``data_provider/akshare/utils.py``: ``_realtime_cache`` /
+    ``_etf_realtime_cache``.
+  - ``data_provider/efinance_fetcher.py``: ``_realtime_cache`` /
+    ``_etf_realtime_cache``.
+  - ``data_provider/tushare/realtime.py``: ``_realtime_list_cache`` /
+    ``_rt_k_cache`` / ``_daily_basic_cache`` / ``_daily_vol_avg_cache``
+    (also drops the parallel ``_*_cache_time`` / ``_*_cache_date``
+    sentinel variables).
+- All caches now have explicit TTL, thread-safe get/set, and built-in
+  hit/miss observability — satisfies ``code-quality.mdc`` rule §5
+  ("Cache MUST be managed through a unified interface").
+- ``src/services/picker/screener/data_fetch.py`` switched from poking
+  cache-internal timestamps to the canonical
+  ``TTLCache.clear()`` to force a refresh.
+- ``tests/test_backward_compat_imports.py`` updated to track the renamed
+  ``_rt_k_cache`` symbol.
+
 ### Refactor: drop legacy backward-compatibility shims
 
 - Removed all 7 shim files left behind by phases 1-2 refactors:
