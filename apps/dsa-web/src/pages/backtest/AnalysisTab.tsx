@@ -17,11 +17,11 @@ export const AnalysisTab: React.FC = () => {
     <>
       <div className="bg-elevated/60 border border-border rounded-2xl p-6 mb-8 space-y-3">
         <StrategyChips
-          label="回测策略"
+          label="执行规则"
           value={a.individualStrategies}
           onChange={a.setIndividualStrategies}
           disabled={a.isRunning}
-          hint="每条记录会按选中的策略各跑一次，可在表格的「策略」列对比"
+          hint="同一条 AI 推荐按不同交易规则各跑一次，对比不同执行方式的准确性"
         />
         <div className="flex flex-wrap items-center gap-3">
           <input
