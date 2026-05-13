@@ -130,9 +130,19 @@ const ChatPage: React.FC = () => {
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setSidebarOpen(false)}>
             <div className="absolute inset-0 bg-black/60" />
             <div
-              className="absolute left-0 top-0 bottom-0 w-72 flex flex-col glass-card overflow-hidden border-r border-border shadow-2xl"
+              className="relative absolute left-0 top-0 bottom-0 w-72 flex flex-col glass-card overflow-hidden border-r border-border shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
+              <button
+                type="button"
+                className="absolute top-3 right-3 p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition z-10"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Close sidebar"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
               {sidebar}
             </div>
           </div>

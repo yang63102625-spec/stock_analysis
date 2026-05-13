@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { ReportSummary as ReportSummaryType } from '../../types/analysis';
-import { Card } from '../common';
+import { Card, Skeleton, SkeletonScoreBar } from '../common';
 
 interface ReportScoresProps {
   summary?: ReportSummaryType;
@@ -56,6 +56,25 @@ const DimBar: React.FC<DimItem> = ({ label, value, cap }) => {
     </div>
   );
 };
+
+/**
+ * Skeleton placeholder for ReportScores while loading
+ */
+export const ReportScoresSkeleton: React.FC = () => (
+  <Card variant="bordered" padding="md">
+    <div className="mb-3 flex flex-wrap items-baseline gap-2">
+      <Skeleton width="w-24" height="h-3" />
+      <Skeleton width="w-28" height="h-5" />
+      <Skeleton width="w-12" height="h-6" className="ml-auto" />
+    </div>
+    <div className="flex flex-wrap gap-2 mb-3">
+      <Skeleton width="w-20" height="h-5" rounded="rounded" />
+      <Skeleton width="w-16" height="h-5" rounded="rounded" />
+      <Skeleton width="w-14" height="h-5" rounded="rounded" />
+    </div>
+    <SkeletonScoreBar />
+  </Card>
+);
 
 export const ReportScores: React.FC<ReportScoresProps> = ({ summary }) => {
   if (!summary) return null;

@@ -30,7 +30,7 @@ export const Card: React.FC<CardProps> = ({
     lg: 'p-5',
   };
 
-  const baseStyles = 'rounded-2xl';
+  const baseStyles = 'rounded-2xl dark:bg-slate-800 dark:border-slate-700';
 
   const variantStyles = {
     default: 'terminal-card',
@@ -52,7 +52,7 @@ export const Card: React.FC<CardProps> = ({
                 <span className="label-uppercase">{subtitle}</span>
               )}
               {title && (
-                <h3 className="text-lg font-semibold text-primary mt-1">
+                <h3 className="text-lg font-semibold text-primary dark:text-slate-100 mt-1">
                   {title}
                 </h3>
               )}
@@ -80,7 +80,7 @@ export const Card: React.FC<CardProps> = ({
             <span className="label-uppercase">{subtitle}</span>
           )}
           {title && (
-            <h3 className="text-lg font-semibold text-primary mt-1">
+            <h3 className="text-lg font-semibold text-primary dark:text-slate-100 mt-1">
               {title}
             </h3>
           )}

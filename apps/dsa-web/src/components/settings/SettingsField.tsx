@@ -39,9 +39,11 @@ function renderFieldControl(
   onToggleSecretVisible: () => void,
   isPasswordEditable: boolean,
   onPasswordFocus: () => void,
+  hasError: boolean,
 ) {
   const schema = item.schema;
-  const commonClass = 'input-terminal';
+  const errorInputClass = hasError ? 'border-red-300 focus:border-red-500 bg-red-50' : '';
+  const commonClass = `input-terminal ${errorInputClass}`;
   const controlType = schema?.uiControl ?? 'text';
   const isMultiValue = isMultiValueField(item);
 
@@ -168,6 +170,9 @@ function renderFieldControl(
   }
 
   const inputType = controlType === 'number' ? 'number' : controlType === 'time' ? 'time' : 'text';
+  const validation = (schema?.validation ?? {}) as Record<string, unknown>;
+  const minVal = typeof validation.min === 'number' ? validation.min : undefined;
+  const maxVal = typeof validation.max === 'number' ? validation.max : undefined;
 
   return (
     <input
@@ -176,6 +181,8 @@ function renderFieldControl(
       value={value}
       disabled={disabled || !schema?.isEditable}
       onChange={(event) => onChange(event.target.value)}
+      {...(inputType === 'number' && minVal !== undefined ? { min: minVal } : {})}
+      {...(inputType === 'number' && maxVal !== undefined ? { max: maxVal } : {})}
     />
   );
 }
@@ -229,6 +236,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
           () => setIsSecretVisible((previous) => !previous),
           isPasswordEditable,
           () => setIsPasswordEditable(true),
+          hasError,
         )}
       </div>
 
@@ -244,9 +252,12 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
           {issues.map((issue, index) => (
             <p
               key={`${issue.code}-${issue.key}-${index}`}
-              className={issue.severity === 'error' ? 'text-xs text-danger' : 'text-xs text-warning'}
+              className={issue.severity === 'error' ? 'text-xs text-red-500 mt-1 flex items-center gap-1' : 'text-xs text-warning mt-1 flex items-center gap-1'}
             >
-              {issue.message}
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{issue.message}</span>
             </p>
           ))}
         </div>

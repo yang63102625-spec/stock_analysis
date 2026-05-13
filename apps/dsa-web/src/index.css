@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode for Tailwind v4 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============ Tailwind v4 Theme ============ */
 @theme {
   --color-cyan: #2563eb;
@@ -64,7 +67,7 @@
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-muted: #6b7280;
 
   font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
@@ -73,6 +76,33 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============ Dark Mode Overrides ============ */
+.dark {
+  --bg-base: #0f172a;
+  --bg-card: #1e293b;
+  --bg-elevated: #334155;
+  --bg-surface-hover: #475569;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --border-dim: rgba(255, 255, 255, 0.04);
+  --border-default: #334155;
+  --border-accent: #3b82f6;
+  --border-purple: rgba(99, 102, 241, 0.4);
+
+  --color-base: #0f172a;
+  --color-card: #1e293b;
+  --color-elevated: #334155;
+  --color-surface-hover: #475569;
+  --color-primary: #f1f5f9;
+  --color-secondary: #94a3b8;
+  --color-muted: #64748b;
+  --color-border: #334155;
+  --color-border-dim: rgba(255, 255, 255, 0.04);
 }
 
 /* ============ Base ============ */
@@ -92,6 +122,10 @@ body {
   position: relative;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.dark .terminal-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 .terminal-card-hover {
@@ -127,6 +161,10 @@ body {
   position: relative;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.dark .glass-card {
+  background: rgba(30, 41, 59, 0.8);
 }
 
 /* ============ History List ============ */
@@ -187,11 +225,17 @@ body {
 
 .input-terminal:focus {
   border-color: var(--border-accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  transform: scale(1.005);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 
 .input-terminal:hover:not(:focus) {
   border-color: rgba(0, 0, 0, 0.15);
+}
+
+.dark .input-terminal:hover:not(:focus) {
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 /* ============ Buttons ============ */
@@ -275,6 +319,14 @@ body {
   background: rgba(0, 0, 0, 0.2);
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
 /* ============ Animations ============ */
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -353,6 +405,10 @@ body {
 
 .prose tr:nth-child(even) {
   background: rgba(0, 0, 0, 0.02);
+}
+
+.dark .prose tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* ============ Prose Pre/Code Block ============ */

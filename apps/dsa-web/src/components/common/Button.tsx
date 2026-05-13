@@ -26,7 +26,8 @@ export const Button: React.FC<ButtonProps> = ({
     font-medium rounded-lg
     transition-all duration-200
     focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base
-    disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+    disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none
+    disabled:hover:shadow-none disabled:hover:transform-none
   `;
 
   const sizeStyles = {
@@ -47,6 +48,8 @@ export const Button: React.FC<ButtonProps> = ({
       hover:bg-surface-hover
       focus:ring-slate-400
       border border-border
+      dark:bg-slate-700 dark:text-slate-200
+      dark:border-slate-600 dark:hover:bg-slate-600
     `,
     outline: `
       bg-transparent text-cyan
@@ -58,6 +61,7 @@ export const Button: React.FC<ButtonProps> = ({
       bg-transparent text-secondary
       hover:bg-surface-hover hover:text-primary
       focus:ring-gray-400
+      dark:hover:bg-slate-700 dark:text-slate-300
     `,
     gradient: `
       bg-gradient-to-r from-cyan to-cyan-dim text-white

@@ -1,7 +1,67 @@
 import type React from 'react';
 import type { ReportMeta, ReportSummary as ReportSummaryType } from '../../types/analysis';
-import { ScoreGauge, Card } from '../common';
+import { ScoreGauge, Card, Skeleton, SkeletonText } from '../common';
 import { formatDateTime } from '../../utils/format';
+
+/**
+ * Skeleton placeholder for ReportOverview while loading
+ */
+export const ReportOverviewSkeleton: React.FC = () => (
+  <div className="space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+      {/* Left: stock info + conclusion skeleton */}
+      <div className="lg:col-span-2 space-y-4">
+        <div className="p-5 rounded-xl border border-gray-100 space-y-4">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <Skeleton width="w-32" height="h-7" rounded="rounded-md" />
+                <Skeleton width="w-16" height="h-6" rounded="rounded-md" />
+                <Skeleton width="w-14" height="h-4" rounded="rounded-md" />
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <Skeleton width="w-20" height="h-5" rounded="rounded" />
+                <Skeleton width="w-36" height="h-4" rounded="rounded" />
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-100 pt-4">
+            <Skeleton width="w-24" height="h-3" className="mb-2" />
+            <SkeletonText lines={3} />
+          </div>
+        </div>
+        {/* Action advice + trend prediction skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="p-4 rounded-xl border border-gray-100">
+            <div className="flex items-start gap-3">
+              <Skeleton width="w-8" height="h-8" rounded="rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton width="w-16" height="h-3" />
+                <Skeleton width="w-full" height="h-4" />
+              </div>
+            </div>
+          </div>
+          <div className="p-4 rounded-xl border border-gray-100">
+            <div className="flex items-start gap-3">
+              <Skeleton width="w-8" height="h-8" rounded="rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton width="w-16" height="h-3" />
+                <Skeleton width="w-full" height="h-4" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Right: gauge skeleton */}
+      <div className="flex flex-col self-stretch min-h-full">
+        <div className="p-5 rounded-xl border border-gray-100 flex-1 flex flex-col items-center justify-center">
+          <Skeleton width="w-20" height="h-4" className="mb-4" />
+          <Skeleton width="w-32" height="h-32" rounded="rounded-full" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 interface ReportOverviewProps {
   meta: ReportMeta;

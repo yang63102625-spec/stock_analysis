@@ -30,6 +30,7 @@ prose-thead:bg-elevated/80
 prose-th:text-primary prose-th:font-medium prose-th:border prose-th:border-border prose-th:px-2 prose-th:py-1.5 prose-th:text-left
 prose-td:border prose-td:border-border prose-td:px-2 prose-td:py-1
 prose-tr:even:bg-surface-hover/30
+[&_tr:hover]:bg-cyan/5
 prose-hr:border-border/50 prose-hr:my-2.5
 prose-a:text-cyan prose-a:no-underline hover:prose-a:underline
 prose-blockquote:border-l-2 prose-blockquote:border-cyan/40 prose-blockquote:bg-elevated/50 prose-blockquote:text-secondary prose-blockquote:pl-3 prose-blockquote:py-1 prose-blockquote:my-2 prose-blockquote:rounded-r`;

@@ -1,11 +1,37 @@
 import type React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Spinner } from '../components/common';
+import { Spinner, Skeleton } from '../components/common';
 import { usePicker } from './picker/hooks/usePicker';
 import { usePickerHistory } from './picker/hooks/usePickerHistory';
 import { ResultView } from './picker/components/ResultView';
 import { PickerEmptyState } from './picker/components/PickerEmptyState';
 import { STRATEGY_OPTIONS } from './picker/constants';
+
+/** Table skeleton shown while picker is running */
+const PickerTableSkeleton: React.FC = () => (
+  <div className="bg-card border border-border rounded-2xl overflow-hidden">
+    {/* Table header skeleton */}
+    <div className="grid grid-cols-6 gap-4 px-5 py-3 border-b border-border bg-elevated">
+      <Skeleton width="w-12" height="h-3" />
+      <Skeleton width="w-16" height="h-3" />
+      <Skeleton width="w-14" height="h-3" />
+      <Skeleton width="w-10" height="h-3" />
+      <Skeleton width="w-14" height="h-3" />
+      <Skeleton width="w-12" height="h-3" />
+    </div>
+    {/* Table rows skeleton */}
+    {Array.from({ length: 5 }).map((_, i) => (
+      <div key={i} className="grid grid-cols-6 gap-4 px-5 py-4 border-b border-border last:border-b-0">
+        <Skeleton width="w-20" height="h-4" />
+        <Skeleton width="w-24" height="h-4" />
+        <Skeleton width="w-14" height="h-4" />
+        <Skeleton width="w-12" height="h-4" />
+        <Skeleton width="w-16" height="h-4" />
+        <Skeleton width="w-10" height="h-4" />
+      </div>
+    ))}
+  </div>
+);
 
 const PickerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -101,25 +127,28 @@ const PickerPage: React.FC = () => {
 
         {/* Loading */}
         {p.loading && (
-          <div className="flex flex-col items-center py-20">
-            <div className="relative">
-              <div className="w-24 h-24 rounded-full border-2 border-cyan/10 flex items-center justify-center">
-                <Spinner size="lg" />
+          <div className="space-y-6">
+            <div className="flex flex-col items-center py-12">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full border-2 border-cyan/10 flex items-center justify-center">
+                  <Spinner size="lg" />
+                </div>
+                <div className="absolute -inset-3 rounded-full border border-cyan/5 animate-ping" style={{ animationDuration: '2s' }} />
               </div>
-              <div className="absolute -inset-3 rounded-full border border-cyan/5 animate-ping" style={{ animationDuration: '2s' }} />
+              <p className="mt-8 text-base text-primary font-semibold">两阶段分析进行中</p>
+              <div className="mt-4 flex gap-8 text-sm text-muted">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-cyan animate-pulse" />
+                  <span>量化筛选</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-purple/50" />
+                  <span>AI 精选</span>
+                </div>
+              </div>
+              <p className="mt-6 text-xs text-muted">全市场扫描 + 多层过滤 + 新闻检索 + AI 综合分析，预计 30-90 秒</p>
             </div>
-            <p className="mt-8 text-base text-primary font-semibold">两阶段分析进行中</p>
-            <div className="mt-4 flex gap-8 text-sm text-muted">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-cyan animate-pulse" />
-                <span>量化筛选</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-purple/50" />
-                <span>AI 精选</span>
-              </div>
-            </div>
-            <p className="mt-6 text-xs text-muted">全市场扫描 + 多层过滤 + 新闻检索 + AI 综合分析，预计 30-90 秒</p>
+            <PickerTableSkeleton />
           </div>
         )}
 
