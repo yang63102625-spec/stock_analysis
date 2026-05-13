@@ -1,289 +1,157 @@
 ---
-description: Code quality rules derived from global code review findings (P0/P1/P2 issues)
+description: 全局代码质量硬规则。详细实现模式见 project-patterns.mdc
 globs: src/**/*.py, api/**/*.py, data_provider/**/*.py, bot/**/*.py, tests/**/*.py, *.py
 alwaysApply: true
 ---
 
 # Code Quality Rules
 
-These rules are derived from a comprehensive code review that identified critical quality issues.
-All developers (human and AI) MUST follow these rules to prevent recurring problems.
+源自全局 code review 的硬性约束。**违反任何一条都需要重新设计**。
+具体怎么实现见 [project-patterns.mdc](mdc:.cursor/rules/project-patterns.mdc)。
 
 ---
 
-## 1. Module Structure Rules
+## 1. 模块结构
 
-### File Size Limits
-- A single Python file MUST NOT exceed **800 lines** (including comments and blank lines). If it does, split into sub-modules.
-- A single class MUST NOT exceed **500 lines**. Extract helper classes, mixins, or utility modules when approaching this limit.
-- A single function/method MUST NOT exceed **80 lines**. Break long functions into smaller, well-named private methods.
+### 文件 / 类 / 函数 行数上限
+- 单 Python 文件 MUST NOT exceed **800 行**。超过则按 mixin 模式拆（见 project-patterns §5）。
+- 单类 MUST NOT exceed **500 行**。
+- 单函数 / 方法 MUST NOT exceed **80 行**。
 
-### Single Responsibility
-- Each module MUST have a clear, single responsibility stated in its module-level docstring.
-- If a module name requires "and" to describe its purpose, it MUST be split.
-- Analyzer modules (`analyzer.py`, `stock_analyzer.py`, `market_analyzer.py`, `enhanced_market_analyzer.py`) MUST have non-overlapping responsibilities — do NOT add logic that duplicates another analyzer.
+### 单一职责
+- 每个模块 module-level docstring 必须给出一句话职责。
+- 模块名需要 "and" 才能描述 → 必须拆。
+- Analyzer 模块（`analyzer.py` / `stock_analyzer.py` / `market_analyzer.py` / `enhanced_market_analyzer.py`）职责互不重叠。
 
-### Entry Points
-- The project MUST have at most **3 entry point files**: one for CLI, one for API server, one for dev tools.
-- Entry point files should be thin wrappers (< 50 lines) that import and invoke the actual logic.
+### 入口文件
+- 项目最多 **3 个入口文件**（CLI / API server / dev tools），每个 < 50 行，仅做 import + invoke。
+- 程序化分析 API 不算入口，住在 `src/services/programmatic.py`。
 
-### Test File Location
-- ALL test files (`test_*.py`) MUST reside under `tests/` directory. NEVER place test files in the project root.
+### 测试位置
+- 所有 `test_*.py` 必须在 `tests/` 下，禁止放项目根。
 
-### Configuration Splitting
-- If a configuration class/module exceeds **200 lines**, it MUST be split into sub-configuration modules (e.g., `config/data_source.py`, `config/notification.py`, `config/picker.py`).
-
----
-
-## 1b. Single Source of Truth (No Shims, No Legacy Paths)
-
-This project keeps **only the latest version** of every module. Multi-version coexistence (old path + new path) is forbidden.
-
-- **No backward-compatibility shims.** When a module is renamed, moved, or split, you MUST update every caller to import from the new canonical path in the same change. Do NOT leave a stub file at the old location that re-exports from the new one.
-- **No "legacy" duplicate modules.** A given public symbol (class, function, constant) MUST live at exactly one canonical import path. If you need to introduce a redesigned replacement, delete the old implementation and update all call sites in the same commit.
-- **No re-export shims `__init__.py` for the sole purpose of preserving an old import path.** Package `__init__.py` files SHOULD only re-export symbols that are part of the package's intended public surface — not to keep historical paths alive.
-- **When refactoring**:
-  1. Move/rename the implementation to its new canonical location.
-  2. `rg` for every old import path and rewrite each call site (production code, tests, scripts, CI workflows, docs) in the same change.
-  3. Delete the old file (`git rm`).
-  4. Run the full test suite to verify nothing references the deleted path.
-- **Exception**: external public API contracts (REST endpoints, CLI flags, environment variables, database schemas) follow standard deprecation rules — not in scope here. This rule is specifically about Python import paths inside the repo.
+### 配置拆分
+- 配置类 / 模块 > 200 行 → 按域拆（`config/data_source.py`, `config/notification.py`, ...）。
 
 ---
 
-## 2. DRY Principle (Don't Repeat Yourself)
+## 1b. Single Source of Truth
 
-### General
-- If the same logic appears in **2 or more places**, it MUST be extracted into a shared function, method, mixin, or base class.
-- Copy-pasting code blocks across files is strictly prohibited.
+只保留每个模块的最新版本，禁止多版本共存。
 
-### Data Provider Anti-Crawl Strategies
-- Rate limiting, User-Agent rotation, and retry logic in `data_provider/` MUST be implemented in `BaseFetcher` or a shared mixin.
-- Individual fetchers MUST NOT implement their own rate_limit/user_agent/retry logic — they should inherit or compose the shared implementation.
-
-### Formatters
-- Formatting logic MUST be centralized in a single module. Platform-specific differences (e.g., WeChat, Feishu) should be handled via parameters or strategy pattern, NOT via separate formatter files with duplicated logic.
+- **禁止保留兼容 shim**。模块改名 / 移动 / 拆分时，必须在同一改动里更新所有调用方，删除旧文件。不要留 re-export stub。
+- **禁止 legacy 重复模块**。同一公开符号 MUST 只有一个 canonical 导入路径。
+- **禁止仅为保旧路径而存在的 `__init__.py` re-export**。`__init__.py` 只暴露包的公共 surface。
+- **重构步骤**：移动 → `rg` 全仓更新所有调用 → `git rm` 旧文件 → 跑全量测试。
+- **例外**：对外公共 API（REST endpoint / CLI flag / 环境变量 / DB schema）走标准 deprecation，不在此列。
 
 ---
 
-## 3. Exception Handling Rules
+## 2. DRY
 
-### Unified Exception Taxonomy
-- The project MUST use a standardized exception hierarchy with these categories:
-  - `RateLimitError` — API rate limit exceeded
-  - `NetworkError` — Connection timeout, DNS failure, etc.
-  - `DataSourceUnavailableError` — Data source is down or returns invalid data
-  - `ValidationError` — Input or data validation failure
-  - `UnknownError` — Unexpected errors (last resort)
-
-### API Response Format
-- ALL API endpoints MUST return a unified response format:
-  ```json
-  {"code": 0, "message": "success", "data": {...}, "timestamp": "2025-01-01T00:00:00Z"}
-  ```
-- Error responses MUST follow the same structure with appropriate error codes and messages.
-
-### Bare Except Prohibition
-- **NEVER** use bare `except:` or `except Exception:` without re-raising or logging.
-- Always catch **specific** exception types. Use `except Exception as e:` only at the outermost layer (e.g., main entry point) to prevent crashes, and MUST log the full traceback.
-
-### Network Call Requirements
-- ALL network calls (HTTP requests, API calls) MUST set an explicit `timeout` parameter.
-- ALL external API calls MUST have retry logic with exponential backoff.
-- ALL critical external API calls MUST have circuit breaker protection (fail-fast after consecutive failures).
+- 同一逻辑出现 ≥ 2 次必须抽公共函数 / mixin / 基类。
+- 数据源反爬策略（rate limit / UA 轮换 / retry）必须实现在 `BaseFetcher` 或共享 mixin，单个 fetcher 不得自己写一份。
+- Formatter 逻辑集中在单一模块，平台差异（WeChat / Feishu）通过参数或策略模式处理，不允许复制 formatter 文件。
 
 ---
 
-## 4. Resource Management Rules
+## 3. 异常处理
 
-### Thread Pool
-- `ThreadPoolExecutor` MUST be reused at the **class level or module level**. NEVER create a new executor instance per function call.
-- Example of correct usage:
-  ```python
-  class MyService:
-      _executor = ThreadPoolExecutor(max_workers=4)  # class-level, reused
-  ```
+### 异常分类
+项目使用统一异常层级：
+- `RateLimitError` — API 限流
+- `NetworkError` — 连接 / 超时 / DNS
+- `DataSourceUnavailableError` — 数据源不可用或返回非法数据
+- `ValidationError` — 输入或数据校验失败
+- `UnknownError` — 兜底
 
-### Database Connections
-- Database connections MUST use connection pooling. NEVER open a new connection per query.
+### API 响应格式
+所有 endpoint 返回统一信封 `{"code": 0, "message": "success", "data": {...}, "timestamp": "..."}`。具体怎么写见 project-patterns §1。
 
-### Resource Lifecycle
-- ALL external resources (files, network connections, thread pools, database connections) MUST have explicit lifecycle management using context managers (`with` statement) or explicit `close()`/`shutdown()` calls.
-- Thread pools MUST be shut down gracefully on application exit.
+### 禁裸 except
+- **禁止** 裸 `except:` 或 `except Exception:` 不 re-raise / 不 log。
+- 总是捕获 **specific** 异常类型。`except Exception as e:` 仅在最外层（main entry）使用，且必须 log full traceback。
 
----
-
-## 5. Caching Rules
-
-### Centralized Cache Management
-- Cache MUST be managed through a unified interface (e.g., `CachingManager`). Individual modules MUST NOT implement their own module-level global cache dicts.
-- NEVER write patterns like `_cache = {}` at module level in fetcher files.
-
-### TTL Strategy
-- Every cached entry MUST have an explicit TTL (Time-To-Live).
-- Financial real-time data MUST use dynamic TTL: short TTL during trading hours, longer TTL after market close.
-
-### Cache Observability
-- Cache keys MUST be traceable and support hit/miss statistics for debugging and monitoring.
+### 网络调用
+- 所有 HTTP / 外部 API 调用 MUST 设置显式 `timeout=` 参数。
+- 所有外部 API 调用 MUST 有指数退避 retry。
+- 关键外部 API 必须有 circuit breaker 保护（连续失败 fail-fast）。
 
 ---
 
-## 6. Thread Safety Rules
+## 4. 资源管理
 
-### Singleton Pattern
-- Singleton implementations MUST use **Double-Check Locking** with `threading.Lock`:
-  ```python
-  class Singleton:
-      _instance = None
-      _lock = threading.Lock()
-      
-      @classmethod
-      def get_instance(cls):
-          if cls._instance is None:
-              with cls._lock:
-                  if cls._instance is None:
-                      cls._instance = cls()
-          return cls._instance
-  ```
-
-### Global Mutable State
-- ALL global mutable state (module-level dicts, lists, sets) MUST be protected with `threading.Lock` if accessed from multiple threads.
-- Prefer `threading.Lock` or `threading.RLock` — do NOT rely on the GIL for thread safety.
-
-### Shared Collections
-- Any `dict` or `list` shared across threads MUST be accessed within a lock context.
+- `ThreadPoolExecutor` 必须 module-level 或 class-level 复用，**绝不**在函数内新建。具体见 project-patterns §3。
+- 数据库连接必须用连接池，不允许每次查询新建连接。
+- 所有外部资源（文件 / 网络 / 线程池 / DB）必须用 `with` 或显式 `close()` / `shutdown()` 管理生命周期。
 
 ---
 
-## 7. Data Validation Rules
+## 5. 缓存
 
-### DataFrame Validation
-- Every `DataFrame` returned from an external data source MUST be validated:
-  1. **Non-empty check**: `df is not None and not df.empty`
-  2. **Required columns exist**: verify expected column names are present
-  3. **Data type correctness**: ensure numeric columns are numeric, date columns are dates
-- Create a shared validation utility (e.g., `validate_dataframe(df, required_columns, dtype_map)`)
-
-### API Parameter Validation
-- ALL API request parameters MUST be validated using **Pydantic models**. NEVER use raw `dict` for request body parsing.
-
-### Financial Data Integrity
-- Financial data MUST be checked for anomalies:
-  - Negative prices → reject or flag
-  - Negative volumes → reject or flag
-  - Price = 0 when market is open → flag as suspicious
-  - Percentage changes > ±20% for A-shares → flag for review (considering limit-up/limit-down rules)
+- 缓存必须经统一接口（`CachingManager`）管理，禁止模块级 `_cache = {}`。
+- 每个缓存项 MUST 有显式 TTL。
+- 实时金融数据 TTL 必须动态：交易时段短（5-30s），盘后长（5-60min）。
 
 ---
 
-## 8. Type Annotation Rules
+## 6. 线程安全
 
-### No Untyped Cross-Module Parameters
-- **NEVER** use `Dict[str, Any]` as a parameter type for cross-module function calls. Use `TypedDict`, `dataclass`, or Pydantic `BaseModel` instead.
-- Within a single function's internal logic, `Dict[str, Any]` is acceptable for intermediate processing.
-
-### Public Method Annotations
-- ALL public methods (no leading underscore) MUST have complete type annotations for both parameters and return values.
-- Private methods SHOULD have type annotations; they are strongly recommended but not strictly required.
-
-### Optional Return Documentation
-- When a function returns `Optional[T]`, the docstring MUST explain under what conditions `None` is returned.
-
----
-
-## 9. Data Source Rules (Project-Specific)
-
-### Priority
-- **Tushare** is the highest-priority data source for all real-time and historical data. See `data-source-priority.mdc` for details.
-
-### Fetcher Architecture
-- ALL data fetchers MUST inherit from `BaseFetcher` and implement the standard interface.
-- Fetchers MUST NOT have standalone rate-limiting or retry logic — use the shared base class mechanisms.
-
-### Real-Time Data Caching
-- Real-time market data MUST use dynamic cache TTL:
-  - During trading hours (9:30-11:30, 13:00-15:00 CST): short TTL (e.g., 5-30 seconds)
-  - Outside trading hours: longer TTL (e.g., 5-60 minutes)
-
----
-
-## 10. Async Code Rules
-
-### I/O-Bound Operations
-- For I/O-bound operations (HTTP requests, file I/O, database queries), prefer `asyncio` + `aiohttp`/`aiofiles` over `ThreadPoolExecutor` when the surrounding code is already async.
-- Do NOT mix `asyncio.run()` calls within an already-running event loop.
-
-### Thread Pool Fallback
-- Use `ThreadPoolExecutor` only when calling synchronous third-party libraries that cannot be awaited, and run them via `loop.run_in_executor()`.
-
----
-
-## Violation Examples (What NOT to Do)
+### 单例
+单例必须用 double-check locking + `threading.Lock`：
 
 ```python
-# BAD: Bare except
-try:
-    data = fetch_data()
-except:
-    pass
+class Singleton:
+    _instance = None
+    _lock = threading.Lock()
 
-# BAD: New executor per call
-def process():
-    with ThreadPoolExecutor() as pool:  # Creates new pool every call!
-        pool.submit(task)
-
-# BAD: Module-level cache without TTL
-_cache = {}  # No TTL, no eviction, grows forever
-
-# BAD: Dict[str, Any] crossing module boundaries
-def analyze_stock(params: Dict[str, Any]) -> Dict[str, Any]:
-    ...
-
-# BAD: No timeout on network call
-response = requests.get(url)  # Missing timeout!
-
-# BAD: Duplicated retry logic in fetcher
-class MyFetcher:
-    def fetch(self):
-        for i in range(3):  # Should use BaseFetcher retry
-            try: ...
-            except: ...
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
 ```
 
-## Correct Examples (What TO Do)
+### 全局可变状态
+- 所有跨线程访问的模块级 dict / list / set 必须用 `threading.Lock` 或 `RLock` 保护。
+- 不要依赖 GIL 保证线程安全。
 
-```python
-# GOOD: Specific exception + logging
-try:
-    data = fetch_data()
-except requests.Timeout as e:
-    logger.warning(f"Timeout fetching data: {e}")
-    return None
-except requests.RequestException as e:
-    logger.error(f"Network error: {e}", exc_info=True)
-    raise DataSourceUnavailableError(str(e)) from e
+---
 
-# GOOD: Class-level executor reuse
-class DataService:
-    _executor = ThreadPoolExecutor(max_workers=4)
+## 7. 数据校验
 
-# GOOD: Typed cross-module parameter
-@dataclass
-class StockFilter:
-    min_price: float
-    max_pe: Optional[float] = None
-    sectors: List[str] = field(default_factory=list)
+### DataFrame
+所有外部数据源返回的 DataFrame 必须经过校验：非空 + 必需列 + dtype。OHLCV 用 `validate_ohlcv_dataframe`，其余用 `validate_dataframe`，见 project-patterns §4。
 
-# GOOD: Network call with timeout
-response = requests.get(url, timeout=10)
+### API 入参
+所有 API 请求参数必须用 **Pydantic model** 校验，禁止用裸 `dict` 解析 request body。
 
-# GOOD: DataFrame validation
-def validate_stock_data(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        raise ValidationError("Empty DataFrame")
-    required = ["ts_code", "close", "vol"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValidationError(f"Missing columns: {missing}")
-    return df
-```
+### 金融数据完整性
+- 负价格 / 负成交量 → 拒绝或 flag。
+- 开盘期间 price = 0 → flag 为可疑。
+- A 股日涨跌幅 > ±20% → flag review。
+
+---
+
+## 8. 类型注解
+
+- 跨模块函数参数 **禁止** 用 `Dict[str, Any]`。用 `TypedDict` / `dataclass` / Pydantic `BaseModel`。函数内部中间处理可以用 `Dict[str, Any]`。
+- 所有公开方法（无前置下划线）必须有完整 parameter + return 类型注解。
+- 私有方法强烈推荐有类型注解。
+- `Optional[T]` 返回值的 docstring 必须说明何时返回 `None`。
+
+---
+
+## 9. 数据源
+
+详见 [data-source-priority.mdc](mdc:.cursor/rules/data-source-priority.mdc)。要点：Tushare 最高优先级；所有 fetcher 继承 `BaseFetcher`，不得自己实现 rate limit / retry；实时数据动态 TTL。
+
+---
+
+## 10. 异步代码
+
+- I/O bound 操作优先 `asyncio` + `aiohttp` / `aiofiles`，不要在 async 上下文中开 `ThreadPoolExecutor`。
+- 不要在已运行的 event loop 中调用 `asyncio.run()`。
+- `ThreadPoolExecutor` 仅用于无法 await 的同步第三方库，通过 `loop.run_in_executor()` 调用。

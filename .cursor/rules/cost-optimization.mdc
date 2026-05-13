@@ -30,3 +30,8 @@ alwaysApply: true
 ## 5. 思考过程 (Thinking Process)
 - 保持内部思考过程（如果可见）简短且切中要害。
 - 明确目标 -> 确定最小修改范围 -> 执行工具调用。
+
+## 6. 优先模式速查表 (Pattern Lookup First)
+- 修改本仓代码前，先查 [project-patterns.mdc](mdc:.cursor/rules/project-patterns.mdc) 是否已有现成模式（API 信封 / 并发原语 / DataFrame 校验 / mixin 拆分 / 前端拦截器 / 页面拆分 / 测试断言）。
+- **直接复用现有基础设施**（`_concurrency.py` / `EnvelopeRoute` / `validate_ohlcv_dataframe` 等），不要重新设计或绕开。
+- 这能显著减少探索 codebase 的轮数和 PR 反复修改成本。

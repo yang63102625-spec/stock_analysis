@@ -1,0 +1,157 @@
+---
+description: 本仓库已落地的实现模式速查（API 信封、并发原语、DataFrame 校验、mixin 拆分、前端拦截器等）
+globs: src/**/*.py, api/**/*.py, data_provider/**/*.py, apps/dsa-web/src/**/*.ts, apps/dsa-web/src/**/*.tsx, tests/**/*.py
+alwaysApply: false
+---
+
+# 本仓库实现模式速查
+
+写新代码或修改现有逻辑前，请先在此文件查找对应模式，**直接复用现有基础设施**，不要重新设计。
+
+---
+
+## 1. API 响应信封（后端）
+
+所有 endpoint 必须返回 `APIResponse` 信封。框架已提供自动包装：
+
+```python
+from api.v1.envelope_route import EnvelopeRoute
+from api.v1.schemas.envelope import APIResponse, ApiErrorCode, error_response
+
+router = APIRouter(route_class=EnvelopeRoute)
+
+@router.get("/foo", response_model=APIResponse[FooSchema])
+def get_foo() -> FooSchema:
+    return FooSchema(...)  # 直接返回业务对象，EnvelopeRoute 会包装
+
+@router.post("/bar", response_model=APIResponse[BarSchema])
+def post_bar() -> JSONResponse:
+    if conflict:
+        return error_response(ApiErrorCode.CONFLICT, "stale version", status_code=409)
+    return BarSchema(...)
+```
+
+- 不要手写 `JSONResponse(content={"ok": True, ...})` 或 `{"error": ...}` 格式。
+- 错误码统一从 `ApiErrorCode` 取值。
+- 关键文件：[api/v1/envelope_route.py](api/v1/envelope_route.py) / [api/v1/schemas/envelope.py](api/v1/schemas/envelope.py) / [api/middlewares/error_handler.py](api/middlewares/error_handler.py)。
+
+---
+
+## 2. 前端 API 调用
+
+Axios 已配置 response interceptor，**自动拆开 2xx 信封**，业务代码直接拿 `data`：
+
+```ts
+const stocks = await apiClient.get<Stock[]>('/api/v1/stocks');  // stocks 已是数组，不是 {code, data, ...}
+```
+
+错误处理统一走 `parseAxiosError`，不要在每个组件里重复解析 `error.response.data`：
+
+```ts
+import { parseAxiosError } from '@/api/error';
+
+try { ... } catch (e) {
+  const { code, message } = parseAxiosError(e);
+}
+```
+
+关键文件：[apps/dsa-web/src/api/index.ts](apps/dsa-web/src/api/index.ts) / [apps/dsa-web/src/api/error.ts](apps/dsa-web/src/api/error.ts)。
+
+---
+
+## 3. 并发原语（线程池 / 超时）
+
+**禁止**在函数内 `with ThreadPoolExecutor(...)` 或 `ThreadPoolExecutor(max_workers=1)` 包超时。统一用 `src/_concurrency.py` 提供的两个工具：
+
+```python
+from src._concurrency import run_with_timeout, get_executor, FuturesTimeout
+
+# 给同步第三方调用加超时
+try:
+    df = run_with_timeout(lambda: ts_pro.daily(ts_code=code), timeout=10, label="tushare_daily")
+except FuturesTimeout:
+    raise DataSourceUnavailableError("tushare timeout")
+
+# 需要并发任务时，复用命名共享池（同 (max_workers, prefix) 全局只有一个）
+executor = get_executor(max_workers=10, thread_name_prefix="screener_fetch")
+futures = [executor.submit(fn, code) for code in codes]
+```
+
+关键文件：[src/_concurrency.py](src/_concurrency.py)。
+
+---
+
+## 4. DataFrame 校验
+
+所有从外部数据源（akshare / tushare / efinance / yfinance / pytdx / baostock）返回的 OHLCV DataFrame，**在截列前**必须经过校验：
+
+```python
+from data_provider.validators import validate_ohlcv_dataframe
+
+df = validate_ohlcv_dataframe(df, source="tushare", code=code)
+keep_cols = ['code'] + STANDARD_COLUMNS
+df = df[keep_cols]
+```
+
+非 OHLCV 数据用通用版本：
+
+```python
+from data_provider.validators import validate_dataframe
+df = validate_dataframe(df, required_columns=["ts_code", "trade_date"], dtype_map={"close": float})
+```
+
+关键文件：[data_provider/validators.py](data_provider/validators.py)。
+
+---
+
+## 5. 大类拆分模式
+
+类 ≥ 500 行或单文件 ≥ 800 行时，按以下命名约定拆：
+
+- 行为拆分 → mixin 文件：`_xxx_mixin.py`（前置下划线 = 私有），class 名 `_XxxMixin`，由主类多继承组合。
+- 数据类型 → `_xxx_types.py`（dataclass / TypedDict / Enum）。
+- 模板 / prompt 构造 → `_xxx_builder.py` 暴露纯函数。
+
+模板示例：[src/services/backtest_service.py](src/services/backtest_service.py) 通过继承 [src/services/_backtest_score_mixin.py](src/services/_backtest_score_mixin.py) 减重；[src/_market_prompt_builder.py](src/_market_prompt_builder.py) / [src/_enhanced_market_types.py](src/_enhanced_market_types.py) 同此模式。
+
+不要为"保留旧路径"留 shim 文件（违反 single source of truth，见 `code-quality.mdc` §1b）。
+
+---
+
+## 6. 测试 envelope 断言
+
+API 测试统一断言信封字段，禁止旧形式：
+
+```python
+# GOOD
+body = response.json()
+assert body["code"] == 0
+data = body["data"]
+assert data["foo"] == "bar"
+
+# BAD
+assert response.json()["ok"] is True   # 旧字段，已废弃
+assert "error" in response.json()      # 旧错误格式
+```
+
+错误响应同结构：`code != 0` 时读 `body["message"]` 和 `body["data"]`（结构化错误数据如冲突详情）。
+
+参考：[tests/test_auth_api.py](tests/test_auth_api.py) / [tests/test_system_config_api.py](tests/test_system_config_api.py)。
+
+---
+
+## 7. 前端页面拆分
+
+单页 `.tsx` > 400 行时，从扁平文件升级为目录结构：
+
+```
+pages/
+  HomePage.tsx          → 入口（<150 行，只组装 hooks 和子组件）
+  home/
+    hooks/              → useXxx 自定义 hook（封装数据/状态）
+    components/         → 该页专属子组件
+```
+
+页面级 store（如 zustand）超过 300 行同样拆 slice。
+
+模板：[apps/dsa-web/src/pages/HomePage.tsx](apps/dsa-web/src/pages/HomePage.tsx) + [apps/dsa-web/src/pages/home/](apps/dsa-web/src/pages/home/)。
