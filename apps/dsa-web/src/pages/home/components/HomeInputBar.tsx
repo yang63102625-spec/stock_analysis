@@ -34,8 +34,8 @@ export const HomeInputBar: React.FC<HomeInputBarProps> = ({
   };
 
   return (
-    <div className="mb-4 flex-shrink-0">
-      <div className="flex items-center gap-3">
+    <div className="mb-5 flex-shrink-0">
+      <div className="flex items-center gap-3 p-3 rounded-xl bg-white/60 backdrop-blur-sm border border-white/80 shadow-[0_2px_12px_rgba(0,0,0,0.04)] dark:bg-slate-800/60 dark:border-slate-700/50">
         <button
           onClick={onOpenSidebar}
           className="md:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-secondary hover:text-primary flex-shrink-0 border border-border"
@@ -51,9 +51,9 @@ export const HomeInputBar: React.FC<HomeInputBarProps> = ({
             value={stockCode}
             onChange={(e) => onStockCodeChange(e.target.value.toUpperCase())}
             onKeyDown={handleKeyDown}
-            placeholder="输入股票代码，如 600519、00700、AAPL"
+            placeholder="输入股票代码获取 AI 智能分析，如 600519、00700、AAPL"
             disabled={isAnalyzing}
-            className={`input-terminal w-full ${inputError ? 'border-danger/50' : ''}`}
+            className={`input-terminal w-full shadow-[inset_0_2px_4px_rgba(0,0,0,0.03)] ${inputError ? 'border-danger/50' : ''}`}
           />
           {inputError && (
             <p className="absolute -bottom-5 left-0 text-xs text-danger">{inputError}</p>
@@ -66,7 +66,7 @@ export const HomeInputBar: React.FC<HomeInputBarProps> = ({
           type="button"
           onClick={onAnalyze}
           disabled={!stockCode || isAnalyzing}
-          className="h-[42px] px-5 rounded-lg bg-gradient-to-r from-cyan to-cyan-dim text-white font-semibold text-[13px] hover:shadow-lg transition-all whitespace-nowrap flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+          className="h-[44px] px-6 rounded-lg bg-gradient-to-r from-cyan to-cyan-dim text-white font-semibold text-[13px] shadow-md shadow-cyan/20 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-cyan/30 transition-all duration-200 whitespace-nowrap flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
         >
           {isAnalyzing ? (
             <>

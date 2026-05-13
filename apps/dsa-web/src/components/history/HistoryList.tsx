@@ -5,6 +5,17 @@ import { getSentimentColor } from '../../types/analysis';
 import { formatDateTime } from '../../utils/format';
 import { Spinner } from '../common';
 
+/** Returns Tailwind classes for score badge based on score range */
+function getScoreBadgeClasses(score: number): string {
+  if (score >= 70) {
+    return 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
+  }
+  if (score >= 50) {
+    return 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400';
+  }
+  return 'bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400';
+}
+
 interface HistoryListProps {
   items: HistoryItem[];
   isLoading: boolean;
@@ -70,7 +81,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   return (
     <aside className={`glass-card overflow-hidden flex flex-col ${className}`}>
       <div ref={scrollContainerRef} className="p-3 flex-1 overflow-y-auto">
-        <h2 className="text-xs font-medium text-purple uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <h2 className="text-[11px] font-medium text-muted/80 uppercase tracking-wider mb-3 flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -92,7 +103,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => onItemClick(item.id)}
-                className={`history-item w-full text-left ${selectedId === item.id ? 'active' : ''
+                className={`history-item w-full text-left border-b border-gray-100/50 dark:border-gray-800/50 last:border-b-0 ${selectedId === item.id ? 'active' : ''
                   }`}
               >
                 <div className="flex items-center gap-2 w-full">
@@ -102,7 +113,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                       className="w-0.5 h-8 rounded-full flex-shrink-0"
                       style={{
                         backgroundColor: getSentimentColor(item.sentimentScore),
-                        boxShadow: `0 0 6px ${getSentimentColor(item.sentimentScore)}40`
+                        boxShadow: `0 0 6px ${getSentimentColor(item.sentimentScore)}${selectedId === item.id ? '60' : '40'}`
                       }}
                     />
                   )}
@@ -113,11 +124,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                       </span>
                       {item.sentimentScore !== undefined && (
                         <span
-                          className="text-xs font-mono font-semibold px-1 py-0.5 rounded"
-                          style={{
-                            color: getSentimentColor(item.sentimentScore),
-                            backgroundColor: `${getSentimentColor(item.sentimentScore)}15`
-                          }}
+                          className={`px-1.5 py-0.5 rounded-md text-xs font-bold ${getScoreBadgeClasses(item.sentimentScore)}`}
                         >
                           {item.sentimentScore}
                         </span>

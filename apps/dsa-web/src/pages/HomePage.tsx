@@ -56,24 +56,17 @@ const HomePage: React.FC = () => {
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-6 py-6 flex flex-col min-h-screen">
         <div className="text-center mb-6 flex-shrink-0">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan/15 to-blue-500/10 mb-3 shadow-sm">
-            <svg className="w-7 h-7 text-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-              />
+          <div className="inline-flex w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 items-center justify-center mb-3 shadow-lg shadow-blue-500/20">
+            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-primary mb-1.5 tracking-tight">个股分析</h1>
-          <p className="text-sm text-secondary max-w-md mx-auto">
-            输入股票代码获取 AI 智能分析报告，支持 A股、港股、美股
-          </p>
+          <h1 className="text-2xl font-bold text-primary mb-1">个股分析</h1>
+          <p className="text-sm text-secondary">输入股票代码获取 AI 智能分析报告，支持沪深港美多市场</p>
         </div>
 
         <div className="flex-1 flex gap-6 min-h-0">
-          <div className="hidden md:flex w-64 flex-shrink-0 flex-col gap-3 overflow-hidden">
+          <div className="hidden md:flex w-64 flex-shrink-0 flex-col gap-3 overflow-hidden p-3 rounded-xl bg-white/40 backdrop-blur-sm border border-white/60 dark:bg-slate-900/40 dark:border-slate-700/30">
             {sidebarContent}
           </div>
 
@@ -99,7 +92,7 @@ const HomePage: React.FC = () => {
             </div>
           )}
 
-          <section className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <section className="flex-1 flex flex-col overflow-hidden min-w-0 p-4 rounded-xl bg-white/50 backdrop-blur-sm border border-white/60 shadow-[0_1px_8px_rgba(0,0,0,0.03)] dark:bg-slate-900/30 dark:border-slate-700/30">
             <HomeInputBar
               stockCode={input.stockCode}
               onStockCodeChange={input.setStockCode}

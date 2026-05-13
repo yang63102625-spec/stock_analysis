@@ -55,7 +55,7 @@ export const ReportDetails: React.FC<ReportDetailsProps> = ({
     <Card variant="bordered" padding="md" className="text-left">
       <div className="mb-3 flex items-baseline gap-2">
         <span className="label-uppercase">TRANSPARENCY</span>
-        <h3 className="text-base font-semibold text-primary mt-0.5">数据追溯</h3>
+        <h3 className="text-sm font-semibold text-primary">数据追溯</h3>
       </div>
 
       {/* Record ID */}

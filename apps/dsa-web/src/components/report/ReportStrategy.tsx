@@ -17,20 +17,29 @@ const StrategyItem: React.FC<StrategyItemProps> = ({
   value,
   color,
 }) => (
-  <div className="relative overflow-hidden rounded-lg bg-elevated border border-border p-3 hover:border-border-accent transition-colors">
+  <div className="group relative overflow-hidden rounded-lg bg-elevated border border-border p-3 hover:border-border-accent transition-all">
     <div className="flex flex-col">
-      <span className="text-xs text-muted mb-0.5">{label}</span>
+      <span className="text-[11px] text-muted mb-0.5">{label}</span>
       <span
-        className="text-lg font-bold font-mono"
+        className="text-base font-bold font-mono"
         style={{ color: value ? color : 'var(--text-muted)' }}
       >
         {value || '—'}
       </span>
     </div>
-    {/* 底部指示条 */}
+    {/* Bottom indicator bar with hover glow */}
     <div
-      className="absolute bottom-0 left-0 right-0 h-0.5"
-      style={{ background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)` }}
+      className="absolute bottom-0 left-0 right-0 h-[3px] transition-shadow"
+      style={{
+        background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)`,
+      }}
+    />
+    {/* Hover glow overlay */}
+    <div
+      className="absolute bottom-0 left-0 right-0 h-[3px] opacity-0 group-hover:opacity-100 transition-opacity"
+      style={{
+        boxShadow: `0 -4px 12px ${color}40`,
+      }}
     />
   </div>
 );
@@ -70,9 +79,9 @@ export const ReportStrategy: React.FC<ReportStrategyProps> = ({ strategy }) => {
     <Card variant="bordered" padding="md">
       <div className="mb-3 flex items-baseline gap-2">
         <span className="label-uppercase">STRATEGY POINTS</span>
-        <h3 className="text-base font-semibold text-primary">狙击点位</h3>
+        <h3 className="text-sm font-semibold text-primary">狙击点位</h3>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {strategyItems.map((item) => (
           <StrategyItem key={item.label} {...item} />
         ))}

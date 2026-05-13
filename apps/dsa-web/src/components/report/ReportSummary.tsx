@@ -31,7 +31,7 @@ export const ReportSummary: React.FC<ReportSummaryProps> = ({
   );
 
   return (
-    <div className="space-y-3 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
       {/* 概览区（首屏） */}
       <ReportOverview
         meta={meta}

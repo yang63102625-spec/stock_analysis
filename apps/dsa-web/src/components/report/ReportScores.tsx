@@ -102,7 +102,7 @@ export const ReportScores: React.FC<ReportScoresProps> = ({ summary }) => {
     <Card variant="bordered" padding="md">
       <div className="mb-3 flex flex-wrap items-baseline gap-2">
         <span className="label-uppercase">QUANT SIGNALS</span>
-        <h3 className="text-base font-semibold text-primary">系统量化评分</h3>
+        <h3 className="text-sm font-semibold text-primary">系统量化评分</h3>
         {signalScore != null && (
           <span className="ml-auto font-mono text-xl font-bold text-primary">
             {signalScore}<span className="text-xs text-muted">/100</span>
