@@ -9,219 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fix: clear all pre-existing test failures (T4.5)
+Code-quality refactor (Phase 1-7). Test suite: 685 passed, 0 failures. No
+``.py`` file exceeds the 800-line cap.
 
-Suite is now fully green: **685 passed, 0 failures**.
+### Frontend (Phase 5 + Phase 7)
 
-Two real bugs uncovered (both fallout from Phase 3's pipeline split):
+- T5.1 — Frontend CI (`2e43e26`): `.github/workflows/frontend-ci.yml`,
+  `test.sh frontend` subcommand, `typecheck`/`check` scripts.
+- T5.2 — `api/error.ts` aligned with backend `APIResponse` envelope
+  (`e2ce9a2`); semantic classification later refactored into a
+  table-driven pipeline (`abbfed2`, parseApiError 168 → 79 lines).
+- T5.3 — Split oversized pages (`e0f5055`: Backtest/Picker/Chat) +
+  `ec6c4fd` (HomePage 443 → 116 via `pages/home/{hooks,components}/`).
+  `agentChatStore` slice split intentionally not done — see plan.
+- T5.4 — `useSystemConfig` helpers extracted to submodule (`9889496`).
+  Three-hook split intentionally not done — see plan.
+- T5.5 — Desktop launcher: Electron 31 → 42, added Linux build targets
+  (`011ec05`).
+- T7.1 — Picker list/detail routes split into `/picker` + `/picker/history/:id`
+  (`d1ecac8`); `PickCard` / `ScreenedPoolTable` rows navigate to `/chat`
+  for stock follow-up; null-safety fix for legacy history rows (`8d12c12`).
+- T7.2 — Config registry trimmed 94 → 56 items (`21c9f28`); backend i18n
+  (`title_zh` / `description_zh`) + frontend advanced folding (`b07cd35`);
+  round-trip audit script (`b657f22`).
 
-- ``src/core/pipeline/_analysis_mixin.py``: missing
-  ``from src.search_service import SearchService`` import. The
-  ``_enhance_context`` path called ``SearchService.is_index_or_etf``
-  which raised ``NameError`` at runtime — caught by every test that
-  exercised the legacy (non-agent) analysis branch.
-- ``src/core/pipeline/_market_env_mixin.py``: ``date`` was used
-  (``date.today()``) but only ``datetime`` was imported. Triggered
-  ``NameError`` whenever
-  ``_augment_historical_with_realtime`` was called outside trading
-  hours.
+### Backend (Phase 1-4 + Phase 6)
 
-Test fixtures updated to match the post-Phase-1/3 module layout:
-
-- ``tests/test_agent_pipeline.py`` (5 cases): patched
-  ``src.config.load_dotenv`` (gone) and called
-  ``Config._load_from_env`` (renamed). Now patch
-  ``src.config.base.load_dotenv`` and call the canonical
-  ``src.config.loader.load_config_from_env``.
-- ``tests/test_pipeline_realtime_indicators.py`` (9 cases): same
-  ``Config._load_from_env`` migration.
-- ``tests/test_pipeline_notification_image_routing.py`` (5 cases):
-  ``SimpleNamespace`` config fixtures now declare
-  ``push_report_type`` / ``report_type`` (consumed by
-  ``get_effective_push_report_type``). The
-  ``logger.warning`` patch target migrated from
-  ``src.core.pipeline`` to ``src.core.pipeline._notify_mixin``
-  to match the post-T3.3 module structure.
-
-### Refactor: split the last two 800+ line modules (T4.4-followup)
-
-Closes the rule §1 overflow tracked in the T4.4 wrap-up below — no
-file in the repository now exceeds 800 lines.
-
-- ``src/enhanced_market_analyzer.py`` (825 → 712): the five
-  dataclasses + ``MarketSentiment`` enum that previously sat at the
-  top of the file moved to ``src/_enhanced_market_types.py`` (140
-  lines). ``EnhancedMarketAnalyzer`` re-imports them at module level
-  so existing
-  ``from src.enhanced_market_analyzer import EnhancedMarketReport``
-  call sites keep working.
-- ``src/services/backtest_service.py`` (815 → 635): the
-  score-effectiveness helpers (``analyze_score_effectiveness``,
-  ``_pearson_correlation``, ``_generate_score_conclusion``) moved
-  into ``src/services/_backtest_score_mixin.py`` as
-  ``_ScoreEffectivenessMixin``; ``BacktestService`` inherits from it
-  so the public surface is unchanged.
-- Concurrent fix: three lingering imports of the deleted
-  ``src.services.picker.quantitative_filter`` shim
-  (``picker/__init__.py``, ``picker/constants.py``,
-  ``picker/service.py``, ``picker/realtime_filter.py``) updated to
-  import ``StockScreener`` from ``src.services.picker.screener``
-  directly. The shim was removed in commit ``32de82a`` ("drop all
-  legacy backward-compatibility shims") but the call sites had not
-  yet been migrated.
-
-### Phase 4 wrap-up (T4.4)
-
-After T4.1–T4.3 the suite stands at 662 tests passing (4 added in
-T4.3, 11 added in T4.2, 13 migrated in T4.1). Two pre-existing
-failures remain and are explicitly out of scope:
-
-- ``tests/test_agent_pipeline.py::TestAgentConfig`` — depends on a
-  removed ``Config._load_from_env`` helper.
-- ``tests/test_agent_pipeline.py::TestPipelineRouting`` — depends
-  on an undefined ``SearchService`` symbol.
-
-**Known rule §1 overflows** (file-size limit 800 lines):
-
-- ``src/enhanced_market_analyzer.py`` — 825 lines.
-- ``src/services/backtest_service.py`` — 815 lines.
-
-Both predate Phase 3 and were not touched by Phase 4 changes; they
-will be split in a follow-up commit (same mixin / sub-module pattern
-used in Phase 3 — see T3.1–T3.4 entries below). Tracking in the
-plan as a deferred Phase-3 item rather than blocking the Phase-4
-deliverables.
-
-### Refactor: thread-safety + typed circuit-breaker state (T4.3)
-
-Implements rule §6 ("Thread Safety") for the two pieces of shared
-mutable state that are read/modified from worker threads.
-
-- ``data_provider/realtime_types.py``:
-  - The previous ``Dict[str, Dict[str, Any]]`` per-source state is
-    replaced by a typed ``_SourceState`` dataclass
-    (``state``, ``failures``, ``last_failure_time``, ``half_open_calls``).
-  - ``CircuitBreaker`` now wraps every read-modify-write sequence in
-    ``threading.Lock`` (``is_available`` / ``record_success`` /
-    ``record_failure`` / ``get_status`` / ``reset`` / ``_get_state``).
-    The breaker is consulted concurrently from realtime fetcher
-    threads and bot dispatchers, so the previous lock-free
-    implementation could lose ``failures += 1`` increments under
-    contention.
-- ``bot/dispatcher.py``:
-  - ``RateLimiter`` (sliding-window) now holds a ``threading.Lock``
-    around the prune-then-check-then-append window operation. Bot
-    platforms (DingTalk / Feishu / Discord) spawn a fresh worker
-    thread per incoming message, so the read-modify-write on
-    ``self._requests[user_id]`` was racy and could let users exceed
-    the configured cap.
-  - Pruning logic factored into ``_prune_locked`` to share between
-    ``is_allowed`` and ``get_remaining``.
-- ``tests/test_thread_safety.py`` (new, 4 cases): hammers the
-  breaker from 16 concurrent workers (no corruption / state stays
-  consistent) and asserts ``RateLimiter`` enforces the cap exactly
-  under contention (200 attempts / cap=50 → 50 granted).
-
-### Refactor: shared DataFrame validators wired into all OHLCV fetchers (T4.2)
-
-Implements rule §7 from ``code-quality.mdc`` ("Data Validation Rules").
-
-- ``data_provider/validators.py`` (new): canonical validator module.
-  - ``validate_ohlcv_dataframe(df, *, context, ...)`` — non-empty
-    check, required-column check, optional numeric coercion, plus
-    financial-integrity checks (negative price/volume rejected;
-    ``close == 0`` flagged as warning during a trading session;
-    ``|pct_chg| > 20%`` flagged as warning).
-  - ``validate_dataframe(df, *, required_columns, dtype_map)`` —
-    generic non-OHLCV variant for fundamentals / moneyflow frames.
-  - ``validate_required_columns`` and ``coerce_numeric_columns``
-    exposed as low-level helpers.
-- All six historical-data fetchers now call
-  ``validate_ohlcv_dataframe`` before truncating to ``STANDARD_COLUMNS``:
-  ``data_provider/yfinance_fetcher.py``,
-  ``data_provider/pytdx_fetcher.py``,
-  ``data_provider/baostock_fetcher.py``,
-  ``data_provider/efinance/historical.py``,
-  ``data_provider/akshare/historical.py``,
-  ``data_provider/tushare/historical.py``.
-- ``tests/test_dataframe_validators.py`` (new, 11 cases): covers empty
-  / missing-column / negative-value / zero-close / extreme-pct-chg
-  paths plus the dtype-coercion helper.
-
-### Refactor: unify all API responses into the ``APIResponse`` envelope (T4.1)
-
-Implements rule §3 ("API Response Format") from ``code-quality.mdc``: every
-``/api/*`` endpoint now returns the canonical
-``{code, message, data, timestamp}`` envelope, both on success and on error.
-
-**Backend**
-
-- ``api/v1/schemas/envelope.py`` (new): defines ``APIResponse[T]`` (Pydantic
-  generic), ``ApiErrorCode`` (``IntEnum`` taxonomy: 0 success, 1xxx client,
-  2xxx upstream, 9xxx server) and ``success_response`` / ``error_response``
-  helpers. Timestamp uses Beijing time (ISO-8601 with offset).
-- ``api/v1/envelope_route.py`` (new): ``EnvelopeRoute`` (``APIRoute``
-  subclass) wraps every handler return value into ``APIResponse(data=…)``
-  before FastAPI runs ``response_model`` validation. Handlers keep the
-  ergonomic ``return X`` style; pre-built ``Response`` /
-  ``StreamingResponse`` / ``EventSourceResponse`` instances pass through.
-- ``api/middlewares/error_handler.py``: rewritten to emit the envelope for
-  every exception path. Maps project exceptions
-  (``RateLimitError`` / ``NetworkError`` / ``DataSourceUnavailableError`` /
-  ``ValidationError`` / ``DataFetchError``) and ``HTTPException`` to a
-  fixed ``ApiErrorCode``. Legacy ``detail={"error": …, "message": …}``
-  shape is no longer special-cased — endpoints must use plain-string
-  ``detail`` (or raise project exceptions) and let the handler envelope.
-- ``api/middlewares/auth.py``: 401 unauthorized now returns the envelope
-  via ``error_response(ApiErrorCode.UNAUTHORIZED, …)``.
-- ``api/v1/endpoints/*.py`` (11 files): every ``router = APIRouter()``
-  swapped for ``APIRouter(route_class=EnvelopeRoute)``; all 28
-  ``response_model=X`` annotations updated to
-  ``response_model=APIResponse[X]`` (OpenAPI now reflects the wire
-  contract).
-- ``api/v1/endpoints/auth.py``: 11 ``JSONResponse(content={"error": …})``
-  calls migrated to ``error_response(ApiErrorCode.…, msg)``;
-  ``content={"ok": True}`` → ``success_response()``.
-- ``api/v1/endpoints/analysis.py``: 202 Accepted and 409 duplicate-task
-  paths now wrap their bodies via ``success_response`` /
-  ``error_response`` so the envelope is consistent across status codes.
-  The 409 ``data`` field carries the structured
-  ``{stock_code, existing_task_id}`` for the front-end.
-- 39 ``raise HTTPException(detail={"error": …, "message": …})`` call
-  sites across ``stocks.py`` / ``analysis.py`` / ``picker_backtest.py`` /
-  ``system_config.py`` / ``backtest.py`` / ``history.py`` reduced to
-  plain-string ``detail`` so the global handler can envelope them
-  uniformly.
-- ``api/app.py``: ``/api/health`` moved onto an ``EnvelopeRoute`` router
-  so it is enveloped like the v1 endpoints; SPA fallback for paths
-  starting with ``/api/`` now raises ``HTTPException(404)`` instead of
-  silently returning ``None`` (which previously surfaced as 200 ``null``).
-
-**Frontend (``apps/dsa-web``)**
-
-- ``src/api/index.ts``: response interceptor auto-unwraps the envelope —
-  for any 2xx response with ``code === 0`` it replaces ``response.data``
-  with ``response.data.data`` so existing callers keep working unchanged.
-  Non-2xx (e.g. 409 with ``validateStatus``) keeps the raw envelope so
-  callers can read structured error fields.
-- ``src/api/analysis.ts``: ``analyzeAsync`` 409 branch reads the new
-  envelope shape (``envelope.message`` + ``envelope.data.stock_code`` /
-  ``envelope.data.existing_task_id``) when constructing
-  ``DuplicateTaskError``.
-
-**Tests**
-
-- ``tests/test_auth_api.py``: assertions migrated from
-  ``response.json()["ok"]`` / ``response.json()["error"]`` to the
-  envelope (``code === 0`` for success, ``code === 1001`` for
-  ``VALIDATION_ERROR``).
-- ``tests/test_system_config_api.py``: GET / PUT assertions migrated to
-  read ``response.json()["data"]``; the 409 conflict assertion now
-  checks ``code === 1099`` and ``message`` containing
-  ``"config_version"``.
-- Suite: 647 passed (the two remaining failures —
-  ``Config._load_from_env`` and ``SearchService`` — are pre-existing and
-  unrelated to this change).
+- T1.x — `RateLimitMixin` adopted by all 6 A-share fetchers;
+  `src/exceptions.py` unified taxonomy; `CachingManager` with TTL/stats;
+  test files moved under `tests/`; `tests/test_backward_compat_imports.py`
+  baseline added.
+- T2.x — Split 4 P0 files: `tushare_fetcher` 2056 / `akshare_fetcher` 1869 /
+  `storage` 2175 / `search_service` 2019 / `quantitative_filter` 1671 into
+  sub-packages; each component ≤ 800 lines.
+- T3.x — Split remaining P1 files: `analyzer` 1561 / `base.py` 1452 /
+  `pipeline` 1616 / `config_registry` 1581 / `efinance_fetcher` 1189 /
+  `stock_analyzer` 1125 / `aggregator` 919 / `main.py` 842;
+  shared market-data utils extracted; T4.4-followup closed
+  `enhanced_market_analyzer` (825 → 712) and `backtest_service`
+  (815 → 635). Two real import bugs uncovered + fixed (T4.5).
+- T4.1 — Unified `APIResponse` envelope (`code`/`message`/`data`/`timestamp`);
+  global exception handler maps `src.exceptions.*` → HTTP codes.
+- T4.2 — Shared DataFrame validators (`validate_daily_data` /
+  `validate_realtime_data`) wired into every fetcher's `_normalize_data`.
+- T4.3 — Thread-safety: double-check locking in `bot/handler.py`;
+  `deque + Lock` in `bot/dispatcher.RateLimiter`; tightened
+  `Dict[str, Any]` boundaries via TypedDicts.
+- T6.1 — Replaced 7 per-call `ThreadPoolExecutor()` with class-level
+  shared pools; 6 `max_workers=1` timeout-wrapper pseudo-uses removed via
+  new `src/_concurrency.run_with_timeout()` helper.
+- T6.3 — Entry-point shims verified: `analyzer_service.py` business logic
+  migrated to `src/services/programmatic.py`; `webui.py` confirmed thin
+  shim (59 lines).
 
 ### Refactor: trim the four remaining 800+ line modules (T3.4)
 
