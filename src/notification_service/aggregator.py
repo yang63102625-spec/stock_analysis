@@ -6,6 +6,7 @@ Contains all report generation methods (daily report, dashboard report,
 wechat summary, brief report, single stock report, etc.).
 """
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -226,7 +227,6 @@ class ReportAggregatorMixin(_DashboardMixin):
             f"> 共分析 **{len(results)}** 只股票 | 报告生成时间：{datetime.now().strftime('%H:%M:%S')}",
             "",
             "---",
-            "",
         ]
 
         sorted_results = sorted(
@@ -251,7 +251,6 @@ class ReportAggregatorMixin(_DashboardMixin):
             f"| 📈 平均看多评分 | **{avg_score:.1f}** 分 |",
             "",
             "---",
-            "",
         ])
 
         # Issue #262: summary_only mode
@@ -299,18 +298,14 @@ class ReportAggregatorMixin(_DashboardMixin):
                         f"❌ **分析异常**：{result.error_message[:100]}",
                     ])
 
-                report_lines.extend([
-                    "",
-                    "---",
-                    "",
-                ])
+                report_lines.extend(["---"])
 
-        report_lines.extend([
-            "",
-            f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
-        ])
+        report_lines.append(f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
 
-        return "\n".join(report_lines)
+        # Post-process: collapse multiple blank lines into one
+        result_text = "\n".join(report_lines)
+        result_text = re.sub(r'\n{3,}', '\n\n', result_text)
+        return result_text.strip()
 
     def generate_wechat_summary(self, results: List[AnalysisResult]) -> str:
         """

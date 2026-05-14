@@ -7,6 +7,7 @@ Split out of :mod:`.aggregator` to keep each file ≤ 800 lines per
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -64,14 +65,13 @@ class _DashboardMixin:
             f"# 🎯 {report_date} 决策仪表盘",
             "",
             f"> 共分析 **{len(results)}** 只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
-            "",
         ]
 
         # Analysis summary (Issue #112)
         if results:
             report_lines.extend([
-                "## 📊 分析结果摘要",
                 "",
+                "## 📊 分析结果摘要",
             ])
             for r in sorted_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
@@ -80,11 +80,7 @@ class _DashboardMixin:
                     f"{signal_emoji} **{display_name}({r.code})**: {r.operation_advice} | "
                     f"评分 {r.sentiment_score} | {r.trend_prediction}"
                 )
-            report_lines.extend([
-                "",
-                "---",
-                "",
-            ])
+            report_lines.extend(["---", ""])
 
         # Per-stock decision dashboard (Issue #262: skip details in summary_only mode)
         if not self._report_summary_only:
@@ -99,37 +95,30 @@ class _DashboardMixin:
                 stock_name = self._escape_md(raw_name)
 
                 report_lines.extend([
-                    f"## {signal_emoji} {stock_name} ({result.code})",
                     "",
+                    f"## {signal_emoji} {stock_name} ({result.code})",
                 ])
 
                 # Intelligence section
                 intel = dashboard.get('intelligence', {}) if dashboard else {}
                 if intel:
-                    report_lines.extend([
-                        "### 📰 重要信息速览",
-                        "",
-                    ])
+                    report_lines.append("### 📰 重要信息速览")
                     if intel.get('sentiment_summary'):
                         report_lines.append(f"**💭 舆情情绪**: {intel['sentiment_summary']}")
                     if intel.get('earnings_outlook'):
                         report_lines.append(f"**📊 业绩预期**: {intel['earnings_outlook']}")
                     risk_alerts = intel.get('risk_alerts', [])
                     if risk_alerts:
-                        report_lines.append("")
                         report_lines.append("**🚨 风险警报**:")
                         for alert in risk_alerts:
                             report_lines.append(f"- {alert}")
                     catalysts = intel.get('positive_catalysts', [])
                     if catalysts:
-                        report_lines.append("")
                         report_lines.append("**✨ 利好催化**:")
                         for cat in catalysts:
                             report_lines.append(f"- {cat}")
                     if intel.get('latest_news'):
-                        report_lines.append("")
                         report_lines.append(f"**📢 最新动态**: {intel['latest_news']}")
-                    report_lines.append("")
 
                 # Core conclusion
                 core = dashboard.get('core_conclusion', {}) if dashboard else {}
@@ -139,21 +128,19 @@ class _DashboardMixin:
 
                 report_lines.extend([
                     "### 📌 核心结论",
-                    "",
                     f"**{signal_emoji} {signal_text}** | {result.trend_prediction}",
                     "",
                     f"> **一句话决策**: {one_sentence}",
                     "",
                     f"⏰ **时效性**: {time_sense}",
-                    "",
                 ])
                 if pos_advice:
                     report_lines.extend([
+                        "",
                         "| 持仓情况 | 操作建议 |",
-                        "|---------|---------|",
+                        "|---------|---------|" ,
                         f"| 🆕 **空仓者** | {pos_advice.get('no_position', result.operation_advice)} |",
                         f"| 💼 **持仓者** | {pos_advice.get('has_position', '继续持有')} |",
-                        "",
                     ])
 
                 self._append_market_snapshot(report_lines, result)
@@ -166,17 +153,13 @@ class _DashboardMixin:
                     vol_data = data_persp.get('volume_analysis', {})
                     chip_data = data_persp.get('chip_structure', {})
 
-                    report_lines.extend([
-                        "### 📊 数据透视",
-                        "",
-                    ])
+                    report_lines.append("### 📊 数据透视")
                     if trend_data:
                         is_bullish = "✅ 是" if trend_data.get('is_bullish', False) else "❌ 否"
-                        report_lines.extend([
+                        report_lines.append(
                             f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | "
-                            f"多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100",
-                            "",
-                        ])
+                            f"多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100"
+                        )
                     if price_data:
                         bias_status = price_data.get('bias_status', 'N/A')
                         bias_emoji = (
@@ -184,6 +167,7 @@ class _DashboardMixin:
                             else ("⚠️" if bias_status == "警戒" else "🚨")
                         )
                         report_lines.extend([
+                            "",
                             "| 价格指标 | 数值 |",
                             "|---------|------|",
                             f"| 当前价 | {price_data.get('current_price', 'N/A')} |",
@@ -193,7 +177,6 @@ class _DashboardMixin:
                             f"| 乖离率(MA5) | {price_data.get('bias_ma5', 'N/A')}% {bias_emoji}{bias_status} |",
                             f"| 支撑位 | {price_data.get('support_level', 'N/A')} |",
                             f"| 压力位 | {price_data.get('resistance_level', 'N/A')} |",
-                            "",
                         ])
                     if vol_data:
                         report_lines.extend([
@@ -201,7 +184,6 @@ class _DashboardMixin:
                             f"({vol_data.get('volume_status', '')}) | "
                             f"换手率 {vol_data.get('turnover_rate', 'N/A')}%",
                             f"💡 *{vol_data.get('volume_meaning', '')}*",
-                            "",
                         ])
                     if chip_data:
                         chip_health = chip_data.get('chip_health', 'N/A')
@@ -209,32 +191,26 @@ class _DashboardMixin:
                             "✅" if chip_health == "健康"
                             else ("⚠️" if chip_health == "一般" else "🚨")
                         )
-                        report_lines.extend([
+                        report_lines.append(
                             f"**筹码**: 获利比例 {chip_data.get('profit_ratio', 'N/A')} | "
                             f"平均成本 {chip_data.get('avg_cost', 'N/A')} | "
-                            f"集中度 {chip_data.get('concentration', 'N/A')} {chip_emoji}{chip_health}",
-                            "",
-                        ])
+                            f"集中度 {chip_data.get('concentration', 'N/A')} {chip_emoji}{chip_health}"
+                        )
 
                 # Battle plan
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
                 if battle:
-                    report_lines.extend([
-                        "### 🎯 作战计划",
-                        "",
-                    ])
+                    report_lines.append("### 🎯 作战计划")
                     sniper = battle.get('sniper_points', {})
                     if sniper:
                         report_lines.extend([
                             "**📍 狙击点位**",
-                            "",
                             "| 点位类型 | 价格 |",
                             "|---------|------|",
                             f"| 🎯 理想买入点 | {self._clean_sniper_value(sniper.get('ideal_buy', 'N/A'))} |",
                             f"| 🔵 次优买入点 | {self._clean_sniper_value(sniper.get('secondary_buy', 'N/A'))} |",
                             f"| 🛑 止损位 | {self._clean_sniper_value(sniper.get('stop_loss', 'N/A'))} |",
                             f"| 🎊 目标位 | {self._clean_sniper_value(sniper.get('take_profit', 'N/A'))} |",
-                            "",
                         ])
                     position = battle.get('position_strategy', {})
                     if position:
@@ -242,32 +218,24 @@ class _DashboardMixin:
                             f"**💰 仓位建议**: {position.get('suggested_position', 'N/A')}",
                             f"- 建仓策略: {position.get('entry_plan', 'N/A')}",
                             f"- 风控策略: {position.get('risk_control', 'N/A')}",
-                            "",
                         ])
                     checklist = battle.get('action_checklist', []) if battle else []
                     if checklist:
-                        report_lines.extend([
-                            "**✅ 检查清单**",
-                            "",
-                        ])
+                        report_lines.append("**✅ 检查清单**")
                         for item in checklist:
                             report_lines.append(f"- {item}")
-                        report_lines.append("")
 
                 if not dashboard:
                     pass
 
-                report_lines.extend([
-                    "---",
-                    "",
-                ])
+                report_lines.append("---")
 
-        report_lines.extend([
-            "",
-            f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
-        ])
+        report_lines.append(f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
 
-        return "\n".join(report_lines)
+        # Post-process: collapse multiple blank lines into one
+        result = "\n".join(report_lines)
+        result = re.sub(r'\n{3,}', '\n\n', result)
+        return result.strip()
 
     def generate_wechat_dashboard(self, results: List[AnalysisResult]) -> str:
         """
