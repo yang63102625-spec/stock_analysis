@@ -201,22 +201,38 @@ class PickerBacktestService:
                 ], axis=1).max(axis=1)
                 df["atr"] = tr.rolling(window=14, min_periods=1).mean()
 
+            # T+1 entry semantics: candidates are picked at end-of-day on
+            # `trade_date`, but A-share T+1 prevents same-day round-trips. The
+            # realistic execution is "buy at next trading day's open price".
+            # Using `trade_date`'s close as entry steals the overnight gap
+            # return — invalid for any A-share backtest.
             entry_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
-            entry_mask = df["_date_str"] == entry_str
-            if not entry_mask.any():
+            pick_mask = df["_date_str"] == entry_str
+            if not pick_mask.any():
                 return {}
-            entry_idx = int(df.index[entry_mask].min())
-            if entry_price <= 0:
+            pick_idx = int(df.index[pick_mask].min())
+            entry_idx = pick_idx + 1
+            if entry_idx >= len(df):
+                return {}  # next trading day not yet available
+            open_col = next((c for c in ["open", "开盘"] if c in df.columns), None)
+            if open_col is None:
                 return {}
+            next_open = df.iloc[entry_idx][open_col]
+            if pd.isna(next_open) or float(next_open) <= 0:
+                return {}
+            entry_price = float(next_open)  # override the close-based price
 
             # Build forward bars (entry day + subsequent days up to exit_date).
             exit_str = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
             exit_mask = df["_date_str"] == exit_str
             end_idx = int(df.index[exit_mask].max()) if exit_mask.any() else len(df) - 1
 
-            # Forward bars = entry_idx (for limit-up check via pct_chg) +
-            # subsequent days that drive the exit decision.
+            # Forward bars start at entry_idx (the T+1 next-open day) through
+            # end_idx (exit_date). We can't include the pick day itself because
+            # it's pre-entry from the trader's POV.
             bars: List[Dict[str, Any]] = []
+            if end_idx <= entry_idx:
+                end_idx = entry_idx + 1  # ensure at least 1 forward bar past entry
             for i in range(entry_idx, end_idx + 1):
                 row = df.iloc[i]
                 close = float(row[close_col]) if pd.notna(row[close_col]) else None

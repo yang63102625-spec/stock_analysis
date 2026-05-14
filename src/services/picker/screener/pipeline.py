@@ -213,16 +213,28 @@ class _PipelineMixin:
             else:
                 logger.info("[Screener] Skipping daily data fetch (only realtime strategies selected)")
 
-            # --- eod_buyback: dedicated realtime full-market screening path ---
+            # --- eod_buyback: dedicated full-market screening path ---
+            # Historical mode (`screen_as_of(td)`) MUST go through Tushare daily so
+            # each backtest date sees that date's candidates, not today's. Live mode
+            # keeps the realtime fast path unchanged.
             if "eod_buyback" in self._picker_strategies and self._data_manager:
-                logger.info("[Screener] Running eod_buyback via realtime full-market screening...")
-                eod_rt_cands = self._screen_eod_buyback_realtime()
-                if eod_rt_cands:
-                    candidates_per_strategy["eod_buyback"] = eod_rt_cands
-                    logger.info(f"[Screener] eod_buyback (realtime path): {len(eod_rt_cands)} candidates")
+                if self._as_of_date:
+                    logger.info(
+                        f"[Screener] Running eod_buyback via Tushare daily historical path "
+                        f"(as_of={self._as_of_date})..."
+                    )
+                    eod_cands = self._screen_eod_buyback_historical(self._as_of_date)
+                    path_label = "historical"
+                else:
+                    logger.info("[Screener] Running eod_buyback via realtime full-market screening...")
+                    eod_cands = self._screen_eod_buyback_realtime()
+                    path_label = "realtime"
+                if eod_cands:
+                    candidates_per_strategy["eod_buyback"] = eod_cands
+                    logger.info(f"[Screener] eod_buyback ({path_label} path): {len(eod_cands)} candidates")
                 else:
                     candidates_per_strategy.pop("eod_buyback", None)
-                    logger.info("[Screener] eod_buyback (realtime path): 0 candidates")
+                    logger.info(f"[Screener] eod_buyback ({path_label} path): 0 candidates")
 
             if not candidates_per_strategy:
                 stats.final_pool = 0

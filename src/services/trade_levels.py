@@ -46,6 +46,12 @@ RR_MIN = 2.0
 
 # Slippage assumed by backtest (one-way, percent of price).
 DEFAULT_SLIPPAGE_PCT = 0.3
+# A-share frictions: commission + stamp duty.
+# - 佣金 0.025% 双边（很多券商最低 5 元，对回测中性买卖建模 0.025% 即可）
+# - 印花税 0.05% 单边卖出（2023-08 财政部下调后口径）
+DEFAULT_COMMISSION_PCT = 0.025      # bps each side
+DEFAULT_STAMP_DUTY_SELL_PCT = 0.05  # bps on sell only
+# Round-trip cost (excl. slippage): commission*2 + stamp_duty = 0.10 %
 
 # Limit-up percentage thresholds (used by backtest entry filter).
 LIMIT_UP_MAIN = 9.8
@@ -446,6 +452,13 @@ def evaluate_trailing_exit(
 # ---------------------------------------------------------------------------
 
 
+def _net_return_pct(entry: float, exit_: float) -> float:
+    """Net return after commission (both sides) and stamp duty (sell only)."""
+    gross = (exit_ - entry) / entry * 100.0
+    cost_pct = DEFAULT_COMMISSION_PCT * 2 + DEFAULT_STAMP_DUTY_SELL_PCT
+    return gross - cost_pct
+
+
 def simulate_forward_trade(
     *,
     strategy_id: str,
@@ -503,7 +516,7 @@ def simulate_forward_trade(
         )
         if should_exit:
             exit_price = float(close) * (1 - DEFAULT_SLIPPAGE_PCT / 100.0) if apply_slippage else float(close)
-            ret = (exit_price - effective_entry) / effective_entry * 100.0
+            ret = _net_return_pct(effective_entry, exit_price)
             return {
                 "skipped": False,
                 "exit_price": exit_price,
@@ -519,7 +532,7 @@ def simulate_forward_trade(
     if last_close is None or last_close <= 0:
         return {"skipped": True, "skip_reason": "invalid_exit_price"}
     exit_price = float(last_close) * (1 - DEFAULT_SLIPPAGE_PCT / 100.0) if apply_slippage else float(last_close)
-    ret = (exit_price - effective_entry) / effective_entry * 100.0
+    ret = _net_return_pct(effective_entry, exit_price)
     return {
         "skipped": False,
         "exit_price": exit_price,

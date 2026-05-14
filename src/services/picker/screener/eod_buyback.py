@@ -472,6 +472,177 @@ class _EodBuybackMixin:
             logger.info(f"[EOD-RT] Deduplicated: {len(final)} -> {len(deduped)} candidates")
         return deduped
 
+    def _screen_eod_buyback_historical(self, as_of_date: str) -> List[ScreenedStock]:
+        """Replay the 7 hard filters of eod_buyback on a historical trade date.
+
+        Uses Tushare ``daily(trade_date=as_of)`` + ``daily_basic(trade_date=as_of)``
+        instead of `ts.get_realtime_quotes()`, which has no trade_date parameter
+        and would silently return today's data — the look-ahead bug fixed in
+        commit P0-1 of `reports/eod_tuning/METHODOLOGY_REVIEW.md`.
+
+        Filters mirror `_screen_eod_buyback_realtime` (line 140-203):
+          - mainboard only (no ST, no KC/CY which are 30/68)
+          - close-day pct_chg in [3, 6]
+          - turnover_rate in [5, 12] %
+          - total_mv in [60, 300] 亿
+          - non-limit-up entry (already excluded by pct_chg <= 6)
+
+        VWAP filter is skipped: daily bars don't have intraday VWAP. The
+        realtime path uses end-of-day ``amount/volume`` proxy; in historical
+        replay this approximation is the same number on both sides, so the
+        filter degenerates and is dropped to avoid pretending we have it.
+
+        Volume-ratio filter is computed from 5-day prior daily volumes
+        (matching the realtime fallback path at line 271-281).
+
+        as_of_date: YYYY-MM-DD or YYYYMMDD.
+        """
+        api = self._get_tushare_api() if hasattr(self, "_get_tushare_api") else None
+        if api is None:
+            logger.warning("[EOD-HIST] Tushare API unavailable; cannot replay historical eod_buyback")
+            return []
+
+        td = as_of_date.replace("-", "")
+        from src.services.picker_strategies import is_mainboard_stock
+
+        try:
+            df_daily = api.daily(trade_date=td)
+            if df_daily is None or df_daily.empty:
+                logger.warning(f"[EOD-HIST] daily({td}) returned empty")
+                return []
+            df_basic = api.daily_basic(
+                trade_date=td,
+                fields="ts_code,turnover_rate,total_mv,pe_ttm,pb",
+            )
+            if df_basic is None or df_basic.empty:
+                logger.warning(f"[EOD-HIST] daily_basic({td}) returned empty")
+                return []
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] Tushare fetch failed for {td}: {e}")
+            return []
+
+        df_daily.columns = [c.lower() for c in df_daily.columns]
+        df_basic.columns = [c.lower() for c in df_basic.columns]
+        df_daily["code"] = df_daily["ts_code"].str.split(".").str[0]
+        df_basic["code"] = df_basic["ts_code"].str.split(".").str[0]
+        df_basic["total_mv_yi"] = df_basic["total_mv"] / 1e4
+
+        # Resolve stock names from stock_basic (cached aggressively in TushareFetcher)
+        try:
+            df_names = api.stock_basic(fields="ts_code,name")
+            df_names.columns = [c.lower() for c in df_names.columns]
+            df_names["code"] = df_names["ts_code"].str.split(".").str[0]
+            name_map = dict(zip(df_names["code"], df_names["name"]))
+        except Exception:
+            name_map = {}
+
+        df = df_daily.merge(
+            df_basic[["code", "turnover_rate", "total_mv_yi", "pe_ttm", "pb"]],
+            on="code", how="left",
+        )
+
+        # 7 hard filters (mirrors realtime path)
+        mask = pd.Series(True, index=df.index)
+        mask &= df["code"].apply(lambda c: is_mainboard_stock(str(c)))
+        if name_map:
+            df["name"] = df["code"].map(name_map).fillna("")
+            mask &= ~df["name"].str.contains("ST", na=False, case=False)
+        else:
+            df["name"] = ""
+        chg = pd.to_numeric(df["pct_chg"], errors="coerce")
+        mask &= (chg >= 3.0) & (chg <= 6.0)
+        tr = pd.to_numeric(df["turnover_rate"], errors="coerce")
+        mask &= (tr >= 5.0) & (tr <= 12.0)
+        mc = pd.to_numeric(df["total_mv_yi"], errors="coerce")
+        mask &= (mc >= 60.0) & (mc <= 300.0)
+
+        df_filtered = df[mask].copy()
+        logger.info(
+            f"[EOD-HIST] {td}: {len(df_daily)} stocks → {len(df_filtered)} after 7 hard filters"
+        )
+        if df_filtered.empty:
+            return []
+
+        # Volume ratio: candidate's vol(td) / mean(vol(td-5..td-1))
+        vol_ratio_map: Dict[str, float] = {}
+        from datetime import datetime as _dt
+        as_of_iso = (
+            f"{td[:4]}-{td[4:6]}-{td[6:8]}" if "-" not in as_of_date else as_of_date
+        )
+        as_of_dt = _dt.strptime(td, "%Y%m%d")
+        prev_start = (as_of_dt - pd.Timedelta(days=12)).strftime("%Y-%m-%d")
+        for code in df_filtered["code"]:
+            try:
+                df_hist, _ = self._data_manager.get_daily_data(
+                    code, start_date=prev_start, end_date=as_of_iso, days=8,
+                )
+                if df_hist is None or len(df_hist) < 2:
+                    continue
+                vol_col = self._first_col(df_hist, "vol", "volume", "成交量")
+                if vol_col is None:
+                    continue
+                vol_series = pd.to_numeric(df_hist[vol_col], errors="coerce")
+                today_vol = float(vol_series.iloc[-1])
+                hist_avg = float(vol_series.iloc[-6:-1].mean()) if len(vol_series) >= 6 else float(vol_series.iloc[:-1].mean())
+                if hist_avg <= 0 or pd.isna(hist_avg) or today_vol <= 0:
+                    continue
+                vol_ratio_map[code] = today_vol / hist_avg
+            except Exception:
+                continue
+
+        if vol_ratio_map:
+            df_filtered = df_filtered[
+                df_filtered["code"].apply(
+                    lambda c: 2.5 <= vol_ratio_map.get(c, 0) <= 4.0
+                )
+            ].copy()
+            logger.info(
+                f"[EOD-HIST] {td}: after vol_ratio∈[2.5,4]: {len(df_filtered)} stocks"
+            )
+        else:
+            logger.warning(
+                f"[EOD-HIST] {td}: vol_ratio unavailable for all candidates, skipping that filter"
+            )
+
+        if df_filtered.empty:
+            return []
+
+        # 60-day prior change for context (used by AI selector but not by score here)
+        # Score: same shape as realtime path scoring, minus the sector strength bonus
+        # (sector data is live-only; for backtest we keep it deterministic).
+        candidates: list = []
+        for _, row in df_filtered.iterrows():
+            code = str(row.get("code", ""))
+            chg_v = float(row.get("pct_chg", 0) or 0)
+            base_score = 10.0 + min(chg_v, 6.0) * 2
+            mc_v = float(row.get("total_mv_yi", 0) or 0)
+            if 100 <= mc_v <= 200:
+                base_score += 5.0
+            if chg_v >= 5.5:
+                base_score += 15.0
+            elif chg_v >= 4.5:
+                base_score += 8.0
+
+            candidates.append(ScreenedStock(
+                code=code,
+                name=str(row.get("name", "")),
+                price=float(row.get("close", 0) or 0),  # historical close, not realtime
+                change_pct=chg_v,
+                volume_ratio=vol_ratio_map.get(code, 0.0),
+                turnover_rate=float(pd.to_numeric(row.get("turnover_rate"), errors="coerce") or 0),
+                pe=float(pd.to_numeric(row.get("pe_ttm"), errors="coerce") or 0),
+                pb=float(pd.to_numeric(row.get("pb"), errors="coerce") or 0),
+                market_cap=mc_v,
+                amount=float(pd.to_numeric(row.get("amount"), errors="coerce") or 0) / 1e5,  # 千元 -> 亿元
+                change_pct_60d=0.0,  # not computed in historical path; downstream tolerates 0
+                score=base_score,
+                strategies=["eod_buyback"],
+            ))
+
+        candidates.sort(key=lambda s: s.score, reverse=True)
+        logger.info(f"[EOD-HIST] {td}: final {len(candidates)} eod_buyback candidates")
+        return candidates
+
     def _has_recent_limit_up_check(self, code: str, days: int = 20) -> bool:
         """Check if stock had limit-up within recent N trading days.
         NOTE: Currently unused. Retained for potential future strategies.
