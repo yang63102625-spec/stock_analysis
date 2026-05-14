@@ -71,9 +71,14 @@ def _get(api: str, key: str, fetch: Callable[[], Optional[pd.DataFrame]]) -> Opt
             _MEM[cache_key] = disk
             _STATS["disk"] += 1
         return disk
-    df = fetch()
+    try:
+        df = fetch()
+    except Exception as e:
+        # Network error: cache an empty DataFrame to skip future retries
+        logger.warning("[ts-cache] %s/%s fetch error: %s; caching empty", api, key, e)
+        df = pd.DataFrame()
     if df is None:
-        return None
+        df = pd.DataFrame()  # also cache None as empty
     with _LOCK:
         _MEM[cache_key] = df
         _STATS["miss"] += 1

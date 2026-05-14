@@ -44,7 +44,10 @@ class _PipelineMixin:
             # Always evaluate market_env (used downstream for regime-aware position
             # scaling even when picker_market_guard is disabled).
             market_env = self._check_market_environment()
-            if getattr(cfg, "picker_market_guard", True):
+            # EOD_VARIANT bypasses market guard (variants have own regime logic)
+            import os as _os
+            _bypass_guard = bool(_os.environ.get("EOD_VARIANT", "").strip())
+            if getattr(cfg, "picker_market_guard", True) and not _bypass_guard:
                 if market_env and not market_env.is_strong:
                     raw_action = getattr(cfg, "picker_weak_market_action", "limit")
                     action = (raw_action or "limit").strip().lower()

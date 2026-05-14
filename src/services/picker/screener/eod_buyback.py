@@ -505,6 +505,16 @@ class _EodBuybackMixin:
         td = as_of_date.replace("-", "")
         from src.services.picker_strategies import is_mainboard_stock
 
+        # Strategy variant switch (env-driven, for tuning experiments).
+        # Set EOD_VARIANT={dragon_follow,first_board} to swap algorithms
+        # without touching the calling code.
+        import os
+        variant = os.environ.get("EOD_VARIANT", "").strip()
+        if variant == "dragon_follow":
+            return self._screen_dragon_follow_hist(api, td)
+        if variant == "first_board":
+            return self._screen_first_board_hist(api, td)
+
         # Iter-1 H lever: market-regime filter (mean-reversion entry).
         # Iter-0 evidence: only winning trades happened the day after CSI300
         # dropped >=0.59%. The "尾盘异动 + 中盘 + 量比 2.5-4" combo behaves
@@ -833,6 +843,200 @@ class _EodBuybackMixin:
 
         candidates.sort(key=lambda s: s.score, reverse=True)
         logger.info(f"[EOD-HIST] {td}: final {len(candidates)} eod_buyback candidates")
+        return candidates
+
+    def _screen_dragon_follow_hist(self, api, td: str) -> List[ScreenedStock]:
+        """Iter-11+: dragon-list follow strategy.
+
+        Buy stocks that hit 龙虎榜 (top_list) with net inflow on 涨幅/换手 reason.
+        These are stocks where 游资 is publicly buying — short-term continuation
+        edge is well-documented in A-share microstructure.
+
+        Filters:
+          - 主板, 非 ST
+          - 当日 chg in [3, 9.5] (涨停封死无法买进, 跌幅榜 reason 排除)
+          - net_amount > 0 (净买入)
+          - reason 含"涨幅" or "换手" (排除"跌幅"上榜)
+        """
+        from src.services.picker_strategies import is_mainboard_stock
+        df_tl = api.top_list(trade_date=td)  # cache wrapper handles timeout/empty
+        if df_tl is None or df_tl.empty:
+            logger.info(f"[DRAGON-HIST] {td}: no top_list data (cache or empty)")
+            return []
+
+        df_tl.columns = [c.lower() for c in df_tl.columns]
+        df_tl["code"] = df_tl["ts_code"].str.split(".").str[0]
+        df_tl["net_amount"] = pd.to_numeric(df_tl["net_amount"], errors="coerce")
+        reason_str = df_tl["reason"].astype(str)
+
+        positive_mask = reason_str.str.contains("涨幅|换手", na=False) & ~reason_str.str.contains("跌幅", na=False)
+        df_tl = df_tl[positive_mask & (df_tl["net_amount"] > 0)].copy()
+        if df_tl.empty:
+            return []
+        # Aggregate per code: sum net_amount across multiple reasons
+        df_agg = df_tl.groupby("code", as_index=False).agg({
+            "net_amount": "sum",
+            "ts_code": "first",
+        })
+
+        # Pull daily for filter on chg + close + ST + mainboard (cached)
+        df_d = api.daily(trade_date=td)
+        df_b = api.daily_basic(trade_date=td, fields="ts_code,turnover_rate,total_mv,pe_ttm,pb")
+        df_n = api.stock_basic(fields="ts_code,name")
+        if df_d is None or df_d.empty or df_b is None or df_b.empty:
+            logger.info(f"[DRAGON-HIST] {td}: daily/basic empty (cache miss)")
+            return []
+        df_d.columns = [c.lower() for c in df_d.columns]
+        df_b.columns = [c.lower() for c in df_b.columns]
+        df_n.columns = [c.lower() for c in df_n.columns]
+        df_d["code"] = df_d["ts_code"].str.split(".").str[0]
+        df_b["code"] = df_b["ts_code"].str.split(".").str[0]
+        df_n["code"] = df_n["ts_code"].str.split(".").str[0]
+        df_b["total_mv_yi"] = df_b["total_mv"] / 1e4
+        name_map = dict(zip(df_n["code"], df_n["name"]))
+
+        df = df_agg.merge(
+            df_d[["code", "close", "pct_chg", "amount", "vol"]], on="code", how="left"
+        ).merge(
+            df_b[["code", "turnover_rate", "total_mv_yi", "pe_ttm", "pb"]], on="code", how="left"
+        )
+        df["name"] = df["code"].map(name_map).fillna("")
+
+        before = len(df)
+        df = df[df["code"].apply(lambda c: is_mainboard_stock(str(c)))]
+        df = df[~df["name"].str.contains("ST", na=False, case=False)]
+        chg = pd.to_numeric(df["pct_chg"], errors="coerce")
+        df = df[(chg >= 3.0) & (chg <= 9.5)]
+        logger.info(f"[DRAGON-HIST] {td}: top_list net-buy {before} → {len(df)} after main+chg filters")
+        if df.empty:
+            return []
+
+        # Score = net_amount (already 万元 for top_list interface) — bigger 净流入 = more conviction
+        candidates: list = []
+        for _, row in df.iterrows():
+            net_buy_yi = float(row["net_amount"]) / 1e8  # 元 → 亿元
+            score = min(50.0, net_buy_yi * 10)  # cap at 50
+            chg_v = float(pd.to_numeric(row["pct_chg"], errors="coerce") or 0)
+            mc_v = float(pd.to_numeric(row["total_mv_yi"], errors="coerce") or 0)
+            candidates.append(ScreenedStock(
+                code=str(row["code"]),
+                name=str(row.get("name", "")),
+                price=float(pd.to_numeric(row["close"], errors="coerce") or 0),
+                change_pct=chg_v,
+                volume_ratio=0.0,
+                turnover_rate=float(pd.to_numeric(row.get("turnover_rate"), errors="coerce") or 0),
+                pe=float(pd.to_numeric(row.get("pe_ttm"), errors="coerce") or 0),
+                pb=float(pd.to_numeric(row.get("pb"), errors="coerce") or 0),
+                market_cap=mc_v,
+                amount=float(pd.to_numeric(row.get("amount"), errors="coerce") or 0) / 1e5,
+                change_pct_60d=0.0,
+                score=score,
+                strategies=["dragon_follow"],
+            ))
+        candidates.sort(key=lambda s: s.score, reverse=True)
+        logger.info(f"[DRAGON-HIST] {td}: final {len(candidates)} dragon_follow candidates")
+        return candidates
+
+    def _screen_first_board_hist(self, api, td: str) -> List[ScreenedStock]:
+        """Iter-21+: first-board limit-up tracking.
+
+        Buy 首板涨停 (前 N 日内首次涨停) 的票 — academic + empirical evidence
+        shows next-day positive drift, especially when sealed early in session.
+        We can't see seal time from daily data, so we use:
+          - 当日 pct_chg ≥ 9.5 (涨停, main board ~10%)
+          - 过去 10 日内无其他涨停 (首板)
+          - 主板 + 非 ST
+        """
+        from src.services.picker_strategies import is_mainboard_stock
+        try:
+            df_d = api.daily(trade_date=td)
+            df_b = api.daily_basic(trade_date=td, fields="ts_code,turnover_rate,total_mv,pe_ttm,pb")
+            df_n = api.stock_basic(fields="ts_code,name")
+        except Exception as e:
+            logger.warning(f"[FIRSTBOARD-HIST] {td}: fetch failed: {e}")
+            return []
+        if df_d is None or df_d.empty:
+            return []
+        df_d.columns = [c.lower() for c in df_d.columns]
+        df_b.columns = [c.lower() for c in df_b.columns]
+        df_n.columns = [c.lower() for c in df_n.columns]
+        df_d["code"] = df_d["ts_code"].str.split(".").str[0]
+        df_b["code"] = df_b["ts_code"].str.split(".").str[0]
+        df_n["code"] = df_n["ts_code"].str.split(".").str[0]
+        df_b["total_mv_yi"] = df_b["total_mv"] / 1e4
+        name_map = dict(zip(df_n["code"], df_n["name"]))
+
+        df = df_d.merge(
+            df_b[["code", "turnover_rate", "total_mv_yi", "pe_ttm", "pb"]], on="code", how="left"
+        )
+        df["name"] = df["code"].map(name_map).fillna("")
+
+        # Limit-up filter (≥9.5% main board)
+        chg = pd.to_numeric(df["pct_chg"], errors="coerce")
+        df = df[df["code"].apply(lambda c: is_mainboard_stock(str(c)))]
+        df = df[~df["name"].str.contains("ST", na=False, case=False)]
+        df = df[chg >= 9.5].copy()
+        if df.empty:
+            return []
+        logger.info(f"[FIRSTBOARD-HIST] {td}: {len(df)} limit-up stocks today")
+
+        # Check past 10 trading days for prior limit-ups (must be first-board)
+        try:
+            df_cal = api.trade_cal(
+                exchange="SSE",
+                start_date=(pd.Timestamp(td) - pd.Timedelta(days=20)).strftime("%Y%m%d"),
+                end_date=td,
+            )
+            df_cal.columns = [c.lower() for c in df_cal.columns]
+            sess = df_cal[df_cal["is_open"] == 1].sort_values("cal_date")["cal_date"].tolist()
+            prior_dates = [d for d in sess if d < td][-10:]
+        except Exception:
+            prior_dates = []
+
+        prior_limit_codes: set = set()
+        for pd_date in prior_dates:
+            try:
+                df_p = api.daily(trade_date=pd_date)
+                if df_p is None or df_p.empty:
+                    continue
+                df_p.columns = [c.lower() for c in df_p.columns]
+                df_p["code"] = df_p["ts_code"].str.split(".").str[0]
+                pchg = pd.to_numeric(df_p["pct_chg"], errors="coerce")
+                prior_limit_codes.update(df_p[pchg >= 9.5]["code"].tolist())
+            except Exception:
+                continue
+
+        before = len(df)
+        df = df[~df["code"].isin(prior_limit_codes)].copy()
+        logger.info(f"[FIRSTBOARD-HIST] {td}: first-board (no prior limit-up in 10d): {before} → {len(df)}")
+        if df.empty:
+            return []
+
+        candidates: list = []
+        for _, row in df.iterrows():
+            mc_v = float(pd.to_numeric(row.get("total_mv_yi"), errors="coerce") or 0)
+            tr_v = float(pd.to_numeric(row.get("turnover_rate"), errors="coerce") or 0)
+            # Score: prefer mid-cap (50-200亿) + moderate turnover (2-10%)
+            score = 30.0
+            if 50 <= mc_v <= 200: score += 10
+            if 2 <= tr_v <= 10: score += 10
+            candidates.append(ScreenedStock(
+                code=str(row["code"]),
+                name=str(row.get("name", "")),
+                price=float(pd.to_numeric(row["close"], errors="coerce") or 0),
+                change_pct=float(pd.to_numeric(row["pct_chg"], errors="coerce") or 0),
+                volume_ratio=0.0,
+                turnover_rate=tr_v,
+                pe=float(pd.to_numeric(row.get("pe_ttm"), errors="coerce") or 0),
+                pb=float(pd.to_numeric(row.get("pb"), errors="coerce") or 0),
+                market_cap=mc_v,
+                amount=float(pd.to_numeric(row.get("amount"), errors="coerce") or 0) / 1e5,
+                change_pct_60d=0.0,
+                score=score,
+                strategies=["first_board"],
+            ))
+        candidates.sort(key=lambda s: s.score, reverse=True)
+        logger.info(f"[FIRSTBOARD-HIST] {td}: final {len(candidates)} first-board candidates")
         return candidates
 
     def _has_recent_limit_up_check(self, code: str, days: int = 20) -> bool:
