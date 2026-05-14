@@ -205,6 +205,8 @@ class AnalysisHistory(Base):
     position_pct = Column(Float)
     risk_reward = Column(Float)
     take_profit_2_rule = Column(Text)
+    # Picker strategy that produced this analysis (used for backtest attribution).
+    strategy_id = Column(String(32))
 
     created_at = Column(DateTime, default=datetime.now, index=True)
 
@@ -238,6 +240,7 @@ class AnalysisHistory(Base):
             'position_pct': self.position_pct,
             'risk_reward': self.risk_reward,
             'take_profit_2_rule': self.take_profit_2_rule,
+            'strategy_id': self.strategy_id,
             'raw_result': self.raw_result,
             'news_content': self.news_content,
             'context_snapshot': self.context_snapshot,

@@ -82,6 +82,7 @@ class _AnalysisMixin:
             position_pct=tl_extras.get("position_pct"),
             risk_reward=tl_extras.get("risk_reward"),
             take_profit_2_rule=tl_extras.get("take_profit_2_rule"),
+            strategy_id=tl_extras.get("strategy_id"),
             created_at=datetime.now(),
         )
 
@@ -531,6 +532,8 @@ class _AnalysisMixin:
                 out[k] = None
         rule = tl.get("take_profit_2_rule")
         out["take_profit_2_rule"] = str(rule) if rule else None
+        sid = tl.get("strategy_id") or enhanced.get("picker_strategy_id")
+        out["strategy_id"] = str(sid) if sid else None
         return out
 
     def _extract_sniper_points(self, result: Any) -> Dict[str, Optional[float]]:

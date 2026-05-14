@@ -92,6 +92,7 @@ class _DatabaseManagerCore:
                     "ALTER TABLE analysis_history ADD COLUMN position_pct FLOAT",
                     "ALTER TABLE analysis_history ADD COLUMN risk_reward FLOAT",
                     "ALTER TABLE analysis_history ADD COLUMN take_profit_2_rule TEXT",
+                    "ALTER TABLE analysis_history ADD COLUMN strategy_id VARCHAR(32)",
                     # v2 backtest engine: signal snapshot + dim snapshot + sim diagnostics
                     "ALTER TABLE backtest_results ADD COLUMN signal_score_at_eval INTEGER",
                     "ALTER TABLE backtest_results ADD COLUMN buy_signal_at_eval VARCHAR(24)",
