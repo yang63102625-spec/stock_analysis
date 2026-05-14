@@ -445,15 +445,20 @@ class BacktestResult(Base):
     # 模拟执行（long-only）
     simulated_entry_price = Column(Float)
     simulated_exit_price = Column(Float)
-    simulated_exit_reason = Column(String(24))  # stop_loss/take_profit/window_end/cash/ambiguous_stop_loss
+    simulated_exit_reason = Column(String(32))  # stop_loss/take_profit/time_exit/not_filled/...
     simulated_return_pct = Column(Float)
+
+    # v3: AI-plan execution metrics
+    entry_status = Column(String(24))   # filled/not_filled/not_filled_limit_up
+    r_multiple = Column(Float)
+    mae_pct = Column(Float)
+    mfe_pct = Column(Float)
 
     __table_args__ = (
         UniqueConstraint(
             'analysis_history_id',
             'eval_window_days',
-            'strategy_id',
-            name='uix_backtest_analysis_window_strategy',
+            name='uix_backtest_analysis_window',
         ),
         Index('ix_backtest_code_date', 'code', 'analysis_date'),
     )
@@ -497,6 +502,20 @@ class BacktestSummary(Base):
     take_profit_trigger_rate = Column(Float)
     ambiguous_rate = Column(Float)
     avg_days_to_first_hit = Column(Float)
+
+    # v3: AI-plan execution aggregates
+    fill_rate_pct = Column(Float)
+    filled_count = Column(Integer, default=0)
+    not_filled_count = Column(Integer, default=0)
+    not_filled_limit_up_count = Column(Integer, default=0)
+    trade_win_rate_pct = Column(Float)
+    expectancy_pct = Column(Float)
+    avg_r_multiple = Column(Float)
+    profit_factor = Column(Float)
+    max_drawdown_pct = Column(Float)
+    avg_mae_pct = Column(Float)
+    avg_mfe_pct = Column(Float)
+    ambiguous_count = Column(Integer, default=0)
 
     # 诊断字段（JSON 字符串）
     diagnostics_json = Column(Text)

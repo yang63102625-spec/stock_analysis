@@ -7,7 +7,6 @@ import type {
   BacktestRunResponse,
   PerformanceMetrics,
 } from '../../../types/backtest';
-import type { PickerStrategy } from '../../../types/pickerBacktest';
 
 const PAGE_SIZE = 20;
 
@@ -19,8 +18,6 @@ export interface UseAnalysisBacktest {
   setEvalDays: (v: string) => void;
   forceRerun: boolean;
   setForceRerun: (v: boolean) => void;
-  individualStrategies: PickerStrategy[];
-  setIndividualStrategies: (v: PickerStrategy[]) => void;
   // run
   isRunning: boolean;
   runResult: BacktestRunResponse | null;
@@ -46,7 +43,6 @@ export function useAnalysisBacktest(): UseAnalysisBacktest {
   const [codeFilter, setCodeFilter] = useState('');
   const [evalDays, setEvalDays] = useState('');
   const [forceRerun, setForceRerun] = useState(false);
-  const [individualStrategies, setIndividualStrategies] = useState<PickerStrategy[]>(['buy_pullback']);
 
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState<BacktestRunResponse | null>(null);
@@ -124,7 +120,6 @@ export function useAnalysisBacktest(): UseAnalysisBacktest {
         force: forceRerun || undefined,
         minAgeDays: forceRerun ? 0 : undefined,
         evalWindowDays,
-        strategies: individualStrategies.length > 0 ? individualStrategies : ['buy_pullback'],
       });
       setRunResult(response);
       fetchResults(1, code, evalWindowDays);
@@ -134,7 +129,7 @@ export function useAnalysisBacktest(): UseAnalysisBacktest {
     } finally {
       setIsRunning(false);
     }
-  }, [codeFilter, evalDays, forceRerun, individualStrategies, fetchResults, fetchPerformance]);
+  }, [codeFilter, evalDays, forceRerun, fetchResults, fetchPerformance]);
 
   const handleFilter = useCallback(() => {
     const code = codeFilter.trim() || undefined;
@@ -155,7 +150,6 @@ export function useAnalysisBacktest(): UseAnalysisBacktest {
     codeFilter, setCodeFilter,
     evalDays, setEvalDays,
     forceRerun, setForceRerun,
-    individualStrategies, setIndividualStrategies,
     isRunning, runResult, runError, handleRun,
     results, totalResults, currentPage, totalPages, pageSize: PAGE_SIZE,
     isLoadingResults, pageError, handleFilter, handlePageChange,

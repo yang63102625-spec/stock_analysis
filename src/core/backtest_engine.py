@@ -1,56 +1,58 @@
 # -*- coding: utf-8 -*-
-"""Backtesting evaluation engine v2 (signal-driven, trade_levels-aware).
+"""Backtest evaluation engine v3 (AI-plan execution).
 
-This engine evaluates each historical analysis using:
-- The system-computed `buy_signal` / `signal_score` (NOT LLM operation_advice text)
-- The unified `simulate_forward_trade` rules (same engine as picker backtest:
-  staged exits, trailing MA10/ATR, slippage, limit-up entry filter)
+Strict execution model: each historical analysis carries its own trade plan
+(`ideal_buy`, `stop_loss`, `take_profit`). The engine replays those levels
+against forward daily bars and reports what would have happened. No external
+strategy override, no synthetic trailing rules — what the AI told the user
+to do is what gets simulated.
 
-It is intentionally DB-agnostic: it operates on plain values or objects that
-look like daily OHLC bars (and exposes the same `BacktestResultLike` Protocol
-required by `compute_summary` for aggregation).
+Key choices (see project discussion 2026-05-14):
+- Fill rate, win rate and expectancy are reported as separate layers; signals
+  that never get filled are NOT counted into win/loss but show up in `fill_rate`.
+- When a single bar straddles both the stop-loss and take-profit (we can't see
+  intraday order on daily bars), the trade is closed at the stop (conservative)
+  AND tagged ambiguous so users can audit.
+- A-share frictions: 0.05% slippage on entry/exit + 0.025% commission both ways
+  + 0.05% stamp duty on the sell side. Configurable via EvaluationConfig.
+- Prior-day limit-up filter: if the previous bar was a one-character limit-up
+  (close == high == low and pct_chg >= 9.8%), buy orders that day are recorded
+  as `not_filled_limit_up` because retail can't get filled in queue-based
+  matching.
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
+from typing import Any, Dict, Optional, Protocol, Sequence
 
-# NOTE: simulate_forward_trade is imported lazily inside evaluate_single() to
-# avoid circular imports via src.services.__init__ (which loads BacktestService
-# which loads this module).
-
-logger = logging.getLogger(__name__)
-
+from src.core._backtest_aggregation_mixin import _AggregationMixin
 
 OVERALL_SENTINEL_CODE = "__overall__"
 
-# buy_signal -> position. STRONG_BUY/BUY enter long; everything else stays in cash.
 LONG_SIGNALS = ("STRONG_BUY", "BUY")
 AVOID_SIGNALS = ("AVOID", "STRONG_AVOID")
 
-# Score buckets for breakdown analytics.
-SCORE_BUCKETS = (
-    ("ge_80", lambda s: s >= 80),
-    ("70_80", lambda s: 70 <= s < 80),
-    ("60_70", lambda s: 60 <= s < 70),
-    ("lt_60", lambda s: s < 60),
-)
+# Default A-share frictions (in fractions, NOT percent).
+DEFAULT_SLIPPAGE = 0.0005          # 5 bps each side
+DEFAULT_COMMISSION = 0.00025       # 2.5 bps each side
+DEFAULT_STAMP_DUTY_SELL = 0.0005   # 5 bps on sell only
+
+# Limit-up threshold for the prior-day filter.
+LIMIT_UP_PCT = 9.8
 
 
 class DailyBarLike(Protocol):
-    """Protocol for objects representing a daily OHLC bar."""
-
     date: date
+    open: Optional[float]
     high: Optional[float]
     low: Optional[float]
     close: Optional[float]
 
 
 class BacktestResultLike(Protocol):
-    """Protocol for objects that behave like a stored BacktestResult row."""
+    """Stored row protocol used by `compute_summary` for aggregation."""
 
     eval_status: str
     position_recommendation: Optional[str]
@@ -58,43 +60,46 @@ class BacktestResultLike(Protocol):
     direction_correct: Optional[bool]
     stock_return_pct: Optional[float]
     simulated_return_pct: Optional[float]
-    hit_stop_loss: Optional[bool]
-    hit_take_profit: Optional[bool]
-    first_hit: Optional[str]
-    first_hit_trading_days: Optional[int]
     operation_advice: Optional[str]
-    # v2 additions (Optional so legacy rows still satisfy Protocol)
     signal_score_at_eval: Optional[int]
     buy_signal_at_eval: Optional[str]
     market_environment_at_eval: Optional[str]
     strategy_id: Optional[str]
     exit_reason: Optional[str]
     hold_days: Optional[int]
+    # v3 additions (Optional so legacy rows still satisfy Protocol)
+    entry_status: Optional[str]
+    r_multiple: Optional[float]
+    mae_pct: Optional[float]
+    mfe_pct: Optional[float]
 
 
 @dataclass(frozen=True)
 class EvaluationConfig:
     eval_window_days: int
-    # Kept for backward compat with stored rows; current engine ignores this band.
+    slippage: float = DEFAULT_SLIPPAGE
+    commission: float = DEFAULT_COMMISSION
+    stamp_duty_sell: float = DEFAULT_STAMP_DUTY_SELL
+    apply_limit_up_filter: bool = True
+    # Kept for backward compat with stored legacy rows; current engine ignores it.
     neutral_band_pct: float = 2.0
 
 
 @dataclass(frozen=True)
 class AnalysisSnapshot:
-    """Snapshot of v3.0+ AnalysisHistory fields needed for v2 evaluation."""
+    """Snapshot of AnalysisHistory fields needed for v3 evaluation."""
 
     code: str
     operation_advice: Optional[str]
     signal_score: Optional[int]
     buy_signal: Optional[str]
     market_environment: Optional[str]
-    strategy_id: str  # default "buy_pullback" when picker context absent
+    strategy_id: str
     ideal_buy: Optional[float]
     stop_loss: Optional[float]
     take_profit: Optional[float]
     risk_reward: Optional[float]
     position_pct: Optional[float]
-    # Dim scores (for breakdown analytics)
     trend_score: Optional[int]
     bias_score: Optional[int]
     volume_score: Optional[int]
@@ -104,19 +109,35 @@ class AnalysisSnapshot:
     capital_flow_score: Optional[int]
 
 
-class BacktestEngine:
-    """v2 long-only daily-bar engine driven by buy_signal + trade_levels."""
+@dataclass
+class _ExecutionTrace:
+    entry_status: str = "not_filled"
+    entry_idx: Optional[int] = None
+    entry_price: Optional[float] = None
+    entry_reason: str = ""
+    exit_idx: Optional[int] = None
+    exit_price: Optional[float] = None
+    exit_reason: str = ""
+    ambiguous: bool = False
+    max_high_after_entry: Optional[float] = None
+    min_low_after_entry: Optional[float] = None
+
+
+class BacktestEngine(_AggregationMixin):
+    """v3 long-only daily-bar engine that replays the AI's own trade plan.
+
+    Per-trade execution lives in this class; cross-trade aggregation lives in
+    `_AggregationMixin` (see `_backtest_aggregation_mixin.py`).
+    """
 
     @classmethod
     def position_from_signal(cls, buy_signal: Optional[str]) -> str:
-        """STRONG_BUY/BUY -> long; HOLD/AVOID/STRONG_AVOID/None -> cash."""
         if not buy_signal:
             return "cash"
         return "long" if buy_signal.upper() in LONG_SIGNALS else "cash"
 
     @classmethod
     def direction_expected_from_signal(cls, buy_signal: Optional[str]) -> str:
-        """Map buy_signal to expected direction for direction-accuracy metrics."""
         if not buy_signal:
             return "flat"
         sig = buy_signal.upper()
@@ -124,8 +145,9 @@ class BacktestEngine:
             return "up"
         if sig in AVOID_SIGNALS:
             return "down"
-        # HOLD: bullish enough not to short, but no strong directional bet
         return "not_down"
+
+    # ── Core single-record evaluation ────────────────────────────────────
 
     @classmethod
     def evaluate_single(
@@ -137,8 +159,6 @@ class BacktestEngine:
         forward_bars: Sequence[DailyBarLike],
         config: EvaluationConfig,
     ) -> Dict[str, Any]:
-        """Evaluate one historical analysis against forward daily bars."""
-
         position = cls.position_from_signal(analysis.buy_signal)
         direction_expected = cls.direction_expected_from_signal(analysis.buy_signal)
 
@@ -170,7 +190,6 @@ class BacktestEngine:
             raise ValueError("eval_window_days must be positive")
 
         if analysis.buy_signal is None:
-            # Pre-v2 analysis records lack the system signal. Skip.
             return {**base_meta, "eval_status": "missing_signal"}
 
         if len(forward_bars) < eval_days:
@@ -183,53 +202,57 @@ class BacktestEngine:
         max_high = max(highs) if highs else None
         min_low = min(lows) if lows else None
 
-        stock_return_pct: Optional[float]
-        if end_close is None:
-            stock_return_pct = None
-        else:
-            stock_return_pct = (end_close - start_price) / start_price * 100
-
-        outcome, direction_correct = cls._classify_outcome(
-            stock_return_pct=stock_return_pct,
-            direction_expected=direction_expected,
+        stock_return_pct: Optional[float] = (
+            (end_close - start_price) / start_price * 100 if end_close is not None else None
         )
 
-        # ── Simulated execution via unified trade_levels engine ─────────
-        sim: Dict[str, Any] = {}
-        simulated_entry_price: Optional[float] = None
-        simulated_exit_price: Optional[float] = None
-        simulated_exit_reason = "cash"
-        simulated_return_pct: Optional[float] = 0.0 if position != "long" else None
+        outcome, direction_correct = cls._classify_outcome(
+            stock_return_pct=stock_return_pct, direction_expected=direction_expected,
+        )
+
+        # Defaults for cash positions (HOLD / AVOID): no execution, only direction outcome.
+        trace = _ExecutionTrace()
+        sim_return_pct: Optional[float] = 0.0 if position != "long" else None
+        r_multiple: Optional[float] = None
+        mae_pct: Optional[float] = None
+        mfe_pct: Optional[float] = None
         hold_days: Optional[int] = None
 
         if position == "long":
-            from src.services.trade_levels import simulate_forward_trade  # lazy import (see top)
-            simulated_entry_price = start_price
-            sim_bars = cls._bars_to_sim_dicts(window_bars)
-            try:
-                sim = simulate_forward_trade(
-                    strategy_id=analysis.strategy_id,
-                    entry_price=float(start_price),
-                    market_cap_yi=0.0,  # not available at eval time; rules degrade gracefully
-                    bars=sim_bars,
-                    apply_slippage=True,
-                    apply_limit_up_filter=True,
-                    is_kc_cy=cls._is_kc_cy(analysis.code),
+            trace = cls._execute_plan(
+                ideal_buy=analysis.ideal_buy,
+                stop_loss=analysis.stop_loss,
+                take_profit=analysis.take_profit,
+                start_price=float(start_price),
+                window_bars=window_bars,
+                config=config,
+            )
+            if trace.entry_status == "filled" and trace.entry_price is not None and trace.exit_price is not None:
+                gross = (trace.exit_price - trace.entry_price) / trace.entry_price
+                fees = (
+                    config.slippage * 2
+                    + config.commission * 2
+                    + config.stamp_duty_sell
                 )
-            except Exception as exc:
-                logger.debug("[BacktestEngine] simulate_forward_trade failed for %s: %s", analysis.code, exc)
-                sim = {"skipped": True, "skip_reason": "sim_error"}
-
-            if sim.get("skipped"):
-                simulated_return_pct = None
-                simulated_exit_reason = sim.get("skip_reason") or "skipped"
+                sim_return_pct = (gross - fees) * 100
+                if analysis.stop_loss is not None and trace.entry_price > analysis.stop_loss:
+                    risk_per_share = trace.entry_price - float(analysis.stop_loss)
+                    if risk_per_share > 0:
+                        r_multiple = round(
+                            (trace.exit_price - trace.entry_price) / risk_per_share, 4
+                        )
+                if trace.entry_idx is not None and trace.exit_idx is not None:
+                    hold_days = trace.exit_idx - trace.entry_idx
+                if trace.max_high_after_entry is not None:
+                    mfe_pct = (trace.max_high_after_entry - trace.entry_price) / trace.entry_price * 100
+                if trace.min_low_after_entry is not None:
+                    mae_pct = (trace.min_low_after_entry - trace.entry_price) / trace.entry_price * 100
             else:
-                simulated_exit_price = sim.get("exit_price")
-                simulated_return_pct = sim.get("return_pct")
-                simulated_exit_reason = sim.get("exit_reason") or "window_end"
-                hold_days = sim.get("hold_days")
+                # Not filled: still report an explicit return of 0 so aggregations
+                # can distinguish "didn't trade" from "missing data".
+                sim_return_pct = 0.0
 
-        # ── Target-hit fields kept for backward-compat (best-effort) ────
+        # Legacy target-hit diagnostics (kept for backward-compatibility columns).
         hit_sl, hit_tp, first_hit, first_hit_date, first_hit_days = cls._target_hit_diagnostics(
             position=position,
             stop_loss=analysis.stop_loss,
@@ -255,154 +278,188 @@ class BacktestEngine:
             "first_hit": first_hit,
             "first_hit_date": first_hit_date,
             "first_hit_trading_days": first_hit_days,
-            "simulated_entry_price": simulated_entry_price,
-            "simulated_exit_price": simulated_exit_price,
-            "simulated_exit_reason": simulated_exit_reason,
-            "simulated_return_pct": simulated_return_pct,
-            "exit_reason": simulated_exit_reason if position == "long" else None,
+            # v3: AI-plan execution
+            "entry_status": trace.entry_status,
+            "simulated_entry_price": trace.entry_price,
+            "simulated_exit_price": trace.exit_price,
+            "simulated_exit_reason": trace.exit_reason or ("not_filled" if position == "long" else "cash"),
+            "simulated_return_pct": sim_return_pct,
+            "exit_reason": trace.exit_reason or ("not_filled" if position == "long" else None),
             "hold_days": hold_days,
+            "r_multiple": r_multiple,
+            "mae_pct": round(mae_pct, 4) if mae_pct is not None else None,
+            "mfe_pct": round(mfe_pct, 4) if mfe_pct is not None else None,
         }
 
-    # ── Aggregation ──────────────────────────────────────────────────────
+    # ── Trade execution (single AI plan, daily-bar replay) ──────────────
 
     @classmethod
-    def compute_summary(
+    def _execute_plan(
         cls,
         *,
-        results: Iterable[BacktestResultLike],
-        scope: str,
-        code: Optional[str],
-        eval_window_days: int,
-    ) -> Dict[str, Any]:
-        results_list = list(results)
-        total = len(results_list)
-        completed = [r for r in results_list if (r.eval_status or "") == "completed"]
-        insufficient_count = sum(1 for r in results_list if (r.eval_status or "") == "insufficient_data")
+        ideal_buy: Optional[float],
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+        start_price: float,
+        window_bars: Sequence[DailyBarLike],
+        config: EvaluationConfig,
+    ) -> _ExecutionTrace:
+        trace = _ExecutionTrace()
 
-        long_count = sum(1 for r in completed if (r.position_recommendation or "") == "long")
-        cash_count = sum(1 for r in completed if (r.position_recommendation or "") == "cash")
+        # ── Entry ──────────────────────────────────────────────────────
+        if ideal_buy is not None and ideal_buy > 0:
+            entry_price, entry_idx, reason = cls._scan_for_limit_entry(
+                ideal_buy=float(ideal_buy),
+                window_bars=window_bars,
+                apply_limit_up_filter=config.apply_limit_up_filter,
+            )
+            if entry_price is None:
+                trace.entry_status = "not_filled"
+                trace.entry_reason = reason or "ideal_buy_not_touched"
+                trace.exit_reason = "not_filled"
+                return trace
+            trace.entry_status = "filled"
+            trace.entry_idx = entry_idx
+            trace.entry_price = entry_price * (1 + config.slippage)
+            trace.entry_reason = reason
+        else:
+            # No ideal_buy → fall back to "buy at the first available bar's open"
+            # because the AI still issued a long signal. Same prev-day limit-up
+            # filter applies for fairness.
+            for idx, bar in enumerate(window_bars):
+                if config.apply_limit_up_filter and cls._prev_bar_is_limit_up(window_bars, idx):
+                    if idx == len(window_bars) - 1:
+                        trace.entry_status = "not_filled_limit_up"
+                        trace.entry_reason = "all_bars_blocked_by_limit_up"
+                        trace.exit_reason = "not_filled_limit_up"
+                        return trace
+                    continue
+                bar_open = getattr(bar, "open", None)
+                price = bar_open if bar_open is not None else bar.close
+                if price is None or price <= 0:
+                    continue
+                trace.entry_status = "filled"
+                trace.entry_idx = idx
+                trace.entry_price = float(price) * (1 + config.slippage)
+                trace.entry_reason = "market_open" if bar_open is not None else "market_close"
+                break
+            if trace.entry_status != "filled":
+                trace.entry_status = "not_filled"
+                trace.entry_reason = "no_valid_open_bar"
+                trace.exit_reason = "not_filled"
+                return trace
 
-        win_count = sum(1 for r in completed if (r.outcome or "") == "win")
-        loss_count = sum(1 for r in completed if (r.outcome or "") == "loss")
-        neutral_count = sum(1 for r in completed if (r.outcome or "") == "neutral")
+        assert trace.entry_idx is not None and trace.entry_price is not None
 
-        direction_denominator = sum(1 for r in completed if r.direction_correct is not None)
-        direction_numerator = sum(1 for r in completed if r.direction_correct is True)
-        direction_accuracy_pct = (
-            round(direction_numerator / direction_denominator * 100, 2) if direction_denominator else None
-        )
+        # ── Exit scan (from entry bar onwards; same-bar SL/TP allowed) ──
+        running_high: Optional[float] = None
+        running_low: Optional[float] = None
+        for idx in range(trace.entry_idx, len(window_bars)):
+            bar = window_bars[idx]
+            if bar.high is not None:
+                running_high = bar.high if running_high is None else max(running_high, bar.high)
+            if bar.low is not None:
+                running_low = bar.low if running_low is None else min(running_low, bar.low)
 
-        win_loss_denominator = win_count + loss_count
-        win_rate_pct = round(win_count / win_loss_denominator * 100, 2) if win_loss_denominator else None
-        neutral_rate_pct = round(neutral_count / len(completed) * 100, 2) if completed else None
+            sl_hit = (
+                stop_loss is not None
+                and bar.low is not None
+                and bar.low <= float(stop_loss)
+            )
+            tp_hit = (
+                take_profit is not None
+                and bar.high is not None
+                and bar.high >= float(take_profit)
+            )
 
-        avg_stock_return_pct = cls._average([r.stock_return_pct for r in completed])
-        avg_simulated_return_pct = cls._average([r.simulated_return_pct for r in completed])
+            # On the entry bar itself, the entry already consumed the open;
+            # only consider stop/target if intraday range still extends past
+            # entry price in that direction.
+            if idx == trace.entry_idx:
+                if sl_hit and stop_loss is not None and stop_loss >= trace.entry_price:
+                    sl_hit = False
+                if tp_hit and take_profit is not None and take_profit <= trace.entry_price:
+                    tp_hit = False
 
-        # Long-only diagnostics (target-hit fields kept for back-compat dashboards)
-        long_completed = [r for r in completed if (r.position_recommendation or "") == "long"]
-        stop_applicable = [r for r in long_completed if r.hit_stop_loss is not None]
-        stop_loss_trigger_rate = (
-            round(sum(1 for r in stop_applicable if r.hit_stop_loss is True) / len(stop_applicable) * 100, 2)
-            if stop_applicable else None
-        )
-        take_profit_applicable = [r for r in long_completed if r.hit_take_profit is not None]
-        take_profit_trigger_rate = (
-            round(sum(1 for r in take_profit_applicable if r.hit_take_profit is True)
-                  / len(take_profit_applicable) * 100, 2)
-            if take_profit_applicable else None
-        )
-        any_target_applicable = [
-            r for r in long_completed
-            if r.hit_stop_loss is not None or r.hit_take_profit is not None
-        ]
-        ambiguous_rate = (
-            round(sum(1 for r in any_target_applicable if (r.first_hit or "") == "ambiguous")
-                  / len(any_target_applicable) * 100, 2)
-            if any_target_applicable else None
-        )
-        avg_days_to_first_hit = cls._average(
-            [
-                float(r.first_hit_trading_days)
-                for r in any_target_applicable
-                if r.first_hit_trading_days is not None
-                and (r.first_hit or "") in ("stop_loss", "take_profit", "ambiguous")
-            ]
-        )
+            if sl_hit and tp_hit:
+                # Conservative: assume stop hit first, but flag for audit.
+                trace.exit_idx = idx
+                trace.exit_price = float(stop_loss) * (1 - config.slippage)
+                trace.exit_reason = "stop_loss_ambiguous"
+                trace.ambiguous = True
+                break
+            if sl_hit:
+                trace.exit_idx = idx
+                trace.exit_price = float(stop_loss) * (1 - config.slippage)
+                trace.exit_reason = "stop_loss"
+                break
+            if tp_hit:
+                trace.exit_idx = idx
+                trace.exit_price = float(take_profit) * (1 - config.slippage)
+                trace.exit_reason = "take_profit"
+                break
 
-        return {
-            "scope": scope,
-            "code": code,
-            "eval_window_days": int(eval_window_days),
-            "total_evaluations": total,
-            "completed_count": len(completed),
-            "insufficient_count": insufficient_count,
-            "long_count": long_count,
-            "cash_count": cash_count,
-            "win_count": win_count,
-            "loss_count": loss_count,
-            "neutral_count": neutral_count,
-            "direction_accuracy_pct": direction_accuracy_pct,
-            "win_rate_pct": win_rate_pct,
-            "neutral_rate_pct": neutral_rate_pct,
-            "avg_stock_return_pct": avg_stock_return_pct,
-            "avg_simulated_return_pct": avg_simulated_return_pct,
-            "stop_loss_trigger_rate": stop_loss_trigger_rate,
-            "take_profit_trigger_rate": take_profit_trigger_rate,
-            "ambiguous_rate": ambiguous_rate,
-            "avg_days_to_first_hit": avg_days_to_first_hit,
-            # Per-bucket breakdowns
-            "signal_breakdown": cls._bucket_breakdown(
-                completed, key=lambda r: (r.buy_signal_at_eval or "UNKNOWN").upper()
-            ),
-            "score_bucket_breakdown": cls._bucket_breakdown(
-                completed, key=cls._score_bucket_key
-            ),
-            "exit_reason_breakdown": cls._bucket_breakdown(
-                long_completed, key=lambda r: r.exit_reason or "(none)"
-            ),
-            "regime_breakdown": cls._bucket_breakdown(
-                completed, key=lambda r: r.market_environment_at_eval or "(unknown)"
-            ),
-            "strategy_breakdown": cls._bucket_breakdown(
-                completed, key=lambda r: r.strategy_id or "(unknown)"
-            ),
-            "diagnostics": cls._compute_diagnostics(results_list),
-        }
+        if trace.exit_idx is None:
+            last = window_bars[-1]
+            close = last.close if last.close is not None else trace.entry_price
+            trace.exit_idx = len(window_bars) - 1
+            trace.exit_price = float(close) * (1 - config.slippage)
+            trace.exit_reason = "time_exit"
 
-    # ── Internals ────────────────────────────────────────────────────────
+        trace.max_high_after_entry = running_high
+        trace.min_low_after_entry = running_low
+        return trace
 
-    @staticmethod
-    def _is_kc_cy(code: str) -> bool:
-        return code.startswith("688") or code.startswith("30")
-
-    @staticmethod
-    def _bars_to_sim_dicts(window_bars: Sequence[DailyBarLike]) -> List[Dict[str, Any]]:
-        """Convert DailyBarLike sequence to dicts consumable by simulate_forward_trade.
-
-        MA10/MA20/ATR fields default to 0.0 when unavailable (rules degrade
-        gracefully — trailing branch simply won't trigger).
-        """
-        out: List[Dict[str, Any]] = []
-        for b in window_bars:
-            if b.close is None:
+    @classmethod
+    def _scan_for_limit_entry(
+        cls,
+        *,
+        ideal_buy: float,
+        window_bars: Sequence[DailyBarLike],
+        apply_limit_up_filter: bool,
+    ) -> tuple[Optional[float], Optional[int], str]:
+        for idx, bar in enumerate(window_bars):
+            if bar.low is None or bar.high is None:
                 continue
-            out.append({
-                "close": float(b.close),
-                "high": float(b.high) if b.high is not None else float(b.close),
-                "low": float(b.low) if b.low is not None else float(b.close),
-                "ma10": float(getattr(b, "ma10", 0.0) or 0.0),
-                "ma20": float(getattr(b, "ma20", 0.0) or 0.0),
-                "atr": float(getattr(b, "atr", 0.0) or 0.0),
-                "pct_chg": getattr(b, "pct_chg", None),
-            })
-        return out
+            if not (bar.low <= ideal_buy <= bar.high):
+                continue
+            if apply_limit_up_filter and cls._prev_bar_is_limit_up(window_bars, idx):
+                # Blocked: keep scanning later bars (price might come back).
+                continue
+            # Conservative fill: the worse of (open, ideal_buy). If open gapped
+            # below the limit, we'd actually buy at the open; if it gapped above,
+            # we wait for the pullback to ideal_buy.
+            bar_open = getattr(bar, "open", None)
+            if bar_open is not None and bar_open <= ideal_buy:
+                return float(bar_open), idx, "gap_through_ideal_buy"
+            return float(ideal_buy), idx, "limit_filled"
+        return None, None, "ideal_buy_not_touched"
+
+    @staticmethod
+    def _prev_bar_is_limit_up(window_bars: Sequence[DailyBarLike], idx: int) -> bool:
+        if idx == 0:
+            return False
+        prev = window_bars[idx - 1]
+        if prev.close is None or prev.high is None or prev.low is None:
+            return False
+        # One-character limit up: open == high == low == close AND ≥ +9.8%.
+        pct_chg = getattr(prev, "pct_chg", None)
+        if pct_chg is None:
+            return False
+        try:
+            return (
+                float(pct_chg) >= LIMIT_UP_PCT
+                and abs(prev.high - prev.low) < 1e-6
+                and abs(prev.high - prev.close) < 1e-6
+            )
+        except (TypeError, ValueError):
+            return False
+
 
     @classmethod
     def _classify_outcome(
         cls, *, stock_return_pct: Optional[float], direction_expected: str
     ) -> tuple[Optional[str], Optional[bool]]:
-        """v2 outcome rule (no neutral band): aligned with buy_signal direction."""
         if stock_return_pct is None:
             return None, None
         r = float(stock_return_pct)
@@ -423,7 +480,6 @@ class BacktestEngine:
             if r >= 0:
                 return "win", True
             return "loss", False
-        # flat / unknown
         return "neutral", None
 
     @classmethod
@@ -435,7 +491,6 @@ class BacktestEngine:
         take_profit: Optional[float],
         window_bars: Sequence[DailyBarLike],
     ) -> tuple[Optional[bool], Optional[bool], str, Optional[date], Optional[int]]:
-        """Best-effort target-hit detection (kept for back-compat columns)."""
         if position != "long":
             return None, None, "not_applicable", None, None
         if stop_loss is None and take_profit is None:
@@ -467,49 +522,3 @@ class BacktestEngine:
             break
         return hit_sl, hit_tp, first_hit, first_hit_date, first_hit_days
 
-    @staticmethod
-    def _average(values: Iterable[Optional[float]]) -> Optional[float]:
-        items = [float(v) for v in values if v is not None]
-        if not items:
-            return None
-        return round(sum(items) / len(items), 4)
-
-    @staticmethod
-    def _score_bucket_key(row: BacktestResultLike) -> str:
-        s = row.signal_score_at_eval
-        if s is None:
-            return "unknown"
-        for label, predicate in SCORE_BUCKETS:
-            if predicate(int(s)):
-                return label
-        return "unknown"
-
-    @staticmethod
-    def _bucket_breakdown(rows: Sequence[BacktestResultLike], *, key) -> Dict[str, Any]:
-        """Group rows by `key(row)` and compute per-bucket counts + win_rate."""
-        breakdown: Dict[str, Dict[str, Any]] = {}
-        for row in rows:
-            try:
-                k = key(row) or "(none)"
-            except Exception:
-                k = "(none)"
-            bucket = breakdown.setdefault(str(k), {"total": 0, "win": 0, "loss": 0, "neutral": 0})
-            bucket["total"] += 1
-            outcome = (row.outcome or "").strip()
-            if outcome in ("win", "loss", "neutral"):
-                bucket[outcome] += 1
-        for k, b in breakdown.items():
-            denom = b["win"] + b["loss"]
-            b["win_rate_pct"] = round(b["win"] / denom * 100, 2) if denom else None
-        return breakdown
-
-    @staticmethod
-    def _compute_diagnostics(results: Sequence[BacktestResultLike]) -> Dict[str, Any]:
-        status_counts: Dict[str, int] = {}
-        first_hit_counts: Dict[str, int] = {}
-        for row in results:
-            status = (row.eval_status or "").strip() or "(unknown)"
-            status_counts[status] = status_counts.get(status, 0) + 1
-            first_hit = (row.first_hit or "").strip() or "(none)"
-            first_hit_counts[first_hit] = first_hit_counts.get(first_hit, 0) + 1
-        return {"eval_status": status_counts, "first_hit": first_hit_counts}

@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
-from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -36,9 +34,6 @@ class BacktestService(_ScoreEffectivenessMixin):
         self.repo = BacktestRepository(self.db)
         self.stock_repo = StockRepository(self.db)
 
-    # Allowed picker strategies (mirrors trade_levels strategy ids).
-    _ALLOWED_STRATEGIES = ("buy_pullback", "breakout", "bottom_reversal", "eod_buyback")
-
     def run_backtest(
         self,
         *,
@@ -47,237 +42,220 @@ class BacktestService(_ScoreEffectivenessMixin):
         eval_window_days: Optional[int] = None,
         min_age_days: Optional[int] = None,
         limit: int = 200,
-        strategies: Optional[List[str]] = None,
+        strategies: Optional[List[str]] = None,  # deprecated, ignored
     ) -> Dict[str, Any]:
-        config = get_config()
-
-        if eval_window_days is None:
-            eval_window_days = getattr(config, "backtest_eval_window_days", 10)
-        if min_age_days is None:
-            min_age_days = getattr(config, "backtest_min_age_days", 14)
-
-        # Normalize strategies list: filter to known ids; default to single buy_pullback.
-        wanted = [s for s in (strategies or []) if s in self._ALLOWED_STRATEGIES] or ["buy_pullback"]
-
-        eval_config = EvaluationConfig(
-            eval_window_days=int(eval_window_days),
-            neutral_band_pct=float(getattr(config, "backtest_neutral_band_pct", 2.0)),
+        """Run backtest over candidate analyses; return aggregate counters."""
+        del strategies  # v3: strategy override removed; replay each AI plan as-is.
+        eval_window_days, min_age_days, eval_config = self._resolve_run_config(
+            eval_window_days, min_age_days,
         )
 
         candidates = self.repo.get_candidates(
-            code=code,
-            min_age_days=int(min_age_days),
-            limit=int(limit),
-            eval_window_days=int(eval_window_days),
-            force=force,
-            strategies=wanted,
+            code=code, min_age_days=min_age_days, limit=int(limit),
+            eval_window_days=eval_window_days, force=force,
         )
+        self._log_run_start(candidates, code, force, eval_window_days, min_age_days, int(limit))
 
-        total_candidates = len(candidates)
-        logger.info(
-            "[Backtest] run start: candidates=%d code=%s force=%s eval_window_days=%d limit=%d",
-            total_candidates,
-            code or "*",
-            force,
-            int(eval_window_days),
-            int(limit),
-        )
-        if total_candidates == 0 and code:
-            logger.warning(
-                "[Backtest] no candidates for code=%s — no analysis_history row aged "
-                ">=%d days, or all already evaluated (use --backtest-force).",
-                code, int(min_age_days),
-            )
-
-        processed = 0
-        completed = 0
-        insufficient = 0
-        errors = 0
+        processed = completed = insufficient = errors = 0
         touched_codes: set[str] = set()
-
         results_to_save: List[BacktestResult] = []
 
         for analysis in candidates:
             processed += 1
             touched_codes.add(analysis.code)
-            if processed == 1 or processed % 25 == 0 or processed == total_candidates:
-                logger.info(
-                    "[Backtest] progress %d/%d (code=%s id=%s)",
-                    processed,
-                    total_candidates,
-                    analysis.code,
-                    getattr(analysis, "id", "?"),
-                )
+            self._log_progress(processed, len(candidates), analysis)
 
-            try:
-                analysis_date = self._resolve_analysis_date(analysis)
-                if analysis_date is None:
-                    errors += 1
-                    results_to_save.append(
-                        BacktestResult(
-                            analysis_history_id=analysis.id,
-                            code=analysis.code,
-                            eval_window_days=int(eval_window_days),
-                            eval_status="error",
-                            evaluated_at=datetime.now(),
-                            operation_advice=analysis.operation_advice,
-                            strategy_id=wanted[0],
-                        )
-                    )
-                    continue
-                start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-
-                if start_daily is None or start_daily.close is None:
-                    self._try_fill_daily_data(
-                        code=analysis.code,
-                        anchor_date=analysis_date,
-                        eval_window_days=eval_window_days,
-                        pull_history_before_anchor=True,
-                    )
-                    start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-
-                if start_daily is None or start_daily.close is None:
-                    mt0 = self._market_calendar_today(analysis.code)
-                    self._try_fill_daily_data(
-                        code=analysis.code,
-                        anchor_date=analysis_date,
-                        eval_window_days=eval_window_days,
-                        pull_history_before_anchor=True,
-                        lookback_days=600,
-                        force_end_today=analysis_date >= mt0 - timedelta(days=500),
-                    )
-                    start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-
-                if start_daily is None or start_daily.close is None:
-                    insufficient += 1
-                    results_to_save.append(
-                        BacktestResult(
-                            analysis_history_id=analysis.id,
-                            code=analysis.code,
-                            analysis_date=analysis_date,
-                            eval_window_days=int(eval_window_days),
-                            eval_status="insufficient_data",
-                            evaluated_at=datetime.now(),
-                            operation_advice=analysis.operation_advice,
-                            strategy_id=wanted[0],
-                        )
-                    )
-                    continue
-
-                forward_bars = self.stock_repo.get_forward_bars(
-                    code=analysis.code,
-                    analysis_date=start_daily.date,
-                    eval_window_days=int(eval_window_days),
-                )
-
-                if len(forward_bars) < int(eval_window_days):
-                    self._try_fill_daily_data(
-                        code=analysis.code,
-                        anchor_date=start_daily.date,
-                        eval_window_days=eval_window_days,
-                    )
-                    forward_bars = self.stock_repo.get_forward_bars(
-                        code=analysis.code,
-                        analysis_date=start_daily.date,
-                        eval_window_days=int(eval_window_days),
-                    )
-
-                if len(forward_bars) < int(eval_window_days):
-                    mt1 = self._market_calendar_today(analysis.code)
-                    self._try_fill_daily_data(
-                        code=analysis.code,
-                        anchor_date=start_daily.date,
-                        eval_window_days=eval_window_days,
-                        force_end_today=start_daily.date >= mt1 - timedelta(days=500),
-                    )
-                    forward_bars = self.stock_repo.get_forward_bars(
-                        code=analysis.code,
-                        analysis_date=start_daily.date,
-                        eval_window_days=int(eval_window_days),
-                    )
-
-                # Last-resort refetch when forward_bars are still short (recent dates).
-                if len(forward_bars) < int(eval_window_days):
-                    mkt_today = self._market_calendar_today(analysis.code)
-                    if start_daily.date >= mkt_today - timedelta(days=500):
-                        self._try_fill_daily_data(
-                            code=analysis.code,
-                            anchor_date=start_daily.date,
-                            eval_window_days=eval_window_days,
-                            force_end_today=True,
-                            widen_span=True,
-                        )
-                        forward_bars = self.stock_repo.get_forward_bars(
-                            code=analysis.code,
-                            analysis_date=start_daily.date,
-                            eval_window_days=int(eval_window_days),
-                        )
-
-                # Multi-strategy evaluation: same forward_bars, different trade_levels rules.
-                # One result row per (analysis, strategy) pair so users can compare.
-                base_snapshot = self._build_snapshot(analysis)
-                for strategy_id in wanted:
-                    snapshot = replace(base_snapshot, strategy_id=strategy_id)
-                    evaluation = BacktestEngine.evaluate_single(
-                        analysis=snapshot,
-                        analysis_date=start_daily.date,
-                        start_price=float(start_daily.close),
-                        forward_bars=forward_bars,
-                        config=eval_config,
-                    )
-                    status = evaluation.get("eval_status")
-                    if status == "completed":
-                        completed += 1
-                    elif status == "insufficient_data":
-                        insufficient += 1
-                    elif status != "missing_signal":
-                        errors += 1
-                    results_to_save.append(
-                        self._evaluation_to_result(evaluation, analysis, eval_window_days)
-                    )
-
-            except Exception as exc:
+            row, kind = self._evaluate_one_candidate(analysis, eval_window_days, eval_config)
+            results_to_save.append(row)
+            if kind == "completed":
+                completed += 1
+            elif kind == "insufficient":
+                insufficient += 1
+            elif kind == "error":
                 errors += 1
-                logger.error(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
-                results_to_save.append(
-                    BacktestResult(
-                        analysis_history_id=analysis.id,
-                        code=analysis.code,
-                        analysis_date=self._resolve_analysis_date(analysis),
-                        eval_window_days=int(eval_window_days),
-                        eval_status="error",
-                        evaluated_at=datetime.now(),
-                        operation_advice=analysis.operation_advice,
-                        strategy_id=wanted[0],
-                    )
-                )
+            # kind == "missing_signal" — tracked via eval_status only.
 
-        saved = 0
-        if results_to_save:
-            saved = self.repo.save_results_batch(results_to_save, replace_existing=force)
-
+        saved = self.repo.save_results_batch(results_to_save, replace_existing=force) if results_to_save else 0
         if saved:
-            self._recompute_summaries(
-                touched_codes=sorted(touched_codes),
-                eval_window_days=int(eval_window_days),
-            )
+            self._recompute_summaries(touched_codes=sorted(touched_codes), eval_window_days=eval_window_days)
 
         logger.info(
             "[Backtest] run done: processed=%d saved=%d completed=%d insufficient=%d errors=%d",
-            processed,
-            saved,
-            completed,
-            insufficient,
-            errors,
+            processed, saved, completed, insufficient, errors,
+        )
+        return {
+            "processed": processed, "saved": saved, "completed": completed,
+            "insufficient": insufficient, "errors": errors,
+        }
+
+    def _resolve_run_config(
+        self, eval_window_days: Optional[int], min_age_days: Optional[int],
+    ) -> tuple[int, int, EvaluationConfig]:
+        config = get_config()
+        ew = int(eval_window_days if eval_window_days is not None
+                 else getattr(config, "backtest_eval_window_days", 10))
+        ma = int(min_age_days if min_age_days is not None
+                 else getattr(config, "backtest_min_age_days", 14))
+        return ew, ma, EvaluationConfig(
+            eval_window_days=ew,
+            neutral_band_pct=float(getattr(config, "backtest_neutral_band_pct", 2.0)),
         )
 
-        return {
-            "processed": processed,
-            "saved": saved,
-            "completed": completed,
-            "insufficient": insufficient,
-            "errors": errors,
-        }
+    @staticmethod
+    def _log_run_start(
+        candidates: List[AnalysisHistory], code: Optional[str], force: bool,
+        eval_window_days: int, min_age_days: int, limit: int,
+    ) -> None:
+        n = len(candidates)
+        logger.info(
+            "[Backtest] run start: candidates=%d code=%s force=%s eval_window_days=%d limit=%d",
+            n, code or "*", force, eval_window_days, limit,
+        )
+        if n == 0 and code:
+            logger.warning(
+                "[Backtest] no candidates for code=%s — no analysis_history row aged "
+                ">=%d days, or all already evaluated (use --backtest-force).",
+                code, min_age_days,
+            )
+
+    @staticmethod
+    def _log_progress(processed: int, total: int, analysis: AnalysisHistory) -> None:
+        if processed == 1 or processed % 25 == 0 or processed == total:
+            logger.info(
+                "[Backtest] progress %d/%d (code=%s id=%s)",
+                processed, total, analysis.code, getattr(analysis, "id", "?"),
+            )
+
+    # ── Per-candidate workflow ───────────────────────────────────────────
+
+    def _evaluate_one_candidate(
+        self,
+        analysis: AnalysisHistory,
+        eval_window_days: int,
+        eval_config: EvaluationConfig,
+    ) -> tuple[BacktestResult, str]:
+        """Evaluate one analysis row.
+
+        Returns (BacktestResult, kind) where kind ∈
+        {completed, insufficient, error, missing_signal}.
+        """
+        try:
+            analysis_date = self._resolve_analysis_date(analysis)
+            if analysis_date is None:
+                return self._stub_result(analysis, eval_window_days, "error", None), "error"
+
+            start_daily = self._resolve_start_daily(analysis.code, analysis_date, eval_window_days)
+            if start_daily is None or start_daily.close is None:
+                return (
+                    self._stub_result(analysis, eval_window_days, "insufficient_data", analysis_date),
+                    "insufficient",
+                )
+
+            forward_bars = self._resolve_forward_bars(
+                analysis.code, start_daily.date, eval_window_days,
+            )
+
+            evaluation = BacktestEngine.evaluate_single(
+                analysis=self._build_snapshot(analysis),
+                analysis_date=start_daily.date,
+                start_price=float(start_daily.close),
+                forward_bars=forward_bars,
+                config=eval_config,
+            )
+            kind_map = {
+                "completed": "completed",
+                "insufficient_data": "insufficient",
+                "missing_signal": "missing_signal",
+            }
+            kind = kind_map.get(evaluation.get("eval_status", ""), "error")
+            return self._evaluation_to_result(evaluation, analysis, eval_window_days), kind
+
+        except Exception as exc:
+            logger.error("回测失败: %s#%s: %s", analysis.code, analysis.id, exc)
+            return (
+                self._stub_result(
+                    analysis, eval_window_days, "error", self._resolve_analysis_date(analysis),
+                ),
+                "error",
+            )
+
+    def _resolve_start_daily(self, code: str, analysis_date: date, eval_window_days: int):
+        """Get the analysis-day daily bar; lazily backfill from data sources if missing."""
+        start_daily = self.stock_repo.get_start_daily(code=code, analysis_date=analysis_date)
+        if start_daily is not None and start_daily.close is not None:
+            return start_daily
+
+        self._try_fill_daily_data(
+            code=code, anchor_date=analysis_date,
+            eval_window_days=eval_window_days, pull_history_before_anchor=True,
+        )
+        start_daily = self.stock_repo.get_start_daily(code=code, analysis_date=analysis_date)
+        if start_daily is not None and start_daily.close is not None:
+            return start_daily
+
+        market_today = self._market_calendar_today(code)
+        self._try_fill_daily_data(
+            code=code, anchor_date=analysis_date,
+            eval_window_days=eval_window_days, pull_history_before_anchor=True,
+            lookback_days=600,
+            force_end_today=analysis_date >= market_today - timedelta(days=500),
+        )
+        return self.stock_repo.get_start_daily(code=code, analysis_date=analysis_date)
+
+    def _resolve_forward_bars(self, code: str, anchor: date, eval_window_days: int):
+        """Get N forward bars; backfill in escalating passes if short."""
+        bars = self.stock_repo.get_forward_bars(
+            code=code, analysis_date=anchor, eval_window_days=eval_window_days,
+        )
+        if len(bars) >= eval_window_days:
+            return bars
+
+        self._try_fill_daily_data(
+            code=code, anchor_date=anchor, eval_window_days=eval_window_days,
+        )
+        bars = self.stock_repo.get_forward_bars(
+            code=code, analysis_date=anchor, eval_window_days=eval_window_days,
+        )
+        if len(bars) >= eval_window_days:
+            return bars
+
+        market_today = self._market_calendar_today(code)
+        self._try_fill_daily_data(
+            code=code, anchor_date=anchor, eval_window_days=eval_window_days,
+            force_end_today=anchor >= market_today - timedelta(days=500),
+        )
+        bars = self.stock_repo.get_forward_bars(
+            code=code, analysis_date=anchor, eval_window_days=eval_window_days,
+        )
+        # Last-resort widen for recent dates only — older anchors past the
+        # data-source horizon won't benefit from another pass.
+        if len(bars) < eval_window_days and anchor >= market_today - timedelta(days=500):
+            self._try_fill_daily_data(
+                code=code, anchor_date=anchor, eval_window_days=eval_window_days,
+                force_end_today=True, widen_span=True,
+            )
+            bars = self.stock_repo.get_forward_bars(
+                code=code, analysis_date=anchor, eval_window_days=eval_window_days,
+            )
+        return bars
+
+    @staticmethod
+    def _stub_result(
+        analysis: AnalysisHistory,
+        eval_window_days: int,
+        eval_status: str,
+        analysis_date: Optional[date],
+    ) -> BacktestResult:
+        return BacktestResult(
+            analysis_history_id=analysis.id,
+            code=analysis.code,
+            analysis_date=analysis_date,
+            eval_window_days=int(eval_window_days),
+            eval_status=eval_status,
+            evaluated_at=datetime.now(),
+            operation_advice=analysis.operation_advice,
+            strategy_id=getattr(analysis, "strategy_id", None) or "buy_pullback",
+        )
 
     def get_recent_evaluations(self, *, code: Optional[str], eval_window_days: Optional[int] = None, limit: int = 50, page: int = 1) -> Dict[str, Any]:
         offset = max(page - 1, 0) * limit
@@ -304,19 +282,41 @@ class BacktestService(_ScoreEffectivenessMixin):
             return None
         return self._summary_to_dict(summary)
 
-    @staticmethod
-    def _build_snapshot(analysis: AnalysisHistory) -> AnalysisSnapshot:
-        """Build the v2 AnalysisSnapshot from a stored AnalysisHistory row.
+    # Map legacy/Chinese signal text → canonical English enum used by the engine.
+    # Older AnalysisHistory rows store the LLM operation_advice text in `buy_signal`
+    # (e.g. "买入" / "持有" / "强烈卖出") instead of the system signal. We bridge
+    # those here so they still drive valid long/cash positions in backtest.
+    _SIGNAL_TEXT_MAP = {
+        "STRONG_BUY": "STRONG_BUY", "BUY": "BUY", "HOLD": "HOLD",
+        "AVOID": "AVOID", "STRONG_AVOID": "STRONG_AVOID",
+        "强烈买入": "STRONG_BUY", "买入": "BUY", "加仓": "BUY",
+        "持有": "HOLD", "持有/逢低加仓": "BUY",
+        "观望": "HOLD", "减仓/观望": "HOLD", "观望/减仓": "HOLD", "减仓": "AVOID",
+        "卖出": "AVOID", "强烈卖出": "STRONG_AVOID", "清仓": "STRONG_AVOID",
+    }
 
-        strategy_id defaults to 'buy_pullback' (most general). Future enhancement:
-        plumb strategy_id through the analysis pipeline so analyses know which
-        picker strategy generated them.
+    @classmethod
+    def _normalize_buy_signal(cls, raw: Optional[str]) -> Optional[str]:
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if not s:
+            return None
+        return cls._SIGNAL_TEXT_MAP.get(s, cls._SIGNAL_TEXT_MAP.get(s.upper(), None))
+
+    @classmethod
+    def _build_snapshot(cls, analysis: AnalysisHistory) -> AnalysisSnapshot:
+        """Build an `AnalysisSnapshot` from a stored AnalysisHistory row.
+
+        `strategy_id` defaults to `buy_pullback` because pre-v3 analyses were
+        not tagged with the picker strategy that produced them. New analyses
+        should plumb `strategy_id` end-to-end so per-strategy breakdowns work.
         """
         return AnalysisSnapshot(
             code=analysis.code,
             operation_advice=analysis.operation_advice,
             signal_score=getattr(analysis, "signal_score", None),
-            buy_signal=getattr(analysis, "buy_signal", None),
+            buy_signal=cls._normalize_buy_signal(getattr(analysis, "buy_signal", None)),
             market_environment=getattr(analysis, "market_environment", None),
             strategy_id=getattr(analysis, "strategy_id", None) or "buy_pullback",
             ideal_buy=getattr(analysis, "ideal_buy", None),
@@ -384,6 +384,11 @@ class BacktestService(_ScoreEffectivenessMixin):
             capital_flow_score_at_eval=evaluation.get("capital_flow_score_at_eval"),
             exit_reason=evaluation.get("exit_reason"),
             hold_days=evaluation.get("hold_days"),
+            # v3 trade-execution metrics
+            entry_status=evaluation.get("entry_status"),
+            r_multiple=evaluation.get("r_multiple"),
+            mae_pct=evaluation.get("mae_pct"),
+            mfe_pct=evaluation.get("mfe_pct"),
         )
 
     def _resolve_analysis_date(self, analysis) -> Optional[date]:
@@ -537,6 +542,19 @@ class BacktestService(_ScoreEffectivenessMixin):
             take_profit_trigger_rate=summary_data.get("take_profit_trigger_rate"),
             ambiguous_rate=summary_data.get("ambiguous_rate"),
             avg_days_to_first_hit=summary_data.get("avg_days_to_first_hit"),
+            # v3 metrics
+            fill_rate_pct=summary_data.get("fill_rate_pct"),
+            filled_count=summary_data.get("filled_count") or 0,
+            not_filled_count=summary_data.get("not_filled_count") or 0,
+            not_filled_limit_up_count=summary_data.get("not_filled_limit_up_count") or 0,
+            trade_win_rate_pct=summary_data.get("trade_win_rate_pct"),
+            expectancy_pct=summary_data.get("expectancy_pct"),
+            avg_r_multiple=summary_data.get("avg_r_multiple"),
+            profit_factor=summary_data.get("profit_factor"),
+            max_drawdown_pct=summary_data.get("max_drawdown_pct"),
+            avg_mae_pct=summary_data.get("avg_mae_pct"),
+            avg_mfe_pct=summary_data.get("avg_mfe_pct"),
+            ambiguous_count=summary_data.get("ambiguous_count") or 0,
             diagnostics_json=json.dumps(summary_data.get("diagnostics") or {}, ensure_ascii=False),
             signal_breakdown_json=json.dumps(summary_data.get("signal_breakdown") or {}, ensure_ascii=False),
             score_bucket_breakdown_json=json.dumps(summary_data.get("score_bucket_breakdown") or {}, ensure_ascii=False),
@@ -606,6 +624,11 @@ class BacktestService(_ScoreEffectivenessMixin):
             "capital_flow_score_at_eval": getattr(row, "capital_flow_score_at_eval", None),
             "exit_reason": getattr(row, "exit_reason", None),
             "hold_days": getattr(row, "hold_days", None),
+            # v3
+            "entry_status": getattr(row, "entry_status", None),
+            "r_multiple": getattr(row, "r_multiple", None),
+            "mae_pct": getattr(row, "mae_pct", None),
+            "mfe_pct": getattr(row, "mfe_pct", None),
         }
 
     @staticmethod
@@ -632,6 +655,18 @@ class BacktestService(_ScoreEffectivenessMixin):
             "take_profit_trigger_rate": row.take_profit_trigger_rate,
             "ambiguous_rate": row.ambiguous_rate,
             "avg_days_to_first_hit": row.avg_days_to_first_hit,
+            "fill_rate_pct": getattr(row, "fill_rate_pct", None),
+            "filled_count": getattr(row, "filled_count", None) or 0,
+            "not_filled_count": getattr(row, "not_filled_count", None) or 0,
+            "not_filled_limit_up_count": getattr(row, "not_filled_limit_up_count", None) or 0,
+            "trade_win_rate_pct": getattr(row, "trade_win_rate_pct", None),
+            "expectancy_pct": getattr(row, "expectancy_pct", None),
+            "avg_r_multiple": getattr(row, "avg_r_multiple", None),
+            "profit_factor": getattr(row, "profit_factor", None),
+            "max_drawdown_pct": getattr(row, "max_drawdown_pct", None),
+            "avg_mae_pct": getattr(row, "avg_mae_pct", None),
+            "avg_mfe_pct": getattr(row, "avg_mfe_pct", None),
+            "ambiguous_count": getattr(row, "ambiguous_count", None) or 0,
             "diagnostics": json.loads(row.diagnostics_json) if row.diagnostics_json else {},
             "signal_breakdown": json.loads(row.signal_breakdown_json) if getattr(row, "signal_breakdown_json", None) else {},
             "score_bucket_breakdown": json.loads(row.score_bucket_breakdown_json) if getattr(row, "score_bucket_breakdown_json", None) else {},

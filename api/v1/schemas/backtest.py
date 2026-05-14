@@ -16,12 +16,8 @@ class BacktestRunRequest(BaseModel):
     limit: int = Field(200, ge=1, le=2000, description="最多处理的分析记录数")
     strategies: Optional[List[str]] = Field(
         None,
-        description=(
-            "Strategies to evaluate per analysis record: buy_pullback / breakout / "
-            "bottom_reversal / eod_buyback. Each picked strategy produces one BacktestResult "
-            "row per analysis (so users can compare per-strategy performance). "
-            "Defaults to ['buy_pullback'] if omitted."
-        ),
+        deprecated=True,
+        description="Deprecated since v3: backtest now replays each AI plan as-is, no strategy override.",
     )
 
 
@@ -76,8 +72,13 @@ class BacktestResultItem(BaseModel):
     macd_score_at_eval: Optional[int] = None
     rsi_score_at_eval: Optional[int] = None
     capital_flow_score_at_eval: Optional[int] = None
-    exit_reason: Optional[str] = None  # stop_loss / trailing_ma10 / stage_break_+12pct / hardcap_+20pct / window_end / ...
+    exit_reason: Optional[str] = None  # stop_loss / take_profit / time_exit / not_filled / not_filled_limit_up / stop_loss_ambiguous / cash
     hold_days: Optional[int] = None
+    # v3: AI-plan execution
+    entry_status: Optional[str] = None  # filled / not_filled / not_filled_limit_up
+    r_multiple: Optional[float] = None
+    mae_pct: Optional[float] = None
+    mfe_pct: Optional[float] = None
 
 
 class BacktestResultsResponse(BaseModel):
@@ -112,6 +113,20 @@ class PerformanceMetrics(BaseModel):
     take_profit_trigger_rate: Optional[float] = None
     ambiguous_rate: Optional[float] = None
     avg_days_to_first_hit: Optional[float] = None
+
+    # v3: AI-plan execution metrics
+    fill_rate_pct: Optional[float] = None
+    filled_count: int = 0
+    not_filled_count: int = 0
+    not_filled_limit_up_count: int = 0
+    trade_win_rate_pct: Optional[float] = None
+    expectancy_pct: Optional[float] = None
+    avg_r_multiple: Optional[float] = None
+    profit_factor: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
+    avg_mae_pct: Optional[float] = None
+    avg_mfe_pct: Optional[float] = None
+    ambiguous_count: int = 0
 
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
     signal_breakdown: Dict[str, Any] = Field(default_factory=dict)

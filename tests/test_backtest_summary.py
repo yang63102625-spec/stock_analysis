@@ -26,8 +26,13 @@ class FakeRow:
     buy_signal_at_eval: Optional[str] = "BUY"
     market_environment_at_eval: Optional[str] = "sideways"
     strategy_id: Optional[str] = "buy_pullback"
-    exit_reason: Optional[str] = "window_end"
+    exit_reason: Optional[str] = "time_exit"
     hold_days: Optional[int] = 5
+    # v3 fields
+    entry_status: Optional[str] = "filled"
+    r_multiple: Optional[float] = None
+    mae_pct: Optional[float] = None
+    mfe_pct: Optional[float] = None
 
 
 class BacktestSummaryTestCase(unittest.TestCase):

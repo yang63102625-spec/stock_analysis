@@ -137,6 +137,100 @@ class _DatabaseManagerCore:
                     except Exception:
                         pass  # Column may already exist
 
+                # v3 backtest engine: AI-plan execution (no strategy override).
+                # Order matters:
+                #   1) ADD COLUMN (always safe)
+                #   2) WIPE legacy v2 rows so the new unique index doesn't conflict
+                #   3) DROP old strategy-keyed index + CREATE the v3 index
+                for sql in [
+                    "ALTER TABLE backtest_results ADD COLUMN entry_status VARCHAR(24)",
+                    "ALTER TABLE backtest_results ADD COLUMN r_multiple FLOAT",
+                    "ALTER TABLE backtest_results ADD COLUMN mae_pct FLOAT",
+                    "ALTER TABLE backtest_results ADD COLUMN mfe_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN fill_rate_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN filled_count INTEGER DEFAULT 0",
+                    "ALTER TABLE backtest_summaries ADD COLUMN not_filled_count INTEGER DEFAULT 0",
+                    "ALTER TABLE backtest_summaries ADD COLUMN not_filled_limit_up_count INTEGER DEFAULT 0",
+                    "ALTER TABLE backtest_summaries ADD COLUMN trade_win_rate_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN expectancy_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN avg_r_multiple FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN profit_factor FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN max_drawdown_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN avg_mae_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN avg_mfe_pct FLOAT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN ambiguous_count INTEGER DEFAULT 0",
+                ]:
+                    try:
+                        conn.execute(text(sql))
+                        conn.commit()
+                    except Exception:
+                        pass
+
+                # One-shot wipe of v2 backtest rows (engine semantics changed in v3).
+                try:
+                    sentinel = conn.execute(
+                        text(
+                            "SELECT COUNT(*) FROM backtest_summaries "
+                            "WHERE scope = '__migration_marker__' AND code = 'engine_v3'"
+                        )
+                    ).scalar() or 0
+                    if int(sentinel) == 0:
+                        legacy_results = conn.execute(text("SELECT COUNT(*) FROM backtest_results")).scalar() or 0
+                        legacy_summaries = conn.execute(
+                            text(
+                                "SELECT COUNT(*) FROM backtest_summaries "
+                                "WHERE scope != '__migration_marker__'"
+                            )
+                        ).scalar() or 0
+                        if int(legacy_results) + int(legacy_summaries) > 0:
+                            logger.info(
+                                "[Migration] One-shot wipe v3: backtest_results=%d backtest_summaries=%d",
+                                int(legacy_results), int(legacy_summaries),
+                            )
+                            conn.execute(text("DELETE FROM backtest_results"))
+                            conn.execute(
+                                text(
+                                    "DELETE FROM backtest_summaries "
+                                    "WHERE scope != '__migration_marker__'"
+                                )
+                            )
+                        conn.execute(
+                            text(
+                                "INSERT INTO backtest_summaries (scope, code, eval_window_days) "
+                                "VALUES ('__migration_marker__', 'engine_v3', 0)"
+                            )
+                        )
+                        conn.commit()
+                except Exception as exc:
+                    logger.debug("[Migration] v3 wipe skipped: %s", exc)
+
+                # Now that legacy duplicate-strategy rows are gone, swap the unique index.
+                for sql in [
+                    "DROP INDEX IF EXISTS uix_backtest_analysis_window_strategy",
+                    (
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uix_backtest_analysis_window "
+                        "ON backtest_results (analysis_history_id, eval_window_days)"
+                    ),
+                ]:
+                    try:
+                        conn.execute(text(sql))
+                        conn.commit()
+                    except Exception:
+                        pass
+
+                # Fallback: SQLite refuses ALTER TABLE DROP COLUMN when the column is
+                # referenced by an inline table-level UNIQUE constraint (vs a separate
+                # CREATE INDEX). Older DBs created backtest_results / backtest_summaries
+                # with `CONSTRAINT ... UNIQUE (..., engine_version)` baked into the table
+                # definition; the DROP above silently fails and writes then crash with
+                # `NOT NULL constraint failed: backtest_results.engine_version`. Detect
+                # any leftover engine_version column and rebuild the table without it.
+                try:
+                    self._drop_legacy_engine_version_column(conn, "backtest_results")
+                    self._drop_legacy_engine_version_column(conn, "backtest_summaries")
+                except Exception as exc:
+                    logger.warning("[Migration] engine_version cleanup skipped: %s", exc)
+
                 # One-shot wipe: legacy backtest data uses incompatible semantics
                 # (text-based advice parsing, no signal_score, no exit_reason / hold_days,
                 # picker backtest pre-trade_levels engine). Wipe everything once on the
@@ -180,6 +274,44 @@ class _DatabaseManagerCore:
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(type(self)._cleanup_engine, self._engine)
     
+    @staticmethod
+    def _drop_legacy_engine_version_column(conn, table: str) -> None:
+        """Rebuild `table` to remove the `engine_version` column when ALTER TABLE
+        DROP COLUMN was blocked by an inline UNIQUE constraint referencing it.
+
+        Safe no-op if the column is already gone.
+        """
+        from sqlalchemy import text
+
+        cols = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        if not any(row[1] == "engine_version" for row in cols):
+            return
+
+        kept_cols = [row[1] for row in cols if row[1] != "engine_version"]
+        col_list = ", ".join(f'"{c}"' for c in kept_cols)
+        tmp_table = f"{table}__rebuild_no_engver"
+
+        conn.execute(text(f"DROP TABLE IF EXISTS {tmp_table}"))
+        conn.execute(text(f"ALTER TABLE {table} RENAME TO {tmp_table}"))
+        # Indexes follow the renamed table; drop them so metadata.create can
+        # recreate the canonical names without collision.
+        idx_rows = conn.execute(
+            text(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=:t "
+                "AND name NOT LIKE 'sqlite_%'"
+            ),
+            {"t": tmp_table},
+        ).fetchall()
+        for (idx_name,) in idx_rows:
+            conn.execute(text(f'DROP INDEX IF EXISTS "{idx_name}"'))
+        Base.metadata.tables[table].create(bind=conn)
+        conn.execute(
+            text(f"INSERT INTO {table} ({col_list}) SELECT {col_list} FROM {tmp_table}")
+        )
+        conn.execute(text(f"DROP TABLE {tmp_table}"))
+        conn.commit()
+        logger.info("[Migration] rebuilt %s without legacy engine_version column", table)
+
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
         """获取单例实例"""

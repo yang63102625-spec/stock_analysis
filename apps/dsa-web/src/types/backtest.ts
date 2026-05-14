@@ -5,15 +5,12 @@
 
 // ============ Request / Response ============
 
-export type IndividualBacktestStrategy = 'buy_pullback' | 'breakout' | 'bottom_reversal' | 'eod_buyback';
-
 export interface BacktestRunRequest {
   code?: string;
   force?: boolean;
   evalWindowDays?: number;
   minAgeDays?: number;
   limit?: number;
-  strategies?: IndividualBacktestStrategy[];
 }
 
 export interface BacktestRunResponse {
@@ -71,6 +68,11 @@ export interface BacktestResultItem {
   capitalFlowScoreAtEval?: number;
   exitReason?: string;
   holdDays?: number;
+  // v3: AI-plan execution
+  entryStatus?: string;
+  rMultiple?: number;
+  maePct?: number;
+  mfePct?: number;
 }
 
 export interface BacktestResultsResponse {
@@ -107,6 +109,20 @@ export interface PerformanceMetrics {
   takeProfitTriggerRate?: number;
   ambiguousRate?: number;
   avgDaysToFirstHit?: number;
+
+  // v3 AI-plan execution metrics
+  fillRatePct?: number;
+  filledCount: number;
+  notFilledCount: number;
+  notFilledLimitUpCount: number;
+  tradeWinRatePct?: number;
+  expectancyPct?: number;
+  avgRMultiple?: number;
+  profitFactor?: number;
+  maxDrawdownPct?: number;
+  avgMaePct?: number;
+  avgMfePct?: number;
+  ambiguousCount: number;
 
   diagnostics: Record<string, unknown>;
   signalBreakdown?: Record<string, BreakdownBucket>;

@@ -42,6 +42,7 @@ class BacktestServiceTestCase(unittest.TestCase):
                     operation_advice="买入",
                     trend_prediction="看多",
                     analysis_summary="test",
+                    ideal_buy=100.0,
                     stop_loss=95.0,
                     take_profit=110.0,
                     # v2 backtest engine drives positions from buy_signal, not from
@@ -133,11 +134,14 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(result.first_hit_trading_days, 1)
         self.assertEqual(result.first_hit_date, date(2024, 1, 2))
 
-        # Simulated execution. The trade_levels engine applies slippage and
-        # strategy-specific exit rules, so concrete sim values are covered by
-        # ``tests/test_trade_levels.py``. Here we only assert that the long
-        # entry price equals the start price.
-        self.assertAlmostEqual(result.simulated_entry_price, 100.0)
+        # v3 strict execution: entered at ideal_buy (100) on day 1 (low=100, high=111).
+        # Slippage (0.05%) bumps the fill to ~100.05; take_profit=110 hits day 1 too,
+        # so the trade closes at 110 less slippage. Use coarse tolerance because
+        # exact fees/slippage are tested separately in test_backtest_engine.
+        self.assertEqual(result.entry_status, "filled")
+        self.assertAlmostEqual(result.simulated_entry_price, 100.0, delta=0.5)
+        self.assertEqual(result.exit_reason, "take_profit")
+        self.assertAlmostEqual(result.simulated_exit_price, 110.0, delta=0.5)
 
     def test_summaries_created_after_run(self) -> None:
         """Verify both overall and per-stock BacktestSummary rows are created."""

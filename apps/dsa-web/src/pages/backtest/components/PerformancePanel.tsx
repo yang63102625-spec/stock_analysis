@@ -76,14 +76,31 @@ export const PerformancePanel: React.FC<{ metrics: PerformanceMetrics; title: st
         <span className="text-amber-500">{metrics.neutralCount}平</span>
       </span>
     </div>
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1 divide-x divide-border/40">
-      <StatCell label="方向准确率" value={pct(metrics.directionAccuracyPct)} accent />
-      <StatCell label="胜率" value={pct(metrics.winRatePct)} accent />
-      <StatCell label="模拟收益" value={pct(metrics.avgSimulatedReturnPct)} />
-      <StatCell label="股票收益" value={pct(metrics.avgStockReturnPct)} />
-      <StatCell label="止损触发" value={pct(metrics.stopLossTriggerRate)} />
-      <StatCell label="止盈触发" value={pct(metrics.takeProfitTriggerRate)} />
-      <StatCell label="触发天数" value={metrics.avgDaysToFirstHit != null ? metrics.avgDaysToFirstHit.toFixed(1) : '--'} />
+    <div className="space-y-2">
+      <div className="text-[10px] text-muted px-1">信号层（AI 方向判断）</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 divide-x divide-border/40">
+        <StatCell label="方向准确率" value={pct(metrics.directionAccuracyPct)} accent />
+        <StatCell label="信号胜率" value={pct(metrics.winRatePct)} />
+        <StatCell label="股票收益" value={pct(metrics.avgStockReturnPct)} />
+        <StatCell label="评估总数" value={String(metrics.completedCount)} />
+      </div>
+      <div className="text-[10px] text-muted px-1 pt-1">执行层（按 AI 计划严格成交）</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-1 divide-x divide-border/40">
+        <StatCell label="入场率" value={pct(metrics.fillRatePct)} accent />
+        <StatCell label="交易胜率" value={pct(metrics.tradeWinRatePct)} accent />
+        <StatCell label="期望值" value={pct(metrics.expectancyPct)} accent />
+        <StatCell label="平均 R" value={metrics.avgRMultiple != null ? metrics.avgRMultiple.toFixed(2) : '--'} accent />
+        <StatCell label="盈亏因子" value={metrics.profitFactor != null ? metrics.profitFactor.toFixed(2) : '--'} />
+        <StatCell label="已成交" value={`${metrics.filledCount}/${metrics.filledCount + metrics.notFilledCount}`} />
+        <StatCell label="涨停过滤" value={String(metrics.notFilledLimitUpCount)} />
+      </div>
+      <div className="text-[10px] text-muted px-1 pt-1">风险层（净值与歧义）</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 divide-x divide-border/40">
+        <StatCell label="最大回撤" value={pct(metrics.maxDrawdownPct)} />
+        <StatCell label="平均 MAE" value={pct(metrics.avgMaePct)} />
+        <StatCell label="平均 MFE" value={pct(metrics.avgMfePct)} />
+        <StatCell label="同 bar 歧义" value={`${metrics.ambiguousCount} (${pct(metrics.ambiguousRate)})`} />
+      </div>
     </div>
     <BreakdownGrid metrics={metrics} />
   </div>

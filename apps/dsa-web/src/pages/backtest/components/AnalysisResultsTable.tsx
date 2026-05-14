@@ -53,7 +53,9 @@ export const AnalysisResultsTable: React.FC<AnalysisResultsTableProps> = ({
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">策略</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">方向</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">结果</th>
+                <th className="px-4 py-3 text-left text-xs text-muted font-medium">入场</th>
                 <th className="px-4 py-3 text-right text-xs text-muted font-medium">收益率</th>
+                <th className="px-4 py-3 text-right text-xs text-muted font-medium">R</th>
                 <th className="px-4 py-3 text-right text-xs text-muted font-medium">持仓</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">退出原因</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">状态</th>
@@ -82,13 +84,36 @@ export const AnalysisResultsTable: React.FC<AnalysisResultsTableProps> = ({
                     </span>
                   </td>
                   <td className="px-4 py-2.5">{outcomeBadge(row.outcome)}</td>
+                  <td className="px-4 py-2.5 text-xs">
+                    <span className={
+                      row.entryStatus === 'filled' ? 'text-emerald-500'
+                        : row.entryStatus === 'not_filled_limit_up' ? 'text-amber-500'
+                        : row.entryStatus ? 'text-muted'
+                        : 'text-muted'
+                    }>
+                      {row.entryStatus === 'filled' ? '已成交'
+                        : row.entryStatus === 'not_filled' ? '未触及'
+                        : row.entryStatus === 'not_filled_limit_up' ? '涨停过滤'
+                        : '--'}
+                    </span>
+                  </td>
                   <td className="px-4 py-2.5 text-sm font-mono text-right">
                     <span className={
-                      row.simulatedReturnPct != null
+                      row.simulatedReturnPct != null && row.entryStatus === 'filled'
                         ? row.simulatedReturnPct > 0 ? 'text-red-600' : row.simulatedReturnPct < 0 ? 'text-emerald-600' : 'text-secondary'
                         : 'text-muted'
                     }>
-                      {pct(row.simulatedReturnPct)}
+                      {row.entryStatus === 'filled' ? pct(row.simulatedReturnPct) : '--'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs font-mono text-right">
+                    <span className={
+                      row.rMultiple == null ? 'text-muted'
+                        : row.rMultiple > 0 ? 'text-red-600'
+                        : row.rMultiple < 0 ? 'text-emerald-600'
+                        : 'text-secondary'
+                    }>
+                      {row.rMultiple != null ? `${row.rMultiple > 0 ? '+' : ''}${row.rMultiple.toFixed(2)}` : '--'}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-xs font-mono text-right text-secondary">

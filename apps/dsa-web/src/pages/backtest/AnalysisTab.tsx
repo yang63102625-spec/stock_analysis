@@ -3,7 +3,6 @@ import { ApiErrorAlert, Spinner } from '../../components/common';
 import { useAnalysisBacktest } from './hooks/useAnalysisBacktest';
 import { PerformancePanel } from './components/PerformancePanel';
 import { RunSummary } from './components/RunSummary';
-import { StrategyChips } from './components/StrategyChips';
 import { AnalysisResultsTable } from './components/AnalysisResultsTable';
 
 export const AnalysisTab: React.FC = () => {
@@ -16,13 +15,9 @@ export const AnalysisTab: React.FC = () => {
   return (
     <>
       <div className="card-elevated p-6 mb-8 space-y-3">
-        <StrategyChips
-          label="模拟买卖规则"
-          value={a.individualStrategies}
-          onChange={a.setIndividualStrategies}
-          disabled={a.isRunning}
-          hint="选择回测时用哪种买卖点规则模拟入场/出场；同一条 AI 推荐可按多种规则各跑一次以对比效果"
-        />
+        <div className="text-xs text-muted">
+          回测严格按每条 AI 推荐自带的买入价 / 止损 / 止盈在历史 K 线上模拟执行（含 0.05% 滑点 + 0.075% 单边手续费 + 涨停过滤；同 bar 双触发取止损保守口径）。
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="text"
