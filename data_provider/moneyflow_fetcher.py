@@ -40,6 +40,28 @@ class MoneyflowFetcher:
             logger.error(f"Failed to fetch north-bound flow: {e}")
             return None
 
+    def get_market_moneyflow(self, trade_date: str) -> Optional[pd.DataFrame]:
+        """Bulk-fetch full-market money flow for a single trade date.
+
+        Tushare ``moneyflow(trade_date=td)`` returns one row per ts_code
+        for that date — much cheaper than per-stock loops in backtests.
+
+        trade_date: YYYYMMDD or YYYY-MM-DD.
+        Returns DataFrame with all default fields (buy/sell ×
+        sm/md/lg/elg + net_mf_amount). Returns None on failure.
+        """
+        td = trade_date.replace("-", "")
+        try:
+            df = self._pro.moneyflow(trade_date=td)
+            if df is None or df.empty:
+                logger.warning(f"moneyflow({td}) empty")
+                return None
+            df.columns = [c.lower() for c in df.columns]
+            return df
+        except Exception as e:
+            logger.warning(f"moneyflow({td}) failed: {e}")
+            return None
+
     def get_stock_moneyflow(self, ts_code: str, days: int = 5) -> Optional[pd.DataFrame]:
         """
         Get individual stock money flow (large/small orders) for recent N days.

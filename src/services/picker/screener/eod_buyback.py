@@ -591,6 +591,54 @@ class _EodBuybackMixin:
         if df_filtered.empty:
             return []
 
+        # --- Money flow filter (Iter-3): require main-force net inflow ---
+        # Hypothesis: T+1 short-term alpha comes from "institutions accumulate
+        # while retail sells" (smart money / dumb money divergence). For the
+        # mean-reversion eod_buyback variant, the ideal candidate is one that
+        # the main force is QUIETLY buying on the dip.
+        # Filter: (大单+超大单 净流入 > 0) AND (中小单 净流出，即主散背离)
+        try:
+            from data_provider.moneyflow_fetcher import MoneyflowFetcher
+            mf = MoneyflowFetcher(api)
+            df_mf = mf.get_market_moneyflow(td)
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] moneyflow fetch failed: {e}; skipping flow filter")
+            df_mf = None
+
+        if df_mf is not None and not df_mf.empty:
+            df_mf["code"] = df_mf["ts_code"].str.split(".").str[0]
+            for col in ("buy_lg_amount", "buy_elg_amount", "sell_lg_amount",
+                        "sell_elg_amount", "buy_sm_amount", "buy_md_amount",
+                        "sell_sm_amount", "sell_md_amount"):
+                if col in df_mf.columns:
+                    df_mf[col] = pd.to_numeric(df_mf[col], errors="coerce").fillna(0)
+            df_mf["main_net"] = (
+                df_mf.get("buy_lg_amount", 0) + df_mf.get("buy_elg_amount", 0)
+                - df_mf.get("sell_lg_amount", 0) - df_mf.get("sell_elg_amount", 0)
+            )
+            df_mf["retail_net"] = (
+                df_mf.get("buy_sm_amount", 0) + df_mf.get("buy_md_amount", 0)
+                - df_mf.get("sell_sm_amount", 0) - df_mf.get("sell_md_amount", 0)
+            )
+            flow_lookup = df_mf.set_index("code")[["main_net", "retail_net"]].to_dict("index")
+            before = len(df_filtered)
+            keep_codes = []
+            for code in df_filtered["code"]:
+                f = flow_lookup.get(code)
+                if f is None:
+                    continue  # no flow data → drop（保守，避免污染）
+                if f["main_net"] > 0 and f["retail_net"] < 0:
+                    keep_codes.append(code)
+            df_filtered = df_filtered[df_filtered["code"].isin(keep_codes)].copy()
+            logger.info(
+                f"[EOD-HIST] {td}: moneyflow filter (main>0 & retail<0): {before} → {len(df_filtered)}"
+            )
+        else:
+            logger.warning(f"[EOD-HIST] {td}: moneyflow unavailable, no flow filter applied")
+
+        if df_filtered.empty:
+            return []
+
         # Iter-3 P lever: smart-money confirmation via moneyflow (超大单净流入).
         # The "+0~2% intraday + low vol_ratio" signal from G/H is a *timing*
         # filter — it tells us when a contrarian setup exists. To pick which
