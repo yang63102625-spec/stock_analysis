@@ -189,6 +189,13 @@ class CachingDataFetcherManager:
             self._cache[key] = result
         return result
 
+    def __getattr__(self, name: str):
+        """Delegate any non-overridden attribute (methods like
+        get_index_daily_data, get_stock_basic, etc.) to the underlying
+        manager. Avoids having to mirror every method here.
+        """
+        return getattr(self._underlying, name)
+
     def clear_cache(self) -> None:
         """Clear cache (e.g. before a new backtest run)."""
         with self._lock:
