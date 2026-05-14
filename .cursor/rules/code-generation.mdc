@@ -27,7 +27,12 @@ alwaysApply: false
 ## 3. 依赖注入
 公开服务类（`SearchService` / `NotificationService` / `Analyzer`）通过构造参数传入，禁止函数内 `SearchService()` 硬实例化。便于测试 mock。
 
-## 4. 提交前自检
-- `import` 都被使用？
-- `Optional[T]` / 空列表 / `None` 分支处理？
-- 改了核心逻辑同步看 `tests/`？
+## 4. 风格与测试
+- 行宽 120；遵循 `black` + `isort` + `flake8`。
+- 关键变更必须做语法或测试验证：`./test.sh syntax`，或 `.venv/bin/python -m pytest -x tests/<targeted>`，或对单文件做 `python -m py_compile`。
+- 改了核心逻辑同步看 `tests/`，必要时新增 / 更新测试。
+
+## 5. 提交前自检
+- 未使用的 `import` / 变量都删了？
+- `Optional[T]` / 空列表 / `None` 分支处理了？
+- 没有把 plan / fix 说明留成代码注释（这些写到 commit message）？
