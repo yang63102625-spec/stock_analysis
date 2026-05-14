@@ -69,8 +69,9 @@ alwaysApply: true
 所有 endpoint 返回统一信封 `{"code": 0, "message": "success", "data": {...}, "timestamp": "..."}`。具体怎么写见 project-patterns §1。
 
 ### 禁裸 except
-- **禁止** 裸 `except:` 或 `except Exception:` 不 re-raise / 不 log。
-- 总是捕获 **specific** 异常类型。`except Exception as e:` 仅在最外层（main entry）使用，且必须 log full traceback。
+- **禁止** 裸 `except:` 或 `except Exception:` 后只 `pass` / `return None` / 只 `logger.error` 就吞掉。即便记了日志，也必须满足以下之一：(a) re-raise 为 specific 异常类型；(b) 返回带语义的结构化错误（如 `error_response(...)`、`{"error": ...}`、`(None, reason)`）让上游能做差异化处理。
+- 总是优先捕获 **specific** 异常类型（`requests.Timeout`、`ValueError`、`KeyError` 等）。`except Exception as e:` 仅在最外层（main entry / FastAPI global handler）使用，且必须 log full traceback。
+- 反例：`except Exception as e: logger.error(e); return None` —— 上游无法区分"超时"和"参数错误"，直接违反本规则。
 
 ### 网络调用
 - 所有 HTTP / 外部 API 调用 MUST 设置显式 `timeout=` 参数。
