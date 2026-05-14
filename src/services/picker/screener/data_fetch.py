@@ -255,8 +255,18 @@ class _DataFetchMixin:
             return None
 
     def _get_tushare_api(self):
-        """Get Tushare API instance from data_manager or create one."""
-        return get_tushare_api(self._data_manager)
+        """Get Tushare API instance from data_manager or create one.
+
+        In historical/backtest mode (self._as_of_date set), wraps the api
+        in a parquet-cached proxy so repeated iter runs are sub-second.
+        """
+        api = get_tushare_api(self._data_manager)
+        if api is None:
+            return None
+        if getattr(self, "_as_of_date", None):
+            from src.services.picker._tushare_cache import wrap_api
+            return wrap_api(api)
+        return api
 
     def _supplement_realtime_data(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """Overlay realtime fields onto the Tushare daily DataFrame.

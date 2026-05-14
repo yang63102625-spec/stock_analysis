@@ -95,9 +95,10 @@ class PickerBacktestService:
         self._tushare_api = None
 
     def _get_tushare_api(self):
-        """Get Tushare API for trade_cal and benchmark (cached)."""
+        """Get Tushare API for trade_cal and benchmark (cached, with disk parquet)."""
         if self._tushare_api is None:
-            self._tushare_api = get_tushare_api(self._data_manager)
+            from src.services.picker._tushare_cache import wrap_api
+            self._tushare_api = wrap_api(get_tushare_api(self._data_manager))
         return self._tushare_api
 
     def _get_trade_dates(self, start_date: str, end_date: str) -> List[str]:
