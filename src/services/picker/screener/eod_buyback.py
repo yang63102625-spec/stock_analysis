@@ -517,6 +517,9 @@ class _EodBuybackMixin:
             else:
                 df_csi.columns = [c.lower() for c in df_csi.columns]
                 csi_pct = float(df_csi.iloc[0].get("pct_chg", 0))
+                # Reversal needs a meaningful selloff. Don't cap the lower bound —
+                # Iter-3 evidence: tightening to [-1.5, -0.5] dropped WR from 44.9
+                # to 39.5%. The biggest winners come from the worst panic days.
                 if csi_pct > -0.5:
                     logger.info(
                         f"[EOD-HIST] {td}: CSI300 pct_chg={csi_pct:+.2f}% > -0.5%, "
@@ -578,7 +581,7 @@ class _EodBuybackMixin:
         else:
             df["name"] = ""
         chg = pd.to_numeric(df["pct_chg"], errors="coerce")
-        mask &= (chg >= 0.0) & (chg <= 2.0)  # 抗跌微涨（大盘跌 0.5%+ 时它涨 0~2% 即明显抗跌）
+        mask &= (chg >= -0.5) & (chg <= 1.5)  # Iter-9: 更纯粹的"弱抗跌"信号（含小幅微跌）
         tr = pd.to_numeric(df["turnover_rate"], errors="coerce")
         mask &= (tr >= 2.0) & (tr <= 8.0)    # 适度活跃但不过热（缩量为主）
         mc = pd.to_numeric(df["total_mv_yi"], errors="coerce")
@@ -644,7 +647,7 @@ class _EodBuybackMixin:
         # 当日主力净流入 ≥ 千万级别. Tushare moneyflow amounts are in 千元
         # (thousands of CNY), so 1000 万元 = 10000 千元 = 10000 in the column.
         if df_mf is not None and not df_mf.empty:
-            MAIN_FORCE_MIN_KCNY = 3000  # 300 万元 (1000万 太严, mean-reversion 候选缺大资金特征)
+            MAIN_FORCE_MIN_KCNY = 5000  # Iter-8: 500万元 (300万→500万 提质)
             before_n = len(df_filtered)
             keep_codes = []
             for code in df_filtered["code"]:
@@ -685,6 +688,9 @@ class _EodBuybackMixin:
         except Exception as e:
             logger.warning(f"[EOD-HIST] {td}: north flow check failed: {e}, proceeding")
 
+        # Iter-10 evidence: chg_60d>=-10% filter dropped 0 candidates
+        # (mean-reversion picks aren't in steep downtrends). Removed.
+
         # Iter-3 P bonus: 过去 3 个交易日上过龙虎榜的票优先（资金注意力信号）
         dragon_codes: set = set()
         try:
@@ -716,6 +722,9 @@ class _EodBuybackMixin:
             logger.info(
                 f"[EOD-HIST] {td}: 过去 3 日龙虎榜（净买入）覆盖 {len(dragon_codes)} 只票"
             )
+            # Iter-6 evidence: 龙虎榜 hard filter → 0 picks (88 dragon codes
+            # have ZERO overlap with 12 mean-reversion candidates — opposite
+            # signals). Reverted to bonus-only via existing scoring code.
         except Exception as e:
             logger.warning(f"[EOD-HIST] {td}: top_list bonus failed: {e}")
 

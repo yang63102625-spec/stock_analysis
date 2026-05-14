@@ -235,9 +235,7 @@ class PickerBacktestService:
             ENTRY_SLIPPAGE = 0.0015
             EXIT_SLIPPAGE = 0.0015
             COST_ROUND_TRIP_PCT = 0.10  # commission 0.025%×2 + stamp duty 0.05%
-            # Iter-2: TP/SL 不对称 +4% / -2.5% (1.6:1 赔率).
-            # baseline 数据 TP=11 / SL=15 + Iter-1 TP=14 / SL=13 → T+1 涨跌略偏正,
-            # 用更宽松 TP / 更紧止损放大优势.
+            # Reverted to Iter-2 best: TP 4% / SL 2.5% (PF 0.80, WR 44.9%)
             T1_TAKE_PROFIT = 0.04
             T1_STOP_LOSS = 0.025
 
