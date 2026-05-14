@@ -10,9 +10,12 @@ alwaysApply: false
 具体实现模板见 [project-patterns.mdc](mdc:.cursor/rules/project-patterns.mdc)。
 本文件只列**本仓特有**的写代码要求。
 
-## 1. 注释与文档
-- 新增 / 修改的 docstring 和注释必须**英文**（与 AGENTS.md 一致）。
-- 不主动加 narrating comment（`# Increment counter` 这种）。
+## 1. 注释与文档（极简原则）
+- docstring / 注释一律**英文**（与 AGENTS.md 一致）。
+- **默认不写注释**。代码 + 命名能表达意图就足够。
+- **可写**的 3 种情况：(a) 解释 *为什么* 这么写（trade-off / workaround / 上游怪癖）；(b) 公开函数的一行 docstring 说明用途；(c) 复杂正则 / 算法的一句概述。
+- **禁止**：narrating（`# Increment counter`）、复述代码（`# Loop over items`）、临时调试遗留（`# TODO: fix later`）、装饰性分隔（`# === Section ===`）、修复说明（`# Fix #123: ...`，写到 commit message 去）。
+- 修复 bug 时不要顺手在代码里"留个证据注释"，commit message + git blame 已经够了。
 
 ## 2. 复用既有基础设施
 - 配置：`from src.config import get_config`。
