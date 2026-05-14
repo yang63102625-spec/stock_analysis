@@ -335,43 +335,41 @@ class _DashboardMixin:
                 )
                 stock_name = self._escape_md(stock_name)
 
-                lines.append(f"### {signal_emoji} **{signal_text}** | {stock_name}({result.code})")
-                lines.append("")
+                # Title: emoji + name + signal + score
+                lines.append(
+                    f"{signal_emoji} {stock_name}({result.code}) | {signal_text} | "
+                    f"{result.sentiment_score}分"
+                )
 
+                # One-sentence decision
                 one_sentence = (
                     core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary
                 )
                 if one_sentence:
-                    lines.append(f"📌 **{one_sentence[:80]}**")
-                    lines.append("")
+                    lines.append(f"📌 {one_sentence[:80]}")
 
-                info_lines = []
+                # Intelligence: earnings + sentiment in one line
+                info_parts = []
                 if intel.get('earnings_outlook'):
-                    outlook = intel['earnings_outlook'][:60]
-                    info_lines.append(f"📊 业绩: {outlook}")
+                    info_parts.append(f"📊 业绩:{intel['earnings_outlook'][:40]}")
                 if intel.get('sentiment_summary'):
-                    sentiment = intel['sentiment_summary'][:50]
-                    info_lines.append(f"💭 舆情: {sentiment}")
-                if info_lines:
-                    lines.extend(info_lines)
-                    lines.append("")
+                    info_parts.append(f"💭 舆情:{intel['sentiment_summary'][:35]}")
+                if info_parts:
+                    lines.append(" | ".join(info_parts))
 
+                # Risks: compact single line (comma-separated)
                 risks = intel.get('risk_alerts', []) if intel else []
                 if risks:
-                    lines.append("🚨 **风险**:")
-                    for risk in risks[:2]:
-                        risk_text = risk[:50] + "..." if len(risk) > 50 else risk
-                        lines.append(f"   • {risk_text}")
-                    lines.append("")
+                    risk_items = [r[:30] for r in risks[:3]]
+                    lines.append(f"🚨 {', '.join(risk_items)}")
 
+                # Catalysts: compact single line (comma-separated)
                 catalysts = intel.get('positive_catalysts', []) if intel else []
                 if catalysts:
-                    lines.append("✨ **利好**:")
-                    for cat in catalysts[:2]:
-                        cat_text = cat[:50] + "..." if len(cat) > 50 else cat
-                        lines.append(f"   • {cat_text}")
-                    lines.append("")
+                    cat_items = [c[:30] for c in catalysts[:3]]
+                    lines.append(f"✨ {', '.join(cat_items)}")
 
+                # Sniper points + position size in one line
                 sniper = battle.get('sniper_points', {}) if battle else {}
                 if sniper:
                     ideal_buy = sniper.get('ideal_buy', '')
@@ -379,36 +377,36 @@ class _DashboardMixin:
                     take_profit = sniper.get('take_profit', '')
                     points = []
                     if ideal_buy:
-                        points.append(f"🎯买点:{ideal_buy[:15]}")
+                        points.append(f"🎯买:{ideal_buy[:12]}")
                     if stop_loss:
-                        points.append(f"🛑止损:{stop_loss[:15]}")
+                        points.append(f"🛑损:{stop_loss[:12]}")
                     if take_profit:
-                        points.append(f"🎊目标:{take_profit[:15]}")
+                        points.append(f"🎊标:{take_profit[:12]}")
                     if points:
                         lines.append(" | ".join(points))
-                        lines.append("")
 
+                # Position advice: compact single line
                 pos_advice = core.get('position_advice', {}) if core else {}
                 if pos_advice:
+                    pos_parts = []
                     no_pos = pos_advice.get('no_position', '')
                     has_pos = pos_advice.get('has_position', '')
                     if no_pos:
-                        lines.append(f"🆕 空仓者: {no_pos[:50]}")
+                        pos_parts.append(f"🆕 {no_pos[:40]}")
                     if has_pos:
-                        lines.append(f"💼 持仓者: {has_pos[:50]}")
-                    lines.append("")
+                        pos_parts.append(f"💼 {has_pos[:40]}")
+                    if pos_parts:
+                        lines.append(" | ".join(pos_parts))
 
+                # Checklist: only show failed items, inline
                 checklist = battle.get('action_checklist', []) if battle else []
                 if checklist:
                     failed_checks = [c for c in checklist if c.startswith('❌') or c.startswith('⚠️')]
                     if failed_checks:
-                        lines.append("**检查未通过项**:")
-                        for check in failed_checks[:3]:
-                            lines.append(f"   {check[:40]}")
-                        lines.append("")
+                        lines.append("⚠️ " + "; ".join(c[:30] for c in failed_checks[:3]))
 
-                lines.append("---")
-                lines.append("")
+                # Compact separator between stocks
+                lines.append("────")
 
         lines.append(f"*生成时间: {datetime.now().strftime('%H:%M')}*")
         models = self._collect_models_used(results)
