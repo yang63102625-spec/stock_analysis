@@ -74,7 +74,9 @@ export const AnalysisResultsTable: React.FC<AnalysisResultsTableProps> = ({
                     <span className="font-mono text-primary">{row.buySignalAtEval || '--'}</span>
                   </td>
                   <td className="px-4 py-2.5 text-sm font-mono text-right text-primary">
-                    {row.signalScoreAtEval != null ? row.signalScoreAtEval : '--'}
+                    {row.signalScoreAtEval != null && row.signalScoreAtEval > 0
+                      ? row.signalScoreAtEval
+                      : '--'}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-secondary">{row.strategyId || '--'}</td>
                   <td className="px-4 py-2.5 text-sm">

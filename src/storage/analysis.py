@@ -496,7 +496,10 @@ class _AnalysisMixin:
         ta = enhanced.get("trend_analysis") or {}
         out: Dict[str, Any] = {}
         try:
+            # Agent path writes `total_score`; legacy path writes `signal_score`.
             ss = ta.get("signal_score")
+            if ss is None:
+                ss = ta.get("total_score")
             out["signal_score"] = int(ss) if ss is not None else None
         except (TypeError, ValueError):
             out["signal_score"] = None
@@ -530,6 +533,13 @@ class _AnalysisMixin:
                 out[k] = float(v) if v is not None else None
             except (TypeError, ValueError):
                 out[k] = None
+        # Clamp pathological risk_reward values (caused by stop≈ideal divisions
+        # in legacy compute_trade_levels). >100 has no real-world meaning;
+        # treat as missing so downstream backtest bucketing isn't polluted.
+        if out.get("risk_reward") is not None and (
+            out["risk_reward"] > 100 or out["risk_reward"] < 0
+        ):
+            out["risk_reward"] = None
         rule = tl.get("take_profit_2_rule")
         out["take_profit_2_rule"] = str(rule) if rule else None
         sid = tl.get("strategy_id") or enhanced.get("picker_strategy_id")

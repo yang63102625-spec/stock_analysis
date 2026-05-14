@@ -647,6 +647,41 @@ class _AnalysisMixin:
                                 f"[{code}] Agent mode: dimension scores computed "
                                 f"(total={trend_result.signal_score})"
                             )
+
+                            # Persist trade_levels block so backtest can replay
+                            # the AI plan against canonical entry/stop/target.
+                            try:
+                                from src.services.trade_levels import compute_trade_levels
+
+                                last = df.iloc[-1] if df is not None and len(df) else None
+                                current_price = float(
+                                    (realtime_quote.price if realtime_quote else None)
+                                    or (last['close'] if last is not None else 0)
+                                )
+                                if current_price > 0 and last is not None:
+                                    strategy_id = (
+                                        initial_context.get("picker_strategy_id")
+                                        or "buy_pullback"
+                                    )
+                                    tl = compute_trade_levels(
+                                        code=code,
+                                        strategy_id=strategy_id,
+                                        current_price=current_price,
+                                        ma5=float(last.get('ma5') or 0),
+                                        ma10=float(trend_result.ma10 or last.get('ma10') or 0),
+                                        ma20=float(trend_result.ma20 or last.get('ma20') or 0),
+                                        atr=float(trend_result.atr_20 or 0),
+                                        market_cap_yi=float(
+                                            getattr(realtime_quote, 'total_mv', 0) or 0
+                                        ) / 1e8,
+                                    )
+                                    tl_dict = tl.to_dict()
+                                    tl_dict['strategy_id'] = strategy_id
+                                    initial_context["enhanced_context"]["trade_levels"] = tl_dict
+                            except Exception as exc:
+                                logger.warning(
+                                    f"[{code}] Agent mode trade_levels skipped: {exc}"
+                                )
                 except Exception as e:
                     logger.warning(f"[{code}] Failed to compute dimension scores for backtest: {e}")
 

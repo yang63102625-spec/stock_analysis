@@ -264,6 +264,28 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertEqual(detail.get("stop_loss"), "110.0")
         self.assertEqual(detail.get("take_profit"), "150.0")
 
+    def test_extract_meta_signals_accepts_total_score_alias(self) -> None:
+        """Agent path writes `total_score`; extractor must read either key."""
+        ctx = {"enhanced_context": {"trend_analysis": {"total_score": 73, "buy_signal": "BUY"}}}
+        out = self.db._extract_meta_signals(ctx)
+        self.assertEqual(out["signal_score"], 73)
+        self.assertEqual(out["buy_signal"], "BUY")
+
+        ctx2 = {"enhanced_context": {"trend_analysis": {"signal_score": 42}}}
+        self.assertEqual(self.db._extract_meta_signals(ctx2)["signal_score"], 42)
+
+    def test_extract_trade_levels_meta_clamps_pathological_rr(self) -> None:
+        """Legacy compute_trade_levels can divide by ~0 stop band, producing
+        absurd risk_reward values. Treat >100 as missing instead of poisoning
+        the backtest risk_reward bucket."""
+        ctx = {"enhanced_context": {"trade_levels": {
+            "position_pct": 0.2, "risk_reward": 161060400.0, "strategy_id": "buy_pullback",
+        }}}
+        out = self.db._extract_trade_levels_meta(ctx)
+        self.assertEqual(out["position_pct"], 0.2)
+        self.assertIsNone(out["risk_reward"])
+        self.assertEqual(out["strategy_id"], "buy_pullback")
+
 
 if __name__ == "__main__":
     unittest.main()
