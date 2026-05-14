@@ -36,14 +36,7 @@ REALTIME_SOURCE_PRIORITY=tushare,tencent,akshare_sina,efinance,akshare_em
 
 ## 2. 日线数据源优先级
 
-日线数据也应该优先用 Tushare（已在 `data_provider/base.py` 中实现）：
-
-```python
-# _fetch_spot_data() 方法的优先级：
-# 1. Tushare (priority: 0)
-# 2. AkShare (priority: 1)
-# 3. efinance (priority: 2)
-```
+日线数据同样优先 Tushare。优先级硬编码在 `data_provider/base/manager.py` 的 fetcher 注册表中：Tushare > AkShare > efinance。需要调整时改注册表，不要在 fetcher 自己里写 fallback。
 
 ## 3. 选股场景中的应用
 
@@ -69,16 +62,14 @@ for source in source_priority:  # ["tushare", "tencent", ...]
 
 ## 4. 配置确认
 
-✅ 用户已确认：
-- 拥有 5000 积分 Tushare Token
-- Token 已在 `.env` 中配置：`TUSHARE_TOKEN=***REDACTED_TUSHARE_TOKEN***`
-- 每分钟 500 请求额度（对选股场景足够）
+- Token 已在 `.env` 中配置（变量名 `TUSHARE_TOKEN`，值不入库）。
+- 配额按 Tushare 控制台显示为准，对选股场景足够。
 
-因此所有涉及实时/日线数据的开发，**必须优先考虑 Tushare 作为第一数据源**。
+所有涉及实时/日线数据的开发，**必须优先考虑 Tushare 作为第一数据源**。
 
 ## 5. 相关文件
 
-- `src/config.py` - 配置管理
-- `data_provider/base.py` - 数据获取管理
-- `.env` - 环境变量配置
-- `src/services/stock_picker_service.py` - 选股服务（使用实时筛选）
+- `src/config/` - 配置管理（按域拆分：data_source / notification / picker / ...）
+- `data_provider/base/` - 数据获取管理（manager + mixin 拆分）
+- `.env` - 环境变量配置（不入库）
+- `src/services/picker/` - 选股服务（使用实时筛选）
