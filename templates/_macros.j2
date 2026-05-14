@@ -1,6 +1,6 @@
 {# Shared macros for report templates #}
-{%- macro market_snapshot(result) -%}
-{%- set snapshot = result.market_snapshot if result.market_snapshot else {} -%}
+{%- macro market_snapshot(result) %}
+{%- set snapshot = result.market_snapshot if result.market_snapshot else {} %}
 {%- if snapshot %}
 
 ### 📈 当日行情
@@ -13,6 +13,6 @@
 | 当前价 | 量比 | 换手率 | 行情来源 |
 |-------|------|--------|----------|
 | {{ snapshot.get('price', 'N/A') }} | {{ snapshot.get('volume_ratio', 'N/A') }} | {{ snapshot.get('turnover_rate', 'N/A') }} | {{ snapshot.get('source', 'N/A') }} |
-{%- endif -%}
-{%- endif -%}
+{%- endif %}
+{%- endif %}
 {%- endmacro %}
