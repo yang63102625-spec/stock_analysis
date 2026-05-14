@@ -505,6 +505,31 @@ class _EodBuybackMixin:
         td = as_of_date.replace("-", "")
         from src.services.picker_strategies import is_mainboard_stock
 
+        # Iter-1 H lever: market-regime filter (mean-reversion entry).
+        # Iter-0 evidence: only winning trades happened the day after CSI300
+        # dropped >=0.59%. The "尾盘异动 + 中盘 + 量比 2.5-4" combo behaves
+        # as a contrarian signal in A-share T+1 microstructure.
+        # Threshold: enter only when CSI300 closed at -0.5% or worse on `td`.
+        try:
+            df_csi = api.index_daily(ts_code="000300.SH", start_date=td, end_date=td)
+            if df_csi is None or df_csi.empty:
+                logger.warning(f"[EOD-HIST] {td}: CSI300 unavailable, skipping market-regime filter")
+            else:
+                df_csi.columns = [c.lower() for c in df_csi.columns]
+                csi_pct = float(df_csi.iloc[0].get("pct_chg", 0))
+                if csi_pct > -0.5:
+                    logger.info(
+                        f"[EOD-HIST] {td}: CSI300 pct_chg={csi_pct:+.2f}% > -0.5%, "
+                        f"market-regime filter blocks entry (no contrarian setup)"
+                    )
+                    return []
+                logger.info(
+                    f"[EOD-HIST] {td}: CSI300 pct_chg={csi_pct:+.2f}% <= -0.5%, "
+                    f"contrarian setup OK, proceeding"
+                )
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] {td}: market-regime check failed: {e}, proceeding without filter")
+
         try:
             df_daily = api.daily(trade_date=td)
             if df_daily is None or df_daily.empty:
@@ -541,7 +566,10 @@ class _EodBuybackMixin:
             on="code", how="left",
         )
 
-        # 7 hard filters (mirrors realtime path)
+        # Iter-2 G lever: signal direction rewrite (mean-reversion candidate).
+        # Old (动量延续): 强势放量 +3~6%, 量比 2.5~4 → 诱多信号
+        # New (反转候选): 大盘恐慌跌的日子里，找当日抗跌、缩量微涨的票，
+        #                 假设它们次日大盘反弹时弹性最大。
         mask = pd.Series(True, index=df.index)
         mask &= df["code"].apply(lambda c: is_mainboard_stock(str(c)))
         if name_map:
@@ -550,9 +578,9 @@ class _EodBuybackMixin:
         else:
             df["name"] = ""
         chg = pd.to_numeric(df["pct_chg"], errors="coerce")
-        mask &= (chg >= 3.0) & (chg <= 6.0)
+        mask &= (chg >= 0.0) & (chg <= 2.0)  # 抗跌微涨（大盘跌 0.5%+ 时它涨 0~2% 即明显抗跌）
         tr = pd.to_numeric(df["turnover_rate"], errors="coerce")
-        mask &= (tr >= 5.0) & (tr <= 12.0)
+        mask &= (tr >= 2.0) & (tr <= 8.0)    # 适度活跃但不过热（缩量为主）
         mc = pd.to_numeric(df["total_mv_yi"], errors="coerce")
         mask &= (mc >= 60.0) & (mc <= 300.0)
 
@@ -611,13 +639,14 @@ class _EodBuybackMixin:
                     vol_ratio_map[code] = float(today_v) / avg
 
         if vol_ratio_map:
+            # Iter-2: 缩量优先（量比 0.7~1.5），避开异常放量
             df_filtered = df_filtered[
                 df_filtered["code"].apply(
-                    lambda c: 2.5 <= vol_ratio_map.get(c, 0) <= 4.0
+                    lambda c: 0.7 <= vol_ratio_map.get(c, 0) <= 1.5
                 )
             ].copy()
             logger.info(
-                f"[EOD-HIST] {td}: after vol_ratio∈[2.5,4]: {len(df_filtered)} stocks"
+                f"[EOD-HIST] {td}: after vol_ratio∈[0.7,1.5] (缩量过滤): {len(df_filtered)} stocks"
             )
         else:
             logger.warning(
@@ -634,14 +663,17 @@ class _EodBuybackMixin:
         for _, row in df_filtered.iterrows():
             code = str(row.get("code", ""))
             chg_v = float(row.get("pct_chg", 0) or 0)
-            base_score = 10.0 + min(chg_v, 6.0) * 2
             mc_v = float(row.get("total_mv_yi", 0) or 0)
+            vr_v = vol_ratio_map.get(code, 1.0)
+
+            # Iter-2 reversal scoring:
+            # - prefer the票最抗跌（chg 越接近 0 越好，因为大盘大跌它还涨说明承接强）
+            # - prefer 中盘 100-200 亿（弹性最好）
+            # - prefer 量比 ~1.0（最干净的缩量信号）
+            base_score = 20.0 - abs(chg_v - 1.0) * 3.0  # peak at chg=1%
             if 100 <= mc_v <= 200:
                 base_score += 5.0
-            if chg_v >= 5.5:
-                base_score += 15.0
-            elif chg_v >= 4.5:
-                base_score += 8.0
+            base_score -= abs(vr_v - 1.0) * 5.0  # peak at vr=1.0
 
             candidates.append(ScreenedStock(
                 code=code,
