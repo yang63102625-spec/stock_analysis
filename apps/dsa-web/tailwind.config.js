@@ -45,6 +45,9 @@ export default {
         'glow-purple': '0 2px 12px rgba(99, 102, 241, 0.12)',
         'glow-success': '0 2px 12px rgba(22, 163, 74, 0.15)',
         'glow-danger': '0 2px 12px rgba(220, 38, 38, 0.15)',
+        'subtle': '0 1px 2px 0 rgba(0, 0, 0, 0.03)',
+        'medium': '0 2px 8px -2px rgba(0, 0, 0, 0.08), 0 4px 12px -4px rgba(0, 0, 0, 0.05)',
+        'strong': '0 8px 24px -8px rgba(0, 0, 0, 0.12), 0 12px 40px -12px rgba(0, 0, 0, 0.08)',
       },
       borderRadius: {
         'xl': '12px',
@@ -54,10 +57,21 @@ export default {
       fontSize: {
         'xxs': '10px',
         'label': '11px',
+        'heading-xl': ['1.5rem', { lineHeight: '1.2', fontWeight: '700' }],
+        'heading-lg': ['1.25rem', { lineHeight: '1.3', fontWeight: '600' }],
+        'heading-md': ['1rem', { lineHeight: '1.4', fontWeight: '600' }],
+        'heading-sm': ['0.875rem', { lineHeight: '1.4', fontWeight: '600' }],
+        'body': ['0.875rem', { lineHeight: '1.6', fontWeight: '400' }],
+        'body-sm': ['0.8125rem', { lineHeight: '1.5', fontWeight: '400' }],
+        'caption': ['0.75rem', { lineHeight: '1.4', fontWeight: '400' }],
       },
       spacing: {
         '18': '4.5rem',
         '22': '5.5rem',
+        'section': '2rem',
+        'card-padding': '1.5rem',
+        'block-gap': '1rem',
+        'item-gap': '0.75rem',
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',

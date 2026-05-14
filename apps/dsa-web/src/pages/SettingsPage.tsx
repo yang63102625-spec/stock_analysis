@@ -79,7 +79,7 @@ const SettingsPage: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </div>
-        <h1 className="text-lg font-semibold text-primary tracking-tight">系统设置</h1>
+        <h1 className="text-heading-md text-primary tracking-tight">系统设置</h1>
       </div>
 
       {/* 操作按钮 */}

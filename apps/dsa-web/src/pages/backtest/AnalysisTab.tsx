@@ -15,7 +15,7 @@ export const AnalysisTab: React.FC = () => {
 
   return (
     <>
-      <div className="bg-elevated/60 border border-border rounded-2xl p-6 mb-8 space-y-3">
+      <div className="card-elevated p-6 mb-8 space-y-3">
         <StrategyChips
           label="模拟买卖规则"
           value={a.individualStrategies}

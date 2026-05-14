@@ -69,6 +69,24 @@
   --text-secondary: #475569;
   --text-muted: #6b7280;
 
+  /* Cyan gradient - lighter to darker */
+  --cyan-lighter: #e0f2fe;
+  --cyan-light: #7dd3fc;
+  --cyan-dark: #1d4ed8;
+  --cyan-darker: #1e3a5f;
+
+  /* Gray semantic */
+  --gray-subtle: #f8fafc;
+  --gray-muted: #94a3b8;
+  --gray-emphasis: #334155;
+
+  /* 涨跌色 - A股标准：红涨绿跌 */
+  --color-up: #ef4444;
+  --color-up-bg: rgba(239, 68, 68, 0.08);
+  --color-down: #22c55e;
+  --color-down-bg: rgba(34, 197, 94, 0.08);
+  --color-flat: #94a3b8;
+
   font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -103,6 +121,21 @@
   --color-muted: #64748b;
   --color-border: #334155;
   --color-border-dim: rgba(255, 255, 255, 0.04);
+
+  --cyan-lighter: #1e3a5f;
+  --cyan-light: #3b82f6;
+  --cyan-dark: #93c5fd;
+  --cyan-darker: #e0f2fe;
+
+  --gray-subtle: #1e293b;
+  --gray-muted: #64748b;
+  --gray-emphasis: #e2e8f0;
+
+  --color-up: #f87171;
+  --color-up-bg: rgba(248, 113, 113, 0.15);
+  --color-down: #4ade80;
+  --color-down-bg: rgba(74, 222, 128, 0.15);
+  --color-flat: #64748b;
 }
 
 /* ============ Base ============ */
@@ -473,4 +506,140 @@ body {
   background: transparent;
   padding: 0;
   border: none;
+}
+
+/* ============ Financial Color Utilities ============ */
+.text-up { color: var(--color-up); }
+.text-down { color: var(--color-down); }
+.text-flat { color: var(--color-flat); }
+.bg-up-subtle { background-color: var(--color-up-bg); }
+.bg-down-subtle { background-color: var(--color-down-bg); }
+.bg-gray-subtle { background-color: var(--gray-subtle); }
+
+/* Financial typography */
+.text-heading-md {
+  font-size: 1rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.text-heading-sm {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  font-weight: 700;
+}
+
+/* Tabular numbers for financial data */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* ===== Global Transitions & Micro-interactions ===== */
+
+/* Buttons - smooth state transitions */
+button, [role="button"], .btn {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+button:active:not(:disabled), [role="button"]:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Links */
+a {
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+/* Glass cards - hover depth */
+.glass-card {
+  transition: box-shadow 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+.glass-card:hover {
+  box-shadow: 0 2px 12px -4px rgba(0, 0, 0, 0.08), 0 8px 24px -8px rgba(0, 0, 0, 0.06);
+  border-color: rgba(255, 255, 255, 0.9);
+}
+.dark .glass-card:hover {
+  box-shadow: 0 2px 12px -4px rgba(0, 0, 0, 0.3), 0 8px 24px -8px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Table rows - hover highlight */
+tbody tr {
+  transition: background-color 120ms ease;
+}
+tbody tr:hover {
+  background-color: var(--cyan-lighter, rgba(224, 242, 254, 0.5));
+}
+.dark tbody tr:hover {
+  background-color: rgba(30, 58, 95, 0.3);
+}
+
+/* Input focus - glow ring */
+input:focus, textarea:focus, select:focus {
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1), 0 0 0 1px rgba(37, 99, 235, 0.3);
+  border-color: rgba(37, 99, 235, 0.5);
+}
+.dark input:focus, .dark textarea:focus, .dark select:focus {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1), 0 0 0 1px rgba(96, 165, 250, 0.3);
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+/* Smooth page content transitions */
+.animate-content-enter {
+  animation: content-enter 300ms ease-out;
+}
+@keyframes content-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== Card System ===== */
+
+/* card-glass: alias for glass-card (same visual) */
+.card-glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02), 0 4px 16px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.dark .card-glass {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* card-elevated: solid background + medium shadow */
+.card-elevated {
+  background: var(--color-card, #ffffff);
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  border-radius: 12px;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.08), 0 4px 12px -4px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+.card-elevated:hover {
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.1), 0 8px 20px -4px rgba(0, 0, 0, 0.07);
+}
+.dark .card-elevated {
+  background: var(--color-card, #1e293b);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3), 0 4px 12px -4px rgba(0, 0, 0, 0.2);
+}
+
+/* card-outline: light border + hover accent */
+.card-outline {
+  background: transparent;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  border-radius: 10px;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.card-outline:hover {
+  border-color: var(--color-cyan, #2563eb);
+  background-color: rgba(37, 99, 235, 0.03);
+}
+.dark .card-outline:hover {
+  border-color: rgba(96, 165, 250, 0.4);
+  background-color: rgba(96, 165, 250, 0.05);
 }

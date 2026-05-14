@@ -21,7 +21,7 @@ export const PickerTab: React.FC<PickerTabProps> = ({ active }) => {
 
   return (
     <>
-      <div className="bg-elevated/60 border border-border rounded-2xl p-6 mb-8">
+      <div className="card-elevated p-6 mb-8">
         <p className="text-xs text-muted mb-4">
           选股回测需逐日调用 Tushare 等数据源，日期较多时可能需 5–15 分钟，请耐心等待。
         </p>

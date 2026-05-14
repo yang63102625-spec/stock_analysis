@@ -124,7 +124,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                       </span>
                       {item.sentimentScore !== undefined && (
                         <span
-                          className={`px-1.5 py-0.5 rounded-md text-xs font-bold ${getScoreBadgeClasses(item.sentimentScore)}`}
+                          className={`px-1.5 py-0.5 rounded-md text-xs font-bold tabular-nums ${getScoreBadgeClasses(item.sentimentScore)}`}
                         >
                           {item.sentimentScore}
                         </span>

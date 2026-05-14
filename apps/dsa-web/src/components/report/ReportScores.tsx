@@ -104,7 +104,7 @@ export const ReportScores: React.FC<ReportScoresProps> = ({ summary }) => {
         <span className="label-uppercase">QUANT SIGNALS</span>
         <h3 className="text-sm font-semibold text-primary">系统量化评分</h3>
         {signalScore != null && (
-          <span className="ml-auto font-mono text-xl font-bold text-primary">
+          <span className="ml-auto font-mono text-xl font-bold text-primary tabular-nums">
             {signalScore}<span className="text-xs text-muted">/100</span>
           </span>
         )}

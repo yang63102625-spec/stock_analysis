@@ -3,6 +3,24 @@ import type { ReportMeta, ReportSummary as ReportSummaryType } from '../../types
 import { ScoreGauge, Card, Skeleton, SkeletonText } from '../common';
 import { formatDateTime } from '../../utils/format';
 
+/** Maps operation advice text to a semantic colored badge */
+const AdviceBadge: React.FC<{ advice: string }> = ({ advice }) => {
+  const lower = advice.toLowerCase();
+  let cls = 'bg-elevated text-secondary border border-border'; // default: neutral
+  if (/买入|看好|建仓|加仓|追入|看涨/.test(lower)) {
+    cls = 'bg-up-subtle text-up border border-transparent';
+  } else if (/卖出|清仓|减仓|回避|看跌/.test(lower)) {
+    cls = 'bg-down-subtle text-down border border-transparent';
+  } else if (/观望|持有|等待/.test(lower)) {
+    cls = 'bg-elevated text-secondary border border-border';
+  }
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-semibold ${cls}`}>
+      {advice}
+    </span>
+  );
+};
+
 /**
  * Skeleton placeholder for ReportOverview while loading
  */
@@ -78,8 +96,8 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
 }) => {
   const getPriceChangeColor = (changePct: number | undefined): string => {
     if (changePct === undefined || changePct === null) return 'text-muted';
-    if (changePct > 0) return 'text-red-600';
-    if (changePct < 0) return 'text-emerald-600';
+    if (changePct > 0) return 'text-up';
+    if (changePct < 0) return 'text-down';
     return 'text-muted';
   };
 
@@ -107,11 +125,13 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
                   {/* 价格和涨跌幅 */}
                   {meta.currentPrice != null && (
                     <div className="flex items-baseline gap-2">
-                      <span className={`text-xl font-bold font-mono ${getPriceChangeColor(meta.changePct)}`}>
+                      <span className={`text-heading-sm tabular-nums font-mono ${getPriceChangeColor(meta.changePct)}`}>
                         {meta.currentPrice.toFixed(2)}
                       </span>
-                      <span className={`text-sm font-semibold font-mono ${getPriceChangeColor(meta.changePct)}`}>
-                        {formatChangePct(meta.changePct)}
+                      <span className={`text-sm font-semibold tabular-nums font-mono ${getPriceChangeColor(meta.changePct)}`}>
+                        {meta.changePct !== undefined && meta.changePct !== null
+                          ? `${meta.changePct >= 0 ? '↑' : '↓'} ${formatChangePct(meta.changePct)}`
+                          : '--'}
                       </span>
                     </div>
                   )}
@@ -152,7 +172,9 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
                 <div>
                   <h4 className="text-xs font-medium text-success mb-0.5">操作建议</h4>
                   <p className="text-primary text-sm font-medium">
-                    {summary.operationAdvice || '暂无建议'}
+                    {summary.operationAdvice ? (
+                      <AdviceBadge advice={summary.operationAdvice} />
+                    ) : '暂无建议'}
                   </p>
                 </div>
               </div>

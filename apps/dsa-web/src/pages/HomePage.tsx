@@ -61,7 +61,7 @@ const HomePage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
             </svg>
           </div>
-          <h1 className="text-lg font-semibold text-primary tracking-tight">个股分析</h1>
+          <h1 className="text-heading-md text-primary tracking-tight">个股分析</h1>
         </div>
 
         <div className="flex-1 flex gap-6 min-h-0">

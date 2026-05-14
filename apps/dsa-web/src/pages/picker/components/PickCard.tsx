@@ -50,17 +50,17 @@ export const PickCard: React.FC<{ pick: StockPick; index: number }> = ({ pick, i
                         bg-slate-50 border border-slate-200 rounded-lg text-sm">
           <div>
             <div className="text-xs text-muted">理想买入</div>
-            <div className="font-semibold text-primary tabular-nums">{pick.ideal_buy.toFixed(2)}</div>
+            <div className="font-semibold text-primary text-heading-sm tabular-nums">{pick.ideal_buy.toFixed(2)}</div>
           </div>
           <div>
             <div className="text-xs text-muted">止损</div>
-            <div className="font-semibold text-red-600 tabular-nums">
+            <div className="font-semibold text-down text-heading-sm tabular-nums">
               {pick.stop_loss?.toFixed(2)}
             </div>
           </div>
           <div>
             <div className="text-xs text-muted">首止盈</div>
-            <div className="font-semibold text-emerald-600 tabular-nums">
+            <div className="font-semibold text-up text-heading-sm tabular-nums">
               {pick.take_profit_1?.toFixed(2)}
             </div>
           </div>

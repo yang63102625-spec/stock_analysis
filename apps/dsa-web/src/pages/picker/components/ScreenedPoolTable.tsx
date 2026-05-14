@@ -75,16 +75,16 @@ export const ScreenedPoolTable: React.FC<{ pool: ScreenedStock[] }> = ({ pool })
                 <td className="px-4 py-2 font-mono text-muted">{s.code}</td>
                 <td className="px-4 py-2 text-primary font-medium">{s.name}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{fmt(s.price, 2)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.change_pct) > 0 ? 'text-red-600' : numOrZero(s.change_pct) < 0 ? 'text-emerald-600' : 'text-muted'}`}>
+                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.change_pct) > 0 ? 'text-up' : numOrZero(s.change_pct) < 0 ? 'text-down' : 'text-muted'}`}>
                   {numOrZero(s.change_pct) > 0 ? '+' : ''}{fmt(s.change_pct, 2)}{s.change_pct == null ? '' : '%'}
                 </td>
-                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.volume_ratio) > 1.5 ? 'text-red-600 font-medium' : ''}`}>
+                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.volume_ratio) > 1.5 ? 'text-up font-medium' : ''}`}>
                   {fmt(s.volume_ratio, 1)}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">{fmt(s.turnover_rate, 1)}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{fmt(s.pe, 0)}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{fmt(s.market_cap_yi, 0)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.change_pct_60d) > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                <td className={`px-4 py-2 text-right tabular-nums ${numOrZero(s.change_pct_60d) > 0 ? 'text-up' : numOrZero(s.change_pct_60d) < 0 ? 'text-down' : 'text-muted'}`}>
                   {numOrZero(s.change_pct_60d) > 0 ? '+' : ''}{fmt(s.change_pct_60d, 1)}{s.change_pct_60d == null ? '' : '%'}
                 </td>
                 {showStrategyCol && (
@@ -92,7 +92,14 @@ export const ScreenedPoolTable: React.FC<{ pool: ScreenedStock[] }> = ({ pool })
                     {(s.strategies || []).map((st) => STRATEGY_LABELS[st] ?? st).join(',')}
                   </td>
                 )}
-                <td className="px-4 py-2 text-right tabular-nums font-semibold text-cyan">{fmt(s.score, 0)}</td>
+                <td className="px-4 py-2 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="tabular-nums font-semibold text-cyan">{fmt(s.score, 0)}</span>
+                    <div className="w-full h-1 rounded-full bg-gray-subtle overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-cyan to-cyan-dim" style={{ width: `${Math.min(100, numOrZero(s.score))}%` }} />
+                    </div>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

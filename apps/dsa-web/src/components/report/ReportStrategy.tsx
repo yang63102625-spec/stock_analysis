@@ -21,7 +21,7 @@ const StrategyItem: React.FC<StrategyItemProps> = ({
     <div className="flex flex-col">
       <span className="text-[11px] text-muted mb-0.5">{label}</span>
       <span
-        className="text-base font-bold font-mono"
+        className="text-heading-sm tabular-nums font-mono"
         style={{ color: value ? color : 'var(--text-muted)' }}
       >
         {value || '—'}
@@ -92,7 +92,7 @@ export const ReportStrategy: React.FC<ReportStrategyProps> = ({ strategy }) => {
           {strategy.positionPct != null && (
             <div className="rounded border border-border bg-elevated p-2">
               <div className="text-muted">建议仓位</div>
-              <div className="font-mono font-semibold text-primary">
+              <div className="font-mono font-semibold text-primary tabular-nums">
                 {(strategy.positionPct * 100).toFixed(0)}%
               </div>
             </div>
@@ -100,7 +100,7 @@ export const ReportStrategy: React.FC<ReportStrategyProps> = ({ strategy }) => {
           {strategy.riskReward != null && (
             <div className="rounded border border-border bg-elevated p-2">
               <div className="text-muted">盈亏比 R/R</div>
-              <div className="font-mono font-semibold text-primary">
+              <div className="font-mono font-semibold text-primary tabular-nums">
                 {strategy.riskReward.toFixed(2)}
               </div>
             </div>
