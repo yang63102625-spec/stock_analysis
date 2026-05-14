@@ -110,6 +110,7 @@ class _DatabaseManagerCore:
                     "ALTER TABLE backtest_results ADD COLUMN hold_days INTEGER",
                     "ALTER TABLE backtest_summaries ADD COLUMN signal_breakdown_json TEXT",
                     "ALTER TABLE backtest_summaries ADD COLUMN score_bucket_breakdown_json TEXT",
+                    "ALTER TABLE backtest_summaries ADD COLUMN risk_reward_breakdown_json TEXT",
                     "ALTER TABLE backtest_summaries ADD COLUMN exit_reason_breakdown_json TEXT",
                     "ALTER TABLE backtest_summaries ADD COLUMN regime_breakdown_json TEXT",
                     "ALTER TABLE backtest_summaries ADD COLUMN strategy_breakdown_json TEXT",

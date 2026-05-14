@@ -131,6 +131,7 @@ class PerformanceMetrics(BaseModel):
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
     signal_breakdown: Dict[str, Any] = Field(default_factory=dict)
     score_bucket_breakdown: Dict[str, Any] = Field(default_factory=dict)
+    risk_reward_breakdown: Dict[str, Any] = Field(default_factory=dict)
     exit_reason_breakdown: Dict[str, Any] = Field(default_factory=dict)
     regime_breakdown: Dict[str, Any] = Field(default_factory=dict)
     strategy_breakdown: Dict[str, Any] = Field(default_factory=dict)

@@ -13,6 +13,7 @@ const BreakdownGrid: React.FC<{ metrics: PerformanceMetrics }> = ({ metrics }) =
   const groups: Array<{ title: string; data?: Record<string, { total: number; win: number; loss: number; win_rate_pct?: number | null }> }> = [
     { title: '按信号', data: metrics.signalBreakdown as never },
     { title: '按量化分', data: metrics.scoreBucketBreakdown as never },
+    { title: '按盈亏比', data: metrics.riskRewardBreakdown as never },
     { title: '按退出原因', data: metrics.exitReasonBreakdown as never },
     { title: '按大盘', data: metrics.regimeBreakdown as never },
     { title: '按策略', data: metrics.strategyBreakdown as never },

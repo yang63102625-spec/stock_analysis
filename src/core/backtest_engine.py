@@ -64,6 +64,7 @@ class BacktestResultLike(Protocol):
     signal_score_at_eval: Optional[int]
     buy_signal_at_eval: Optional[str]
     market_environment_at_eval: Optional[str]
+    risk_reward_at_eval: Optional[float]
     strategy_id: Optional[str]
     exit_reason: Optional[str]
     hold_days: Optional[int]

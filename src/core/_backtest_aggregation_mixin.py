@@ -17,6 +17,15 @@ SCORE_BUCKETS = (
     ("lt_60", lambda s: s < 60),
 )
 
+# Risk-reward buckets — chosen so 1:1 / 1:2 / 1:3 plans land in
+# distinct cells while leaving fat tails captured in ge_4.
+RR_BUCKETS = (
+    ("ge_4", lambda r: r >= 4.0),
+    ("2_5_4", lambda r: 2.5 <= r < 4.0),
+    ("1_5_2_5", lambda r: 1.5 <= r < 2.5),
+    ("lt_1_5", lambda r: r < 1.5),
+)
+
 
 class _AggregationMixin:
     """Provides `compute_summary` + per-bucket / drawdown / R-multiple helpers."""
@@ -56,6 +65,9 @@ class _AggregationMixin:
                 completed, key=lambda r: (r.buy_signal_at_eval or "UNKNOWN").upper()
             ),
             "score_bucket_breakdown": cls._bucket_breakdown(completed, key=cls._score_bucket_key),
+            "risk_reward_breakdown": cls._bucket_breakdown(
+                long_completed, key=cls._risk_reward_bucket_key,
+            ),
             "exit_reason_breakdown": cls._bucket_breakdown(
                 long_completed, key=lambda r: r.exit_reason or "(none)"
             ),
@@ -228,6 +240,22 @@ class _AggregationMixin:
             return "unknown"
         for label, predicate in SCORE_BUCKETS:
             if predicate(int(s)):
+                return label
+        return "unknown"
+
+    @staticmethod
+    def _risk_reward_bucket_key(row: Any) -> str:
+        rr = getattr(row, "risk_reward_at_eval", None)
+        if rr is None:
+            return "unknown"
+        try:
+            rr_f = float(rr)
+        except (TypeError, ValueError):
+            return "unknown"
+        if rr_f <= 0:
+            return "unknown"
+        for label, predicate in RR_BUCKETS:
+            if predicate(rr_f):
                 return label
         return "unknown"
 

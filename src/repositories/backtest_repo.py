@@ -160,6 +160,7 @@ class BacktestRepository:
                     "diagnostics_json",
                     "signal_breakdown_json",
                     "score_bucket_breakdown_json",
+                    "risk_reward_breakdown_json",
                     "exit_reason_breakdown_json",
                     "regime_breakdown_json",
                     "strategy_breakdown_json",

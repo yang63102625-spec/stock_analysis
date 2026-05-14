@@ -522,6 +522,7 @@ class BacktestSummary(Base):
     # Per-bucket breakdowns (current engine).
     signal_breakdown_json = Column(Text)         # by buy_signal (STRONG_BUY/BUY/HOLD/AVOID/STRONG_AVOID)
     score_bucket_breakdown_json = Column(Text)   # by signal_score bucket (ge_80/70_80/60_70/lt_60)
+    risk_reward_breakdown_json = Column(Text)    # by plan risk_reward bucket (ge_4 / 2_5_4 / 1_5_2_5 / lt_1_5)
     exit_reason_breakdown_json = Column(Text)    # by simulated exit_reason
     regime_breakdown_json = Column(Text)         # by market_environment
     strategy_breakdown_json = Column(Text)       # by strategy_id

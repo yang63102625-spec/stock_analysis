@@ -25,6 +25,7 @@ class FakeRow:
     signal_score_at_eval: Optional[int] = 80
     buy_signal_at_eval: Optional[str] = "BUY"
     market_environment_at_eval: Optional[str] = "sideways"
+    risk_reward_at_eval: Optional[float] = 2.0
     strategy_id: Optional[str] = "buy_pullback"
     exit_reason: Optional[str] = "time_exit"
     hold_days: Optional[int] = 5
@@ -53,6 +54,24 @@ class BacktestSummaryTestCase(unittest.TestCase):
         self.assertEqual(summary["stop_loss_trigger_rate"], 100.0)
         self.assertEqual(summary["take_profit_trigger_rate"], 100.0)
         self.assertEqual(summary["ambiguous_rate"], 0.0)
+
+    def test_risk_reward_breakdown_buckets_by_plan_rr(self) -> None:
+        rows = [
+            FakeRow(risk_reward_at_eval=4.5, outcome="win"),
+            FakeRow(risk_reward_at_eval=3.0, outcome="win"),
+            FakeRow(risk_reward_at_eval=2.0, outcome="loss"),
+            FakeRow(risk_reward_at_eval=1.2, outcome="loss"),
+            FakeRow(risk_reward_at_eval=None, outcome="win"),
+        ]
+        summary = BacktestEngine.compute_summary(
+            results=rows, scope="stock", code="600519", eval_window_days=3,
+        )
+        rr = summary["risk_reward_breakdown"]
+        self.assertEqual(rr["ge_4"]["total"], 1)
+        self.assertEqual(rr["2_5_4"]["total"], 1)
+        self.assertEqual(rr["1_5_2_5"]["total"], 1)
+        self.assertEqual(rr["lt_1_5"]["total"], 1)
+        self.assertEqual(rr["unknown"]["total"], 1)
 
 
 if __name__ == "__main__":

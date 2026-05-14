@@ -127,6 +127,7 @@ export interface PerformanceMetrics {
   diagnostics: Record<string, unknown>;
   signalBreakdown?: Record<string, BreakdownBucket>;
   scoreBucketBreakdown?: Record<string, BreakdownBucket>;
+  riskRewardBreakdown?: Record<string, BreakdownBucket>;
   exitReasonBreakdown?: Record<string, BreakdownBucket>;
   regimeBreakdown?: Record<string, BreakdownBucket>;
   strategyBreakdown?: Record<string, BreakdownBucket>;
