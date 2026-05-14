@@ -9,8 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Code-quality refactor (Phase 1-7). Test suite: 685 passed, 0 failures. No
-``.py`` file exceeds the 800-line cap.
+### Backtest v3 — strict AI-plan execution + agent-path data fixes
+
+- **Engine rewrite** (`4db46ea`): `BacktestEngine` now strictly replays
+  each historical analysis's own trade plan (`ideal_buy / stop_loss /
+  take_profit`) against forward daily bars instead of overlaying
+  hand-coded "trading rules". A-share frictions baked in (0.05% slippage,
+  0.025% commission each side, 0.05% stamp duty on sell). Prior-day
+  limit-up filter records `not_filled_limit_up` so retail can't fake a
+  fill that would never queue. Same-bar stop+target straddles are
+  closed at the stop and tagged `stop_loss_ambiguous` so they're
+  auditable. Per-trade `r_multiple` / `mae_pct` / `mfe_pct` recorded.
+- **Three-layer summary**: signal layer (direction accuracy / win rate),
+  execution layer (fill rate / expectancy / avg R / profit factor / max
+  drawdown), risk layer (MAE / MFE / ambiguous count). Engine module
+  split into `_backtest_aggregation_mixin.py` to stay under the 800-line
+  cap; `compute_summary` split into three ≤80-line helpers.
+- **Risk-reward bucket breakdown** (`44a1556`): aggregates per-trade
+  performance by the AI plan's R/R (`ge_4 / 2_5_4 / 1_5_2_5 / lt_1_5`),
+  persisted to `backtest_summaries.risk_reward_breakdown_json` and
+  rendered as a "按盈亏比" tile in the performance panel.
+- **`analysis_history.strategy_id` persisted** (`29c4dc8`, `920db6c`):
+  picker strategy now lands on disk so `strategy_breakdown` becomes
+  meaningful instead of always-`buy_pullback`. New SQLite ALTER TABLE
+  migration; agent path also wires it through `compute_trade_levels`.
+- **Agent-path data fixes** (`920db6c`):
+  1. `signal_score_at_eval` was always 0 — agent path wrote
+     `total_score` but the extractor only read `signal_score`. Bridge
+     both keys.
+  2. `risk_reward = 161060400.0` poisoned the new bucket — legacy
+     `compute_trade_levels` divides by ~0 when stop≈ideal. Clamp values
+     outside `(0, 100]` to None at the storage boundary.
+  3. Frontend `AnalysisResultsTable` shows `--` for `signal_score <= 0`
+     so old v2 rows stop rendering as 0.
+- **Frontend overhaul**: removed the "simulated trading rules"
+  StrategyChips override; `PerformancePanel` redesigned around the
+  three layers; new "入场" / "R" columns in the analysis-results table;
+  `BacktestRunRequest.strategies` is deprecated and ignored server-side.
+- **DB migrations**: `backtest_results` gains `entry_status`,
+  `r_multiple`, `mae_pct`, `mfe_pct`; unique key changes from
+  `(analysis_history_id, eval_window_days, strategy_id)` to
+  `(analysis_history_id, eval_window_days)`. Robust SQLite migration
+  rebuilds the legacy table to drop the inline UNIQUE on
+  `engine_version` (which prior `DROP COLUMN` attempts silently failed
+  on), then wipes legacy rows before recreating the new unique index.
+- Tests: 688 passed, 92 subtests passed.
+
+### Code-quality refactor (Phase 1-7)
+
+Test suite: 685 passed, 0 failures. No ``.py`` file exceeds the 800-line cap.
 
 ### Frontend (Phase 5 + Phase 7)
 
