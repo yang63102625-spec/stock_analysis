@@ -64,8 +64,8 @@ class TestReportRenderer(unittest.TestCase):
         r = _make_result()
         out = render("markdown", [r], summary_only=False)
         self.assertIsNotNone(out)
-        self.assertIn("核心结论", out)
-        self.assertIn("作战计划", out)
+        self.assertIn("📌", out)
+        self.assertIn("🎯买:", out)
 
     def test_render_wechat(self) -> None:
         """Wechat platform renders."""
