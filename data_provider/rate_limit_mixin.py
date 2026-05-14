@@ -59,9 +59,9 @@ class RateLimitMixin:
         if lock is None:
             # Double-check under the class lock to avoid two threads creating
             # two distinct instance locks during a race.
-            cls_lock = RateLimitMixin.__dict__.setdefault(
-                "_rate_limit_class_lock", threading.Lock()
-            )
+            if not hasattr(RateLimitMixin, '_rate_limit_class_lock'):
+                setattr(RateLimitMixin, '_rate_limit_class_lock', threading.Lock())
+            cls_lock = getattr(RateLimitMixin, '_rate_limit_class_lock')
             with cls_lock:
                 lock = self.__dict__.get("_rate_limit_lock")
                 if lock is None:
