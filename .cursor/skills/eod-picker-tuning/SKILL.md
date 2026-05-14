@@ -63,6 +63,37 @@ mkdir -p reports/eod_tuning
 
 import 失败立即停，修基础设施不在本 skill 范围。
 
+## Step 0.5 — 方法学复检（每次会话必跑）
+
+**调参之前先确认回测方法本身没漏。** 任何一项不通过，先修方法学，
+再谈调参。否则胜率提升都是数字游戏。
+
+复核清单（出现在 `reports/eod_tuning/METHODOLOGY_REVIEW.md`）：
+
+1. **historical mode 没有 look-ahead bias**
+   - `screen_as_of(td)` 必须真用 `td` 当天的市场数据，不能拿"当下实时
+     行情"假装 `td` 的候选
+   - 验证方式：grep `_screen_*_realtime` 看是否接 `trade_date` 参数；
+     `ts.get_realtime_quotes()` 这类无 trade_date 接口在 historical 模
+     式下必须不可达
+2. **入场时点合规**
+   - A 股 T+1：今天选的票应在**次日开盘**入场，不能用同日收盘价当成
+     即时成交（那是 T+0，违反制度且偷跑收益）
+   - 检查 `_get_forward_return` entry_idx 是否 +1
+3. **交易成本完整**
+   - 滑点 + 双边佣金 + 单边印花税都建模。只有滑点会高估收益
+4. **样本量足以下结论**
+   - 单变量调整 N ≥ 30；新过滤层 N ≥ 50；新数据源 N ≥ 100
+   - 90 天窗口经常达不到，需要扩到 180-250 天
+5. **指标维度齐全**
+   - WR / PF / 最大回撤是底线
+   - 缺 Sharpe / 平均持仓 / 最大连亏会让"哪轮真好"难判定
+6. **out-of-sample 隔离（晚期才做）**
+   - 同一段历史调参容易过拟合。早期可忽略，进入精调阶段必加 walk-forward
+
+如果发现 P0 缺陷（比如 look-ahead），**立即停止参数调优**，先发提议
+修方法学。修完跑空对照确认行为变化合理，再做 baseline。
+
 ## Step 1 — Baseline
 
 近 **90 个自然日**到最近一个交易日，保持市场制度相关性。需要更长用户会说。
