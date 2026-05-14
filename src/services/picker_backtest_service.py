@@ -202,15 +202,6 @@ class PickerBacktestService:
                 ], axis=1).max(axis=1)
                 df["atr"] = tr.rolling(window=14, min_periods=1).mean()
 
-            # eod_buyback execution model (T+1 overnight, intraday TP/SL):
-            #   T  14:50-15:00  尾盘买入 → entry = T 日收盘价 (+ 0.15% 滑点)
-            #   T+1 全天持有，按以下优先级出场:
-            #     1) 盘中触及 +TAKE_PROFIT_PCT → 以止盈线成交（exit_reason=take_profit_t1）
-            #     2) 盘中触及 -STOP_LOSS_PCT  → 以止损线成交（exit_reason=stop_loss_t1）
-            #     3) 否则 T+1 收盘卖出（exit_reason=t1_close）
-            #   同日 high/low 都触发的保守口径：假定先到止损（更悲观，避免高估）
-            # 净收益 = gross - 0.05% commission*2 - 0.05% stamp duty = gross - 0.10%
-            # 不再调用 simulate_forward_trade（那是为多日 trailing 设计）
             entry_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             pick_mask = df["_date_str"] == entry_str
             if not pick_mask.any():
@@ -222,50 +213,78 @@ class PickerBacktestService:
                     return {}
                 entry_price = float(close_v)
 
-            exit_idx = entry_idx + 1
-            if exit_idx >= len(df):
-                return {}  # T+1 not yet in data
-            next_bar = df.iloc[exit_idx]
-            next_high = float(next_bar[high_col]) if high_col and pd.notna(next_bar[high_col]) else None
-            next_low = float(next_bar[low_col]) if low_col and pd.notna(next_bar[low_col]) else None
-            next_close = float(next_bar[close_col]) if pd.notna(next_bar[close_col]) else None
-            if next_close is None or next_close <= 0:
+            # ============================================================
+            # Path A — eod_buyback: T+1 overnight intraday TP/SL (short-term)
+            # ============================================================
+            if strategy_id == "eod_buyback":
+                exit_idx = entry_idx + 1
+                if exit_idx >= len(df):
+                    return {}
+                nb = df.iloc[exit_idx]
+                next_high = float(nb[high_col]) if high_col and pd.notna(nb[high_col]) else None
+                next_low = float(nb[low_col]) if low_col and pd.notna(nb[low_col]) else None
+                next_close = float(nb[close_col]) if pd.notna(nb[close_col]) else None
+                if next_close is None or next_close <= 0:
+                    return {}
+                ENTRY_SLIPPAGE, EXIT_SLIPPAGE, ROUND_TRIP = 0.0015, 0.0015, 0.10
+                T1_TP, T1_SL = 0.04, 0.025
+                effective_entry = entry_price * (1 + ENTRY_SLIPPAGE)
+                tp_trigger = entry_price * (1 + T1_TP)
+                sl_trigger = entry_price * (1 - T1_SL)
+                hit_sl = next_low is not None and next_low <= sl_trigger
+                hit_tp = next_high is not None and next_high >= tp_trigger
+                if hit_sl:
+                    raw, reason = sl_trigger, "stop_loss_t1"
+                elif hit_tp:
+                    raw, reason = tp_trigger, "take_profit_t1"
+                else:
+                    raw, reason = next_close, "t1_close"
+                effective_exit = raw * (1 - EXIT_SLIPPAGE)
+                net_pct = (effective_exit - effective_entry) / effective_entry * 100.0 - ROUND_TRIP
+                return {
+                    "exit_price": effective_exit,
+                    "return_pct": net_pct,
+                    "exit_reason": reason,
+                    "hold_days": 1,
+                }
+
+            # ============================================================
+            # Path B — multi-day strategies (buy_pullback / breakout /
+            # bottom_reversal): use unified trade_levels engine with
+            # ATR-trailing stop / strategy-specific TP rules.
+            # ============================================================
+            forward_df = df.iloc[entry_idx:].copy()
+            if len(forward_df) < 2:
                 return {}
+            bars: List[Dict[str, float]] = []
+            for _, row in forward_df.iterrows():
+                bar: Dict[str, float] = {
+                    "close": float(row[close_col]) if pd.notna(row[close_col]) else 0.0,
+                    "high": float(row[high_col]) if high_col and pd.notna(row[high_col]) else 0.0,
+                    "low": float(row[low_col]) if low_col and pd.notna(row[low_col]) else 0.0,
+                    "ma10": float(row["ma10"]) if pd.notna(row["ma10"]) else 0.0,
+                    "ma20": float(row["ma20"]) if pd.notna(row["ma20"]) else 0.0,
+                }
+                if "atr" in df.columns and pd.notna(row.get("atr")):
+                    bar["atr"] = float(row["atr"])
+                if pct_col and pd.notna(row.get(pct_col)):
+                    bar["pct_chg"] = float(row[pct_col])
+                bars.append(bar)
 
-            ENTRY_SLIPPAGE = 0.0015
-            EXIT_SLIPPAGE = 0.0015
-            COST_ROUND_TRIP_PCT = 0.10  # commission 0.025%×2 + stamp duty 0.05%
-            # Reverted to Iter-2 best: TP 4% / SL 2.5% (PF 0.80, WR 44.9%)
-            T1_TAKE_PROFIT = 0.04
-            T1_STOP_LOSS = 0.025
-
-            effective_entry = entry_price * (1 + ENTRY_SLIPPAGE)
-            tp_trigger = entry_price * (1 + T1_TAKE_PROFIT)
-            sl_trigger = entry_price * (1 - T1_STOP_LOSS)
-
-            hit_sl = next_low is not None and next_low <= sl_trigger
-            hit_tp = next_high is not None and next_high >= tp_trigger
-
-            if hit_sl:
-                exit_price_raw = sl_trigger
-                exit_reason = "stop_loss_t1"
-            elif hit_tp:
-                exit_price_raw = tp_trigger
-                exit_reason = "take_profit_t1"
-            else:
-                exit_price_raw = next_close
-                exit_reason = "t1_close"
-
-            effective_exit = exit_price_raw * (1 - EXIT_SLIPPAGE)
-            gross_pct = (effective_exit - effective_entry) / effective_entry * 100.0
-            net_pct = gross_pct - COST_ROUND_TRIP_PCT
-
-            return {
-                "exit_price": effective_exit,
-                "return_pct": net_pct,
-                "exit_reason": exit_reason,
-                "hold_days": 1,
-            }
+            mcap_yi = 0.0  # unknown; trade_levels falls back to mid band
+            is_kc_cy = code.startswith(("30", "68"))
+            sim = simulate_forward_trade(
+                strategy_id=strategy_id,
+                entry_price=entry_price,
+                market_cap_yi=mcap_yi,
+                bars=bars,
+                apply_slippage=True,
+                apply_limit_up_filter=True,
+                is_kc_cy=is_kc_cy,
+            )
+            if sim.get("skipped"):
+                return {}
+            return sim
         except Exception as e:
             logger.debug(f"[PickerBacktest] Forward return failed {code}: {e}")
             return {}
