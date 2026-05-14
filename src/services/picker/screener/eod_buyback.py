@@ -639,34 +639,51 @@ class _EodBuybackMixin:
         if df_filtered.empty:
             return []
 
-        # Iter-3 P lever: smart-money confirmation via moneyflow (超大单净流入).
-        # The "+0~2% intraday + low vol_ratio" signal from G/H is a *timing*
-        # filter — it tells us when a contrarian setup exists. To pick which
-        # stocks within that setup will actually rally, layer in evidence of
-        # institutional accumulation: 当日超大单 (single-trade ≥100万元) 净流入 > 0.
-        try:
-            df_mf = api.moneyflow(trade_date=td)
-            if df_mf is not None and not df_mf.empty:
-                df_mf.columns = [c.lower() for c in df_mf.columns]
-                df_mf["code"] = df_mf["ts_code"].str.split(".").str[0]
-                # 超大单净流入 = buy_elg_amount - sell_elg_amount (千元)
-                df_mf["elg_net"] = (
-                    pd.to_numeric(df_mf.get("buy_elg_amount"), errors="coerce")
-                    - pd.to_numeric(df_mf.get("sell_elg_amount"), errors="coerce")
-                )
-                elg_map = dict(zip(df_mf["code"], df_mf["elg_net"]))
-                df_filtered["elg_net"] = df_filtered["code"].map(elg_map).fillna(0)
-                before_n = len(df_filtered)
-                df_filtered = df_filtered[df_filtered["elg_net"] > 0].copy()
-                logger.info(
-                    f"[EOD-HIST] {td}: after 超大单净流入>0 filter: "
-                    f"{before_n} → {len(df_filtered)} stocks"
-                )
-        except Exception as e:
-            logger.warning(f"[EOD-HIST] {td}: moneyflow filter failed: {e}, proceeding without it")
+        # Iter-2 part A: tighten main-force threshold from > 0 to > 1000 万元.
+        # > 0 is too weak — institutional positioning often shows up only when
+        # 当日主力净流入 ≥ 千万级别. Tushare moneyflow amounts are in 千元
+        # (thousands of CNY), so 1000 万元 = 10000 千元 = 10000 in the column.
+        if df_mf is not None and not df_mf.empty:
+            MAIN_FORCE_MIN_KCNY = 3000  # 300 万元 (1000万 太严, mean-reversion 候选缺大资金特征)
+            before_n = len(df_filtered)
+            keep_codes = []
+            for code in df_filtered["code"]:
+                f = flow_lookup.get(code)
+                if f and f["main_net"] >= MAIN_FORCE_MIN_KCNY:
+                    keep_codes.append(code)
+            df_filtered = df_filtered[df_filtered["code"].isin(keep_codes)].copy()
+            logger.info(
+                f"[EOD-HIST] {td}: main_net ≥ 1000万元 filter: {before_n} → {len(df_filtered)}"
+            )
 
         if df_filtered.empty:
             return []
+
+        # Iter-2 part B (DROPPED): sector strength filter
+        # SectorStrengthService relies on akshare which is rate-limited / blocked
+        # in historical backtest mode (3x retry all fail). Skipping until we
+        # have a Tushare-only sector strength path.
+
+        # Iter-2 part C: north-bound capital confirmation.
+        # 当日北向 (沪深港通) 净流入 > 0 → 大盘有外资接盘 → T+1 反弹更容易兑现.
+        # 北向流出日 (避险情绪重)，回避所有候选.
+        try:
+            df_north = api.moneyflow_hsgt(start_date=td, end_date=td)
+            if df_north is not None and not df_north.empty:
+                df_north.columns = [c.lower() for c in df_north.columns]
+                north_money = float(pd.to_numeric(
+                    df_north["north_money"].iloc[0], errors="coerce"
+                ) or 0)
+                if north_money <= 0:
+                    logger.info(
+                        f"[EOD-HIST] {td}: north_money={north_money:.0f}百万 ≤ 0, "
+                        f"reject all {len(df_filtered)} candidates"
+                    )
+                    return []
+                else:
+                    logger.info(f"[EOD-HIST] {td}: north_money={north_money:.0f}百万 > 0, pass")
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] {td}: north flow check failed: {e}, proceeding")
 
         # Iter-3 P bonus: 过去 3 个交易日上过龙虎榜的票优先（资金注意力信号）
         dragon_codes: set = set()
