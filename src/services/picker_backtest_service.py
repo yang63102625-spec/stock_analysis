@@ -201,39 +201,39 @@ class PickerBacktestService:
                 ], axis=1).max(axis=1)
                 df["atr"] = tr.rolling(window=14, min_periods=1).mean()
 
-            # T+1 entry semantics: candidates are picked at end-of-day on
-            # `trade_date`, but A-share T+1 prevents same-day round-trips. The
-            # realistic execution is "buy at next trading day's open price".
-            # Using `trade_date`'s close as entry steals the overnight gap
-            # return — invalid for any A-share backtest.
+            # eod_buyback semantics (T+1 overnight strategy):
+            #   - Buy at trade_date's CLOSE (尾盘 14:55-15:00 entry, approximated
+            #     by daily close + slippage on the buy side).
+            #   - Sell at next trading day's CLOSE (T+1 尾盘 exit). A-share T+1
+            #     forbids same-day round-trip; selling at next-day close is the
+            #     most representative timing (intraday choice doesn't change
+            #     the daily-bar backtest result).
+            # hold_days is therefore exactly 1, regardless of caller's value.
             entry_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             pick_mask = df["_date_str"] == entry_str
             if not pick_mask.any():
                 return {}
-            pick_idx = int(df.index[pick_mask].min())
-            entry_idx = pick_idx + 1
-            if entry_idx >= len(df):
-                return {}  # next trading day not yet available
-            open_col = next((c for c in ["open", "开盘"] if c in df.columns), None)
-            if open_col is None:
-                return {}
-            next_open = df.iloc[entry_idx][open_col]
-            if pd.isna(next_open) or float(next_open) <= 0:
-                return {}
-            entry_price = float(next_open)  # override the close-based price
+            entry_idx = int(df.index[pick_mask].min())
+            if entry_price <= 0:
+                close_v = df.iloc[entry_idx][close_col]
+                if pd.isna(close_v) or float(close_v) <= 0:
+                    return {}
+                entry_price = float(close_v)
 
             # Build forward bars (entry day + subsequent days up to exit_date).
             exit_str = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
             exit_mask = df["_date_str"] == exit_str
             end_idx = int(df.index[exit_mask].max()) if exit_mask.any() else len(df) - 1
 
-            # Forward bars start at entry_idx (the T+1 next-open day) through
-            # end_idx (exit_date). We can't include the pick day itself because
-            # it's pre-entry from the trader's POV.
+            # T+1 overnight: forward bars = exactly 1 bar at entry_idx+1
+            # (next trading day's close = exit). We DO NOT include entry_idx
+            # itself because that's the entry bar (already encoded in
+            # entry_price = today's close).
+            exit_idx = entry_idx + 1
+            if exit_idx >= len(df):
+                return {}  # next trading day not yet in data
             bars: List[Dict[str, Any]] = []
-            if end_idx <= entry_idx:
-                end_idx = entry_idx + 1  # ensure at least 1 forward bar past entry
-            for i in range(entry_idx, end_idx + 1):
+            for i in range(exit_idx, exit_idx + 1):
                 row = df.iloc[i]
                 close = float(row[close_col]) if pd.notna(row[close_col]) else None
                 if close is None:
@@ -402,6 +402,17 @@ class PickerBacktestService:
         Returns:
             Dict with results, summary, and performance metrics.
         """
+        # eod_buyback is a strict T+1 overnight strategy: buy at today's close,
+        # sell at next trading day's close. Holding period is fixed at 1 trading
+        # day regardless of caller's `hold_days`. Force-override to keep the
+        # backtest semantically consistent with the live strategy.
+        if picker_strategies and set(picker_strategies) == {"eod_buyback"} and hold_days != 1:
+            logger.info(
+                "[PickerBacktest] eod_buyback is T+1 overnight; forcing hold_days=1 (was %d)",
+                hold_days,
+            )
+            hold_days = 1
+
         if picker_strategies is not None:
             cfg = get_config()
             screener = StockScreener(

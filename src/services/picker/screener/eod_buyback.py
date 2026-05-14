@@ -563,32 +563,52 @@ class _EodBuybackMixin:
         if df_filtered.empty:
             return []
 
-        # Volume ratio: candidate's vol(td) / mean(vol(td-5..td-1))
+        # Volume ratio: vol(td) / mean(vol(td-5..td-1)).
+        # Fast path: pull last 6 daily(trade_date=...) market snapshots from
+        # Tushare (one call per date) and aggregate in-memory. This replaces
+        # N per-stock get_daily_data() calls (which each do their own daily
+        # request), turning O(N_candidates) into O(6) Tushare calls.
         vol_ratio_map: Dict[str, float] = {}
-        from datetime import datetime as _dt
-        as_of_iso = (
-            f"{td[:4]}-{td[4:6]}-{td[6:8]}" if "-" not in as_of_date else as_of_date
-        )
-        as_of_dt = _dt.strptime(td, "%Y%m%d")
-        prev_start = (as_of_dt - pd.Timedelta(days=12)).strftime("%Y-%m-%d")
-        for code in df_filtered["code"]:
-            try:
-                df_hist, _ = self._data_manager.get_daily_data(
-                    code, start_date=prev_start, end_date=as_of_iso, days=8,
-                )
-                if df_hist is None or len(df_hist) < 2:
+        try:
+            df_cal = api.trade_cal(
+                exchange="SSE",
+                start_date=(pd.Timestamp(td) - pd.Timedelta(days=20)).strftime("%Y%m%d"),
+                end_date=td,
+            )
+            df_cal.columns = [c.lower() for c in df_cal.columns]
+            df_cal = df_cal[df_cal["is_open"] == 1].sort_values("cal_date")
+            prior_dates = df_cal[df_cal["cal_date"] < td]["cal_date"].tolist()[-5:]
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] trade_cal failed: {e}; skipping vol_ratio")
+            prior_dates = []
+
+        if prior_dates:
+            today_vol_map = dict(zip(df_filtered["code"], pd.to_numeric(df_filtered["vol"], errors="coerce")))
+            hist_vol_acc: Dict[str, list] = {c: [] for c in df_filtered["code"]}
+            for prior_td in prior_dates:
+                try:
+                    df_p = api.daily(trade_date=prior_td)
+                    if df_p is None or df_p.empty:
+                        continue
+                    df_p.columns = [c.lower() for c in df_p.columns]
+                    df_p["code"] = df_p["ts_code"].str.split(".").str[0]
+                    cand_set = set(df_filtered["code"])
+                    df_p = df_p[df_p["code"].isin(cand_set)]
+                    for _, row in df_p.iterrows():
+                        v = pd.to_numeric(row.get("vol"), errors="coerce")
+                        if pd.notna(v) and v > 0:
+                            hist_vol_acc[row["code"]].append(float(v))
+                except Exception as e:
+                    logger.debug(f"[EOD-HIST] daily({prior_td}) failed: {e}")
                     continue
-                vol_col = self._first_col(df_hist, "vol", "volume", "成交量")
-                if vol_col is None:
+
+            for code, hist_vols in hist_vol_acc.items():
+                today_v = today_vol_map.get(code)
+                if today_v is None or pd.isna(today_v) or today_v <= 0 or not hist_vols:
                     continue
-                vol_series = pd.to_numeric(df_hist[vol_col], errors="coerce")
-                today_vol = float(vol_series.iloc[-1])
-                hist_avg = float(vol_series.iloc[-6:-1].mean()) if len(vol_series) >= 6 else float(vol_series.iloc[:-1].mean())
-                if hist_avg <= 0 or pd.isna(hist_avg) or today_vol <= 0:
-                    continue
-                vol_ratio_map[code] = today_vol / hist_avg
-            except Exception:
-                continue
+                avg = sum(hist_vols) / len(hist_vols)
+                if avg > 0:
+                    vol_ratio_map[code] = float(today_v) / avg
 
         if vol_ratio_map:
             df_filtered = df_filtered[
