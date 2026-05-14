@@ -50,7 +50,6 @@ export const AnalysisResultsTable: React.FC<AnalysisResultsTableProps> = ({
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">分析日期</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">信号</th>
                 <th className="px-4 py-3 text-right text-xs text-muted font-medium">量化分</th>
-                <th className="px-4 py-3 text-left text-xs text-muted font-medium">策略</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">方向</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">结果</th>
                 <th className="px-4 py-3 text-left text-xs text-muted font-medium">入场</th>
@@ -78,7 +77,6 @@ export const AnalysisResultsTable: React.FC<AnalysisResultsTableProps> = ({
                       ? row.signalScoreAtEval
                       : '--'}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-secondary">{row.strategyId || '--'}</td>
                   <td className="px-4 py-2.5 text-sm">
                     <span className="flex items-center gap-1.5">
                       {boolIcon(row.directionCorrect)}
