@@ -324,8 +324,13 @@ def _get_tushare_pro():
         return None
 
 
-def _handle_get_capital_flow(stock_code: str, days: int = 5) -> dict:
+def _handle_get_capital_flow(stock_code: str, days=5) -> dict:
     """Get capital flow analysis (main force + north-bound) for a stock."""
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 5
+
     pro = _get_tushare_pro()
     if pro is None:
         return {"error": "Tushare API not available (TUSHARE_TOKEN not configured)"}
@@ -333,7 +338,6 @@ def _handle_get_capital_flow(stock_code: str, days: int = 5) -> dict:
     from data_provider.moneyflow_fetcher import MoneyflowFetcher
     fetcher = MoneyflowFetcher(pro)
 
-    # Convert 6-digit code to ts_code format (e.g. 600519 -> 600519.SH)
     ts_code = stock_code
     if len(stock_code) == 6 and stock_code.isdigit():
         if stock_code.startswith(('6', '9')):
@@ -341,8 +345,7 @@ def _handle_get_capital_flow(stock_code: str, days: int = 5) -> dict:
         else:
             ts_code = f"{stock_code}.SZ"
 
-    result = fetcher.analyze_capital_flow(ts_code, days=days)
-    return result
+    return fetcher.analyze_capital_flow(ts_code, days=days)
 
 
 get_capital_flow_tool = ToolDefinition(

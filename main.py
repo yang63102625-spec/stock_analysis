@@ -25,6 +25,9 @@ import os
 from src.config import setup_env
 setup_env()
 
+import warnings as _warnings
+_warnings.filterwarnings("ignore", category=ResourceWarning, message=".*event loop.*")
+
 # 代理配置 - 通过 USE_PROXY 环境变量控制，默认关闭
 # GitHub Actions 环境自动跳过代理配置
 if os.getenv("GITHUB_ACTIONS") != "true" and os.getenv("USE_PROXY", "false").lower() == "true":
@@ -156,8 +159,8 @@ def _format_picker_report(result_dict: dict) -> str:
     return "\n".join(parts)
 
 
-def _run_picker_and_notify() -> None:
-    """Run stock picker and push report to configured channels."""
+def _run_picker_and_notify(send_notification: bool = True) -> None:
+    """Run stock picker; push report only when send_notification is True."""
     from src.services.picker import StockPickerService
     from src.notification_service import NotificationService
 
@@ -168,6 +171,10 @@ def _run_picker_and_notify() -> None:
 
     if not result_dict.get("success"):
         logger.warning(f"选股未成功: {result_dict.get('error', 'unknown')}")
+        return
+
+    if not send_notification:
+        logger.info("已跳过 AI 智能选股推送 (--no-notify)")
         return
 
     notifier = NotificationService()
@@ -340,7 +347,7 @@ def run_full_analysis(
         picker_enabled = getattr(args, 'picker', False) or _is_truthy_env('PICKER_ENABLED', 'false')
         if picker_enabled and send_notification:
             try:
-                _run_picker_and_notify()
+                _run_picker_and_notify(send_notification=True)
             except Exception as e:
                 logger.warning(f"AI 智能选股推送失败（已忽略）: {e}")
 
@@ -522,7 +529,7 @@ def main() -> int:
         if getattr(args, 'picker_only', False):
             logger.info("模式: 仅 AI 智能选股")
             try:
-                _run_picker_and_notify()
+                _run_picker_and_notify(send_notification=_should_send_notification(args))
             except Exception as e:
                 logger.exception(f"选股失败: {e}")
                 return 1

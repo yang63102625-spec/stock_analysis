@@ -46,6 +46,10 @@ DEFAULT_QUIET_LOGGERS = [
     'sqlalchemy',
     'google',
     'httpx',
+    'litellm',
+    'LiteLLM',
+    'LiteLLM Router',
+    'LiteLLM Proxy',
 ]
 
 

@@ -81,8 +81,18 @@ search_stock_news_tool = ToolDefinition(
 # search_comprehensive_intel
 # ============================================================
 
-def _handle_search_comprehensive_intel(stock_code: str, stock_name: str) -> dict:
-    """Multi-dimensional intelligence search."""
+def _handle_search_comprehensive_intel(
+    stock_code: str = "",
+    stock_name: str = "",
+    **kwargs,
+) -> dict:
+    """Multi-dimensional intelligence search. Accepts ``code``/``name`` aliases."""
+    stock_code = stock_code or kwargs.get("code", "") or ""
+    stock_name = stock_name or kwargs.get("name", "") or ""
+
+    if not stock_code:
+        return {"error": "stock_code is required"}
+
     service = _get_search_service()
 
     if not service.is_available:

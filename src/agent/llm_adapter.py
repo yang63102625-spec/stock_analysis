@@ -15,6 +15,9 @@ from typing import Any, Dict, List, Optional
 import litellm
 from litellm import Router
 
+litellm.set_verbose = False
+litellm.suppress_debug_info = True
+
 from src.config import get_config, get_api_keys_for_model, extra_litellm_params
 
 logger = logging.getLogger(__name__)

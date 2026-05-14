@@ -82,6 +82,12 @@ class BacktestService(_ScoreEffectivenessMixin):
             int(eval_window_days),
             int(limit),
         )
+        if total_candidates == 0 and code:
+            logger.warning(
+                "[Backtest] no candidates for code=%s — no analysis_history row aged "
+                ">=%d days, or all already evaluated (use --backtest-force).",
+                code, int(min_age_days),
+            )
 
         processed = 0
         completed = 0

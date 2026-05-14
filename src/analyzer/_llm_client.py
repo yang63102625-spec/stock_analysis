@@ -9,6 +9,9 @@ from typing import Any, Dict, Optional, Tuple
 import litellm
 from litellm import Router
 
+litellm.set_verbose = False
+litellm.suppress_debug_info = True
+
 from src.agent.llm_adapter import get_thinking_extra_body
 from src.config import Config, extra_litellm_params, get_api_keys_for_model, get_config
 from src.storage import persist_llm_usage

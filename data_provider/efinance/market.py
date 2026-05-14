@@ -10,6 +10,7 @@ import pandas as pd
 
 from ..base import normalize_stock_code
 from ..realtime_types import safe_float, safe_int
+from .utils import _REALTIME_KEY, _get_realtime_ttl, _realtime_cache
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +130,13 @@ class _MarketMixin:
                 from zoneinfo import ZoneInfo
                 stats["data_date"] = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
             return stats
+        except ValueError as e:
+            logger.warning(f"[efinance] 市场统计接口返回空/非法JSON，跳过: {e}")
+            return None
         except Exception as e:
             logger.error(f"[efinance] 获取市场统计失败: {e}")
             return None
-        
+
     def _calc_market_stats(
         self,
         df: pd.DataFrame,
@@ -308,11 +312,14 @@ class _MarketMixin:
                     return info.iloc[0].to_dict()
             
             return None
-            
+
+        except ValueError as e:
+            logger.warning(f"[efinance] {stock_code} 基本信息解析失败（接口返回空/非法JSON）: {e}")
+            return None
         except Exception as e:
             logger.error(f"[API错误] 获取 {stock_code} 基本信息失败: {e}")
             return None
-    
+
     def get_belong_board(self, stock_code: str) -> Optional[pd.DataFrame]:
         """
         获取股票所属板块
