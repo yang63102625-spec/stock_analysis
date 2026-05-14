@@ -282,6 +282,19 @@ class _PromptBuilderMixin:
         close = today.get('close')
         high = today.get('high')
         low = today.get('low')
+        pct_chg = today.get('pct_chg')
+
+        # Supplement missing fields from realtime data during trading hours
+        if realtime:
+            rt_price = realtime.get('price')
+            if close is None and rt_price is not None:
+                close = rt_price
+            if prev_close is None:
+                prev_close = realtime.get('prev_close') or realtime.get('pre_close')
+            if high is None and realtime.get('high') is not None:
+                high = realtime.get('high')
+            if low is None and realtime.get('low') is not None:
+                low = realtime.get('low')
 
         amplitude = None
         change_amount = None
@@ -295,6 +308,11 @@ class _PromptBuilderMixin:
                 change_amount = float(close) - float(prev_close)
             except (TypeError, ValueError):
                 change_amount = None
+        if pct_chg is None and close is not None and prev_close not in (None, 0):
+            try:
+                pct_chg = (float(close) - float(prev_close)) / float(prev_close) * 100
+            except (TypeError, ValueError, ZeroDivisionError):
+                pct_chg = None
 
         snapshot = {
             "date": context.get('date', '未知'),
@@ -303,7 +321,7 @@ class _PromptBuilderMixin:
             "high": self._format_price(high),
             "low": self._format_price(low),
             "prev_close": self._format_price(prev_close),
-            "pct_chg": self._format_percent(today.get('pct_chg')),
+            "pct_chg": self._format_percent(pct_chg),
             "change_amount": self._format_price(change_amount),
             "amplitude": self._format_percent(amplitude),
             "volume": self._format_volume(today.get('volume')),
@@ -315,7 +333,8 @@ class _PromptBuilderMixin:
                 "price": self._format_price(realtime.get('price')),
                 "volume_ratio": realtime.get('volume_ratio', 'N/A'),
                 "turnover_rate": self._format_percent(realtime.get('turnover_rate')),
-                "source": getattr(realtime.get('source'), 'value', realtime.get('source', 'N/A')),
+                "source": getattr(realtime.get('source'), 'value',
+                                   realtime.get('source', 'realtime')),
             })
 
         return snapshot

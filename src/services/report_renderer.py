@@ -10,6 +10,7 @@ Any expensive data preparation should be injected by the caller via extra_contex
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -167,7 +168,9 @@ def render(
             autoescape=select_autoescape(default=False),
         )
         template = env.get_template(template_name)
-        return template.render(**context)
+        output = template.render(**context)
+        output = re.sub(r'\n{3,}', '\n\n', output)
+        return output.strip()
     except Exception as e:
         logger.warning("Report render failed for %s: %s", template_name, e)
         return None

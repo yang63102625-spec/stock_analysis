@@ -1,4 +1,4 @@
-{% from '_macros.j2' import market_snapshot %}
+{%- from '_macros.j2' import market_snapshot -%}
 # 🎯 {{ report_date }} 决策仪表盘
 
 > 共分析 **{{ results|length }}** 只股票 | 🟢买入:{{ buy_count }} 🟡观望:{{ hold_count }} 🔴卖出:{{ sell_count }}
@@ -58,7 +58,7 @@
 |---------|---------|
 | 🆕 **空仓者** | {{ pos_advice.get('no_position', result.operation_advice) }} |
 | 💼 **持仓者** | {{ pos_advice.get('has_position', '继续持有') }} |
-{%- endif %}
+{%- endif -%}
 
 {{ market_snapshot(result) }}
 {%- if data_persp %}
