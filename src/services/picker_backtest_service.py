@@ -201,14 +201,15 @@ class PickerBacktestService:
                 ], axis=1).max(axis=1)
                 df["atr"] = tr.rolling(window=14, min_periods=1).mean()
 
-            # eod_buyback semantics (T+1 overnight strategy):
-            #   - Buy at trade_date's CLOSE (尾盘 14:55-15:00 entry, approximated
-            #     by daily close + slippage on the buy side).
-            #   - Sell at next trading day's CLOSE (T+1 尾盘 exit). A-share T+1
-            #     forbids same-day round-trip; selling at next-day close is the
-            #     most representative timing (intraday choice doesn't change
-            #     the daily-bar backtest result).
-            # hold_days is therefore exactly 1, regardless of caller's value.
+            # eod_buyback execution model (T+1 overnight, intraday TP/SL):
+            #   T  14:50-15:00  尾盘买入 → entry = T 日收盘价 (+ 0.15% 滑点)
+            #   T+1 全天持有，按以下优先级出场:
+            #     1) 盘中触及 +TAKE_PROFIT_PCT → 以止盈线成交（exit_reason=take_profit_t1）
+            #     2) 盘中触及 -STOP_LOSS_PCT  → 以止损线成交（exit_reason=stop_loss_t1）
+            #     3) 否则 T+1 收盘卖出（exit_reason=t1_close）
+            #   同日 high/low 都触发的保守口径：假定先到止损（更悲观，避免高估）
+            # 净收益 = gross - 0.05% commission*2 - 0.05% stamp duty = gross - 0.10%
+            # 不再调用 simulate_forward_trade（那是为多日 trailing 设计）
             entry_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             pick_mask = df["_date_str"] == entry_str
             if not pick_mask.any():
@@ -220,58 +221,48 @@ class PickerBacktestService:
                     return {}
                 entry_price = float(close_v)
 
-            # Build forward bars (entry day + subsequent days up to exit_date).
-            exit_str = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
-            exit_mask = df["_date_str"] == exit_str
-            end_idx = int(df.index[exit_mask].max()) if exit_mask.any() else len(df) - 1
-
-            # T+1 overnight: forward bars = exactly 1 bar at entry_idx+1
-            # (next trading day's close = exit). We DO NOT include entry_idx
-            # itself because that's the entry bar (already encoded in
-            # entry_price = today's close).
             exit_idx = entry_idx + 1
             if exit_idx >= len(df):
-                return {}  # next trading day not yet in data
-            bars: List[Dict[str, Any]] = []
-            for i in range(exit_idx, exit_idx + 1):
-                row = df.iloc[i]
-                close = float(row[close_col]) if pd.notna(row[close_col]) else None
-                if close is None:
-                    continue
-                bars.append({
-                    "close": close,
-                    "high": float(row[high_col]) if high_col and pd.notna(row[high_col]) else close,
-                    "low": float(row[low_col]) if low_col and pd.notna(row[low_col]) else close,
-                    "ma10": float(row["ma10"]) if pd.notna(row.get("ma10")) else 0.0,
-                    "ma20": float(row["ma20"]) if pd.notna(row.get("ma20")) else 0.0,
-                    "atr": float(row["atr"]) if "atr" in df.columns and pd.notna(row.get("atr")) else 0.0,
-                    "pct_chg": float(row[pct_col]) if pct_col and pd.notna(row[pct_col]) else None,
-                })
-
-            if not bars:
+                return {}  # T+1 not yet in data
+            next_bar = df.iloc[exit_idx]
+            next_high = float(next_bar[high_col]) if high_col and pd.notna(next_bar[high_col]) else None
+            next_low = float(next_bar[low_col]) if low_col and pd.notna(next_bar[low_col]) else None
+            next_close = float(next_bar[close_col]) if pd.notna(next_bar[close_col]) else None
+            if next_close is None or next_close <= 0:
                 return {}
 
-            is_kc_cy = code.startswith("688") or code.startswith("30")
-            sim = simulate_forward_trade(
-                strategy_id=strategy_id,
-                entry_price=entry_price,
-                market_cap_yi=0.0,  # Picker pipeline doesn't pass market cap here; rules degrade gracefully
-                bars=bars,
-                apply_slippage=True,
-                apply_limit_up_filter=True,
-                is_kc_cy=is_kc_cy,
-            )
-            if sim.get("skipped"):
-                logger.debug(
-                    "[PickerBacktest] %s entry skipped: %s",
-                    code, sim.get("skip_reason"),
-                )
-                return {}
+            ENTRY_SLIPPAGE = 0.0015
+            EXIT_SLIPPAGE = 0.0015
+            COST_ROUND_TRIP_PCT = 0.10  # commission 0.025%×2 + stamp duty 0.05%
+            T1_TAKE_PROFIT = 0.03  # +3% intraday TP
+            T1_STOP_LOSS = 0.03    # -3% intraday SL
+
+            effective_entry = entry_price * (1 + ENTRY_SLIPPAGE)
+            tp_trigger = entry_price * (1 + T1_TAKE_PROFIT)
+            sl_trigger = entry_price * (1 - T1_STOP_LOSS)
+
+            hit_sl = next_low is not None and next_low <= sl_trigger
+            hit_tp = next_high is not None and next_high >= tp_trigger
+
+            if hit_sl:
+                exit_price_raw = sl_trigger
+                exit_reason = "stop_loss_t1"
+            elif hit_tp:
+                exit_price_raw = tp_trigger
+                exit_reason = "take_profit_t1"
+            else:
+                exit_price_raw = next_close
+                exit_reason = "t1_close"
+
+            effective_exit = exit_price_raw * (1 - EXIT_SLIPPAGE)
+            gross_pct = (effective_exit - effective_entry) / effective_entry * 100.0
+            net_pct = gross_pct - COST_ROUND_TRIP_PCT
+
             return {
-                "exit_price": sim.get("exit_price"),
-                "return_pct": sim.get("return_pct"),
-                "exit_reason": sim.get("exit_reason"),
-                "hold_days": sim.get("hold_days"),
+                "exit_price": effective_exit,
+                "return_pct": net_pct,
+                "exit_reason": exit_reason,
+                "hold_days": 1,
             }
         except Exception as e:
             logger.debug(f"[PickerBacktest] Forward return failed {code}: {e}")

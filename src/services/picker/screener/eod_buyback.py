@@ -591,6 +591,69 @@ class _EodBuybackMixin:
         if df_filtered.empty:
             return []
 
+        # Iter-3 P lever: smart-money confirmation via moneyflow (超大单净流入).
+        # The "+0~2% intraday + low vol_ratio" signal from G/H is a *timing*
+        # filter — it tells us when a contrarian setup exists. To pick which
+        # stocks within that setup will actually rally, layer in evidence of
+        # institutional accumulation: 当日超大单 (single-trade ≥100万元) 净流入 > 0.
+        try:
+            df_mf = api.moneyflow(trade_date=td)
+            if df_mf is not None and not df_mf.empty:
+                df_mf.columns = [c.lower() for c in df_mf.columns]
+                df_mf["code"] = df_mf["ts_code"].str.split(".").str[0]
+                # 超大单净流入 = buy_elg_amount - sell_elg_amount (千元)
+                df_mf["elg_net"] = (
+                    pd.to_numeric(df_mf.get("buy_elg_amount"), errors="coerce")
+                    - pd.to_numeric(df_mf.get("sell_elg_amount"), errors="coerce")
+                )
+                elg_map = dict(zip(df_mf["code"], df_mf["elg_net"]))
+                df_filtered["elg_net"] = df_filtered["code"].map(elg_map).fillna(0)
+                before_n = len(df_filtered)
+                df_filtered = df_filtered[df_filtered["elg_net"] > 0].copy()
+                logger.info(
+                    f"[EOD-HIST] {td}: after 超大单净流入>0 filter: "
+                    f"{before_n} → {len(df_filtered)} stocks"
+                )
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] {td}: moneyflow filter failed: {e}, proceeding without it")
+
+        if df_filtered.empty:
+            return []
+
+        # Iter-3 P bonus: 过去 3 个交易日上过龙虎榜的票优先（资金注意力信号）
+        dragon_codes: set = set()
+        try:
+            from datetime import datetime as _dt
+            check_dates = []
+            cur = _dt.strptime(td, "%Y%m%d")
+            df_cal_p = api.trade_cal(
+                exchange="SSE",
+                start_date=(cur - pd.Timedelta(days=10)).strftime("%Y%m%d"),
+                end_date=td,
+            )
+            df_cal_p.columns = [c.lower() for c in df_cal_p.columns]
+            open_dates = df_cal_p[df_cal_p["is_open"] == 1].sort_values("cal_date")["cal_date"].tolist()
+            check_dates = [d for d in open_dates if d <= td][-3:]
+            for chk_td in check_dates:
+                try:
+                    df_tl = api.top_list(trade_date=chk_td)
+                    if df_tl is not None and not df_tl.empty:
+                        df_tl.columns = [c.lower() for c in df_tl.columns]
+                        # 只取「净买入」上榜（reason 含"涨幅" 或 "换手"），排除跌幅榜
+                        df_tl["code"] = df_tl["ts_code"].str.split(".").str[0]
+                        positive_reasons = df_tl["reason"].astype(str).str.contains(
+                            "涨幅|换手|振幅", na=False
+                        )
+                        net_buy_mask = pd.to_numeric(df_tl["net_amount"], errors="coerce") > 0
+                        dragon_codes.update(df_tl[positive_reasons & net_buy_mask]["code"].tolist())
+                except Exception:
+                    continue
+            logger.info(
+                f"[EOD-HIST] {td}: 过去 3 日龙虎榜（净买入）覆盖 {len(dragon_codes)} 只票"
+            )
+        except Exception as e:
+            logger.warning(f"[EOD-HIST] {td}: top_list bonus failed: {e}")
+
         # Volume ratio: vol(td) / mean(vol(td-5..td-1)).
         # Fast path: pull last 6 daily(trade_date=...) market snapshots from
         # Tushare (one call per date) and aggregate in-memory. This replaces
@@ -674,6 +737,9 @@ class _EodBuybackMixin:
             if 100 <= mc_v <= 200:
                 base_score += 5.0
             base_score -= abs(vr_v - 1.0) * 5.0  # peak at vr=1.0
+            # Iter-3 P: 龙虎榜资金注意力 bonus（最多 +12 分）
+            if code in dragon_codes:
+                base_score += 12.0
 
             candidates.append(ScreenedStock(
                 code=code,
