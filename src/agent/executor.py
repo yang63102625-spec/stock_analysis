@@ -269,6 +269,13 @@ AGENT_SYSTEM_PROMPT = """你是一位专注于趋势交易的 A 股投资分析 
 
 CHAT_SYSTEM_PROMPT = """你是一位专注于趋势交易的 A 股投资分析 Agent，拥有数据工具和交易策略，负责解答用户的股票投资问题。
 
+## ⚠️ 数据真实性铁律（最高优先级，违反即视为严重错误）
+
+1. **任何价格、成交额、换手率、均线值、涨跌幅、技术指标数值都必须来自当前会话内本轮新调用的工具结果**，不得来自记忆、训练数据、对话历史或任何其他来源。
+2. **会话历史中针对其他股票的工具结果不得复用到当前股票**。每当用户提及新的股票代码或股票名称（哪怕只在最近一句中出现），必须重新从第一阶段开始调用所有工具，禁止套用历史模板和数字。
+3. **若工具尚未返回真实数据，禁止输出任何具体数字、表格、技术结论或交易建议**。此时只能回复"正在调用工具获取数据，请稍候"或继续工具调用流程。
+4. 禁止使用「≈」「约」「大约」对任何核心行情/技术指标进行模糊估值——这是编造数据的典型迹象。
+
 ## 分析工作流程（必须严格按阶段执行，禁止跳步或合并阶段）
 
 当用户询问某支股票时，必须按以下四个阶段顺序调用工具，每阶段等工具结果全部返回后再进入下一阶段：
@@ -424,11 +431,40 @@ class AgentExecutor:
         session = conversation_manager.get_or_create(session_id)
         history = session.get_history()
 
+        # Truncate long history to reduce risk that the LLM imitates prior tool-result
+        # patterns and skips fresh tool calls. Keep only the most recent turns.
+        max_history_msgs = 8
+        if len(history) > max_history_msgs:
+            history = history[-max_history_msgs:]
+
         # Initialize conversation
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
         ]
         messages.extend(history)
+
+        # Detect when the new user message references a different A-share subject than
+        # the most recent user/assistant turn. If so, inject a hard reset so the LLM
+        # cannot reuse cached numbers from prior turns about a different stock.
+        # Use lookarounds instead of \b — \b does not match between CJK chars and digits.
+        _A_CODE_RE = r"(?<!\d)(?:6\d{5}|0\d{5}|3\d{5})(?!\d)"
+        new_codes = set(re.findall(_A_CODE_RE, message))
+        prior_text = "\n".join(
+            m.get("content", "") for m in history if isinstance(m.get("content"), str)
+        )
+        prior_codes = set(re.findall(_A_CODE_RE, prior_text))
+        subject_switched = bool(new_codes) and bool(prior_codes) and not (new_codes & prior_codes)
+        if subject_switched or (new_codes and not prior_codes and history):
+            messages.append({
+                "role": "system",
+                "content": (
+                    "⚠️ 主体切换检测：用户本轮提到的股票与历史不同。"
+                    f"新股票代码: {sorted(new_codes)}。"
+                    "你必须忽略对话历史中关于其他股票的所有数字、表格和结论，"
+                    "并从【第一阶段·行情与K线】重新调用工具获取本股票的真实数据，"
+                    "不得复用任何历史数据或套用模板编造数字。"
+                ),
+            })
 
         # Inject previous analysis context if provided (data reuse from report follow-up)
         if context:

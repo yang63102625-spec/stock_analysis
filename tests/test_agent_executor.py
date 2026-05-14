@@ -412,6 +412,59 @@ class TestBuildUserMessage(unittest.TestCase):
 
 
 # ============================================================
+# chat() — subject-switch hard reset
+# ============================================================
+
+class TestChatSubjectSwitch(unittest.TestCase):
+    """When the user switches to a new A-share code, the executor must inject a
+    system 'reset' note so the LLM cannot reuse cached numbers from history."""
+
+    def _capture_messages(self, history, new_message):
+        from src.agent import conversation as conv_mod
+
+        class _StubSession:
+            def get_history(self_inner):
+                return list(history)
+
+        stub_mgr = MagicMock()
+        stub_mgr.get_or_create.return_value = _StubSession()
+
+        adapter = MagicMock()
+        adapter.call_with_tools.return_value = LLMResponse(
+            content="ok", tool_calls=[], usage={"total_tokens": 0}, provider="stub"
+        )
+
+        executor = AgentExecutor(ToolRegistry(), adapter, max_steps=1)
+        with patch.object(conv_mod, "conversation_manager", stub_mgr):
+            executor.chat(message=new_message, session_id="s1")
+        return adapter.call_with_tools.call_args[0][0]
+
+    def test_inject_reset_when_subject_switches(self):
+        history = [
+            {"role": "user", "content": "分析600519"},
+            {"role": "assistant", "content": "茅台收盘1700元..."},
+        ]
+        msgs = self._capture_messages(history, "分析600111")
+        reset_notes = [m for m in msgs if m["role"] == "system" and "主体切换" in m["content"]]
+        self.assertEqual(len(reset_notes), 1)
+        self.assertIn("600111", reset_notes[0]["content"])
+
+    def test_no_reset_when_same_subject(self):
+        history = [
+            {"role": "user", "content": "分析600111"},
+            {"role": "assistant", "content": "已分析..."},
+        ]
+        msgs = self._capture_messages(history, "再帮我看看600111的资金面")
+        reset_notes = [m for m in msgs if m["role"] == "system" and "主体切换" in m["content"]]
+        self.assertEqual(reset_notes, [])
+
+    def test_no_reset_on_first_turn_without_history(self):
+        msgs = self._capture_messages([], "分析600111")
+        reset_notes = [m for m in msgs if m["role"] == "system" and "主体切换" in m["content"]]
+        self.assertEqual(reset_notes, [])
+
+
+# ============================================================
 # AgentResult dataclass
 # ============================================================
 
