@@ -1,3 +1,9 @@
+---
+description: 数据源优先级（Tushare 5000 积分优先）。改 fetcher / 实时行情 / 历史数据相关代码时必读
+globs: data_provider/**/*.py, src/services/**/*.py, src/core/**/*.py
+alwaysApply: false
+---
+
 # 数据源优先级规范 (Data Source Priority)
 
 用户有 5000 积分的 Tushare Pro Token，所以在所有涉及实时数据的场景中，应该**优先使用 Tushare**。

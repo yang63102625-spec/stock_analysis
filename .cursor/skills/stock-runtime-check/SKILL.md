@@ -7,6 +7,21 @@ description: Live runtime smoke test for the tw/stock_analysis project. Launches
 
 End-to-end live verification for `/Users/wei/Projects/tw/stock_analysis`. Launches each major feature, watches logs for warnings / errors / tracebacks, and reports a structured findings list.
 
+## Rules sanity check (do this once per fresh session)
+
+Before fixing anything found by the smoke check, confirm the active rules
+were actually injected into the agent context:
+
+```bash
+for f in .cursor/rules/*.mdc; do
+  head -1 "$f" | grep -q "^---" || echo "MISSING front-matter: $f"
+done
+```
+
+Any file lacking `---` front-matter (with `description` / `globs` /
+`alwaysApply`) will NOT be loaded by Cursor and any rules it contains are
+silently ignored. Patch the front-matter before relying on those rules.
+
 ## Hard Rules (read first)
 
 - **Never read, log, write or commit secrets.** `.env`, API keys, admin password — all off-limits to print or persist. If a step needs a credential, ask the user inline for that one run only and discard immediately (see Step 6 auth handling).
