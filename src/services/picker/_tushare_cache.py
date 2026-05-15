@@ -32,7 +32,62 @@ logger = logging.getLogger(__name__)
 CACHE_ROOT = os.path.join("data", "cache", "tushare")
 _LOCK = threading.Lock()
 _MEM: dict[str, pd.DataFrame] = {}
-_STATS = {"mem": 0, "disk": 0, "miss": 0}
+_STATS = {"mem": 0, "disk": 0, "localdb": 0, "miss": 0}
+
+_USE_LOCAL_DB = os.environ.get("STOCK_USE_LOCAL_DB", "1") == "1"
+_LOCAL_DB = None
+
+
+def _get_local_db():
+    global _LOCAL_DB
+    if not _USE_LOCAL_DB:
+        return None
+    if _LOCAL_DB is not None:
+        return _LOCAL_DB
+    try:
+        from src.services.local_db import default_db
+
+        _LOCAL_DB = default_db()
+    except Exception as e:
+        logger.warning("[ts-cache] LocalStockDB unavailable: %s", e)
+    return _LOCAL_DB
+
+
+def _localdb_lookup(api: str, **kw) -> Optional[pd.DataFrame]:
+    """Try to satisfy a Tushare-style call from the local warehouse.
+
+    Returns ``None`` when LocalDB doesn't have the row(s); the caller
+    should fall through to disk cache / live fetch.
+    """
+    db = _get_local_db()
+    if db is None:
+        return None
+    try:
+        td = kw.get("trade_date")
+        sd = kw.get("start_date")
+        ed = kw.get("end_date")
+        if api == "daily" and td:
+            return db.get_market_daily(td)
+        if api == "daily_basic" and td:
+            return db.get_market_daily_basic(td)
+        if api == "moneyflow" and td and not kw.get("ts_code"):
+            return db.get_market_moneyflow(td)
+        if api == "moneyflow_hsgt" and sd:
+            return db.get_moneyflow_hsgt(sd, ed or sd)
+        if api == "index_daily":
+            ts_code = kw.get("ts_code")
+            if ts_code:
+                return db.get_index_daily(ts_code, sd, ed)
+        if api == "top_list" and td:
+            return db.get_top_list(td, td)
+        if api == "stock_basic":
+            return db.get_stock_basic()
+        if api == "trade_cal":
+            ex = kw.get("exchange", "SSE")
+            return db.get_trade_cal(ex, sd, ed)
+    except Exception as e:
+        logger.debug("[ts-cache] LocalDB lookup %s failed: %s", api, e)
+    return None
 
 
 def _path(api: str, key: str) -> str:
@@ -59,12 +114,26 @@ def _save_disk(api: str, key: str, df: pd.DataFrame) -> None:
         logger.warning("[ts-cache] write %s/%s failed: %s", api, key, e)
 
 
-def _get(api: str, key: str, fetch: Callable[[], Optional[pd.DataFrame]]) -> Optional[pd.DataFrame]:
+def _get(
+    api: str,
+    key: str,
+    fetch: Callable[[], Optional[pd.DataFrame]],
+    localdb_kwargs: Optional[dict] = None,
+) -> Optional[pd.DataFrame]:
     cache_key = f"{api}:{key}"
     with _LOCK:
         if cache_key in _MEM:
             _STATS["mem"] += 1
             return _MEM[cache_key]
+
+    if localdb_kwargs is not None:
+        local = _localdb_lookup(api, **localdb_kwargs)
+        if local is not None and not local.empty:
+            with _LOCK:
+                _MEM[cache_key] = local
+                _STATS["localdb"] += 1
+            return local
+
     disk = _load_disk(api, key)
     if disk is not None:
         with _LOCK:
@@ -74,11 +143,10 @@ def _get(api: str, key: str, fetch: Callable[[], Optional[pd.DataFrame]]) -> Opt
     try:
         df = fetch()
     except Exception as e:
-        # Network error: cache an empty DataFrame to skip future retries
         logger.warning("[ts-cache] %s/%s fetch error: %s; caching empty", api, key, e)
         df = pd.DataFrame()
     if df is None:
-        df = pd.DataFrame()  # also cache None as empty
+        df = pd.DataFrame()
     with _LOCK:
         _MEM[cache_key] = df
         _STATS["miss"] += 1
@@ -99,7 +167,7 @@ class CachedTushareAPI:
     def daily(self, **kw):
         td = kw.get("trade_date")
         if td:
-            return _get("daily", td, lambda: self._api.daily(**kw))
+            return _get("daily", td, lambda: self._api.daily(**kw), localdb_kwargs=kw)
         return self._api.daily(**kw)
 
     def daily_basic(self, **kw):
@@ -107,22 +175,22 @@ class CachedTushareAPI:
         if td:
             fields = kw.get("fields", "")
             key = f"{td}_{_hash(fields)}" if fields else td
-            return _get("daily_basic", key, lambda: self._api.daily_basic(**kw))
+            return _get("daily_basic", key, lambda: self._api.daily_basic(**kw), localdb_kwargs=kw)
         return self._api.daily_basic(**kw)
 
     def moneyflow(self, **kw):
         td = kw.get("trade_date")
         if td and not kw.get("ts_code"):
-            return _get("moneyflow", td, lambda: self._api.moneyflow(**kw))
+            return _get("moneyflow", td, lambda: self._api.moneyflow(**kw), localdb_kwargs=kw)
         return self._api.moneyflow(**kw)
 
     def moneyflow_hsgt(self, **kw):
         sd = kw.get("start_date")
         ed = kw.get("end_date")
         if sd and ed and sd == ed:
-            return _get("moneyflow_hsgt", sd, lambda: self._api.moneyflow_hsgt(**kw))
+            return _get("moneyflow_hsgt", sd, lambda: self._api.moneyflow_hsgt(**kw), localdb_kwargs=kw)
         if sd and ed:
-            return _get("moneyflow_hsgt", f"{sd}_{ed}", lambda: self._api.moneyflow_hsgt(**kw))
+            return _get("moneyflow_hsgt", f"{sd}_{ed}", lambda: self._api.moneyflow_hsgt(**kw), localdb_kwargs=kw)
         return self._api.moneyflow_hsgt(**kw)
 
     def index_daily(self, **kw):
@@ -130,7 +198,7 @@ class CachedTushareAPI:
         sd = kw.get("start_date", "")
         ed = kw.get("end_date", "")
         key = f"{ts_code}_{sd}_{ed}"
-        return _get("index_daily", key, lambda: self._api.index_daily(**kw))
+        return _get("index_daily", key, lambda: self._api.index_daily(**kw), localdb_kwargs=kw)
 
     def sw_daily(self, **kw):
         td = kw.get("trade_date")
@@ -142,12 +210,12 @@ class CachedTushareAPI:
 
     def stock_basic(self, **kw):
         fields = kw.get("fields", "all")
-        return _get("stock_basic", _hash(fields), lambda: self._api.stock_basic(**kw))
+        return _get("stock_basic", _hash(fields), lambda: self._api.stock_basic(**kw), localdb_kwargs=kw)
 
     def top_list(self, **kw):
         td = kw.get("trade_date")
         if td:
-            return _get("top_list", td, lambda: self._api.top_list(**kw))
+            return _get("top_list", td, lambda: self._api.top_list(**kw), localdb_kwargs=kw)
         return self._api.top_list(**kw)
 
     def trade_cal(self, **kw):
@@ -155,7 +223,7 @@ class CachedTushareAPI:
         sd = kw.get("start_date", "")
         ed = kw.get("end_date", "")
         key = f"{ex}_{sd}_{ed}"
-        return _get("trade_cal", key, lambda: self._api.trade_cal(**kw))
+        return _get("trade_cal", key, lambda: self._api.trade_cal(**kw), localdb_kwargs=kw)
 
     # Pass-through for anything else
     def __getattr__(self, name: str):
