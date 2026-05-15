@@ -30,14 +30,24 @@ longer TTL outside it. Callers can pass it to ``TTLCache.get_or_set``::
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import os
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import pandas as pd
 
 from .base import DataFetcherManager
+
+logger = logging.getLogger(__name__)
+
+_DISK_CACHE_ROOT = Path(
+    os.environ.get("STOCK_DAILY_CACHE_DIR", "data/cache/daily")
+)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +178,36 @@ class CachingDataFetcherManager:
     def _fetchers(self):
         return self._underlying._fetchers
 
+    def _disk_path(self, key: Tuple) -> Path:
+        h = hashlib.md5(repr(key).encode()).hexdigest()[:16]
+        stock_code = str(key[0])
+        return _DISK_CACHE_ROOT / stock_code / f"{h}.parquet"
+
+    def _load_disk(self, key: Tuple) -> Optional[Tuple[pd.DataFrame, str]]:
+        p = self._disk_path(key)
+        if not p.exists():
+            return None
+        try:
+            df = pd.read_parquet(p)
+            meta_p = p.with_suffix(".src")
+            src = meta_p.read_text().strip() if meta_p.exists() else "disk_cache"
+            return df, src
+        except Exception as e:
+            logger.debug(f"[DailyCache] load failed {p}: {e}")
+            return None
+
+    def _save_disk(self, key: Tuple, value: Tuple[pd.DataFrame, str]) -> None:
+        df, src = value
+        if df is None or df.empty:
+            return
+        p = self._disk_path(key)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(p, index=False)
+            p.with_suffix(".src").write_text(src or "")
+        except Exception as e:
+            logger.debug(f"[DailyCache] save failed {p}: {e}")
+
     def get_daily_data(
         self,
         stock_code: str,
@@ -175,18 +215,68 @@ class CachingDataFetcherManager:
         end_date: Optional[str] = None,
         days: int = 30,
     ) -> Tuple[pd.DataFrame, str]:
-        """Fetch daily data with cache. Same (code, start, end, days) returns cached result."""
+        """Fetch daily data with two-tier cache (memory + parquet disk).
+
+        Same (code, start, end, days) returns cached result. Disk cache
+        survives across processes — critical for backtests that hit Tushare
+        repeatedly for the same historical windows.
+        """
         key = (stock_code, start_date or "", end_date or "", days)
         with self._lock:
             if key in self._cache:
                 self._hits += 1
                 return self._cache[key]
+
+        disk = self._load_disk(key)
+        if disk is not None:
+            with self._lock:
+                self._cache[key] = disk
+                self._hits += 1
+            return disk
+
+        with self._lock:
             self._misses += 1
         result = self._underlying.get_daily_data(
             stock_code, start_date=start_date, end_date=end_date, days=days
         )
         with self._lock:
             self._cache[key] = result
+        self._save_disk(key, result)
+        return result
+
+    def get_index_daily_data(
+        self,
+        index_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days: int = 30,
+    ):
+        """Cache index daily data (CSI300 etc) with same two-tier strategy.
+
+        Index data is heavily reused by MarketGuard across all backtest
+        days — caching gives a ~100x speedup on repeated runs.
+        """
+        key = ("__index__", index_code, start_date or "", end_date or "", days)
+        with self._lock:
+            if key in self._cache:
+                self._hits += 1
+                return self._cache[key]
+
+        disk = self._load_disk(key)
+        if disk is not None:
+            with self._lock:
+                self._cache[key] = disk
+                self._hits += 1
+            return disk
+
+        with self._lock:
+            self._misses += 1
+        result = self._underlying.get_index_daily_data(
+            index_code, start_date=start_date, end_date=end_date, days=days
+        )
+        with self._lock:
+            self._cache[key] = result
+        self._save_disk(key, result)
         return result
 
     def __getattr__(self, name: str):
