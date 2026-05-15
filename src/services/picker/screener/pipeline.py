@@ -34,6 +34,13 @@ class _PipelineMixin:
         Uses multi-strategy when picker_strategies has multiple entries."""
         stats = ScreenStats()
         self._as_of_date = self._trade_date_to_iso(trade_date) if trade_date else None
+        # Push as_of_date to the caching manager so its LocalStockDB-backed
+        # window resolution doesn't peek into the future during backtests.
+        if self._data_manager is not None:
+            try:
+                setattr(self._data_manager, "_as_of_date", self._as_of_date)
+            except Exception:
+                pass
 
         # Preserve original strategies -- restored in finally block
         original_strategies = list(self._picker_strategies)

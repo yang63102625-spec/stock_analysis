@@ -49,6 +49,31 @@ _DISK_CACHE_ROOT = Path(
     os.environ.get("STOCK_DAILY_CACHE_DIR", "data/cache/daily")
 )
 
+# Toggle: when 1 (default), CachingDataFetcherManager reads from
+# LocalStockDB first and only falls back to the underlying fetcher chain
+# when the local warehouse has no matching rows.
+_USE_LOCAL_DB = os.environ.get("STOCK_USE_LOCAL_DB", "1") == "1"
+
+
+def _localdb_to_standard_daily(df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
+    """Convert a LocalStockDB daily slice to the project-standard schema
+    (matches :meth:`TushareFetcher._normalize_data`)."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    rename = {"trade_date": "date", "vol": "volume"}
+    out = out.rename(columns={k: v for k, v in rename.items() if k in out.columns})
+    if "date" in out.columns:
+        out["date"] = pd.to_datetime(out["date"].astype(str), format="%Y%m%d", errors="coerce")
+    if "volume" in out.columns:
+        out["volume"] = pd.to_numeric(out["volume"], errors="coerce") * 100
+    if "amount" in out.columns:
+        out["amount"] = pd.to_numeric(out["amount"], errors="coerce") * 1000
+    out["code"] = stock_code
+    if "date" in out.columns:
+        out = out.sort_values("date").reset_index(drop=True)
+    return out
+
 
 # ---------------------------------------------------------------------------
 # Generic TTL cache
@@ -173,6 +198,16 @@ class CachingDataFetcherManager:
         self._lock = threading.Lock()
         self._hits = 0
         self._misses = 0
+        self._localdb_hits = 0
+        self._localdb_misses = 0
+        self._localdb = None
+        if _USE_LOCAL_DB:
+            try:
+                from src.services.local_db import default_db
+
+                self._localdb = default_db()
+            except Exception as e:
+                logger.warning(f"[DailyCache] LocalStockDB unavailable: {e}")
 
     @property
     def _fetchers(self):
@@ -227,6 +262,26 @@ class CachingDataFetcherManager:
                 self._hits += 1
                 return self._cache[key]
 
+        # Tier 1: LocalStockDB (parquet warehouse). Read by sliced date range.
+        if self._localdb is not None:
+            try:
+                eff_start, eff_end = self._resolve_window(start_date, end_date, days)
+                df_local = self._localdb.get_daily(stock_code, eff_start, eff_end)
+                if df_local is not None and not df_local.empty:
+                    df_std = _localdb_to_standard_daily(df_local, stock_code)
+                    if days and len(df_std) > days:
+                        df_std = df_std.tail(days).reset_index(drop=True)
+                    result = (df_std, "local_db")
+                    with self._lock:
+                        self._cache[key] = result
+                        self._localdb_hits += 1
+                    return result
+                else:
+                    self._localdb_misses += 1
+            except Exception as e:
+                logger.debug(f"[DailyCache] LocalDB read {stock_code} failed: {e}")
+
+        # Tier 2: legacy parquet disk cache (per-(code,start,end,days) shards).
         disk = self._load_disk(key)
         if disk is not None:
             with self._lock:
@@ -234,6 +289,7 @@ class CachingDataFetcherManager:
                 self._hits += 1
             return disk
 
+        # Tier 3: live fetch via the underlying fetcher chain.
         with self._lock:
             self._misses += 1
         result = self._underlying.get_daily_data(
@@ -244,23 +300,73 @@ class CachingDataFetcherManager:
         self._save_disk(key, result)
         return result
 
+    def _resolve_window(
+        self,
+        start_date: Optional[str],
+        end_date: Optional[str],
+        days: int,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Translate legacy fetcher args to a concrete date range for the
+        local warehouse. Honours ``self._as_of_date`` so historical backtests
+        don't peek into the future.
+
+        - explicit start/end take precedence.
+        - else: end := as_of_date or today; start := end - days*2 calendar days
+          (matches BaseFetcher.fetch_data convention).
+        """
+        if start_date and end_date:
+            return start_date, end_date
+
+        as_of = getattr(self, "_as_of_date", None)
+        end = end_date or as_of or datetime.now().strftime("%Y-%m-%d")
+        if start_date:
+            return start_date, end
+
+        from datetime import timedelta as _td
+
+        try:
+            end_dt = pd.to_datetime(end)
+        except Exception:
+            end_dt = datetime.now()
+        start_dt = end_dt - _td(days=max(days, 1) * 2)
+        return start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
+
     def get_index_daily_data(
         self,
-        index_code: str,
-        start_date: Optional[str] = None,
+        index_code: str = "000001.SH",
+        days: int = 25,
         end_date: Optional[str] = None,
-        days: int = 30,
     ):
         """Cache index daily data (CSI300 etc) with same two-tier strategy.
 
         Index data is heavily reused by MarketGuard across all backtest
         days — caching gives a ~100x speedup on repeated runs.
+
+        Signature mirrors :meth:`_MarketMixin.get_index_daily_data` exactly.
         """
-        key = ("__index__", index_code, start_date or "", end_date or "", days)
+        key = ("__index__", index_code, end_date or "", days)
         with self._lock:
             if key in self._cache:
                 self._hits += 1
                 return self._cache[key]
+
+        if self._localdb is not None:
+            try:
+                eff_start, eff_end = self._resolve_window(None, end_date, days)
+                df_local = self._localdb.get_index_daily(index_code, eff_start, eff_end)
+                if df_local is not None and not df_local.empty:
+                    df_std = _localdb_to_standard_daily(df_local, index_code)
+                    if days and len(df_std) > days:
+                        df_std = df_std.tail(days).reset_index(drop=True)
+                    result = (df_std, "local_db")
+                    with self._lock:
+                        self._cache[key] = result
+                        self._localdb_hits += 1
+                    return result
+                else:
+                    self._localdb_misses += 1
+            except Exception as e:
+                logger.debug(f"[DailyCache] LocalDB index read {index_code} failed: {e}")
 
         disk = self._load_disk(key)
         if disk is not None:
@@ -272,7 +378,7 @@ class CachingDataFetcherManager:
         with self._lock:
             self._misses += 1
         result = self._underlying.get_index_daily_data(
-            index_code, start_date=start_date, end_date=end_date, days=days
+            index_code, days=days, end_date=end_date
         )
         with self._lock:
             self._cache[key] = result
@@ -297,6 +403,16 @@ class CachingDataFetcherManager:
         """Return (hits, misses) for debugging."""
         with self._lock:
             return self._hits, self._misses
+
+    def cache_stats_full(self) -> Dict[str, int]:
+        """Return rich cache stats including LocalStockDB hit/miss."""
+        with self._lock:
+            return {
+                "memory_hits": self._hits,
+                "memory_misses": self._misses,
+                "localdb_hits": self._localdb_hits,
+                "localdb_misses": self._localdb_misses,
+            }
 
 
 __all__ = [
