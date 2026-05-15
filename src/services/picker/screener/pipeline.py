@@ -54,6 +54,25 @@ class _PipelineMixin:
             # EOD_VARIANT bypasses market guard (variants have own regime logic)
             import os as _os
             _bypass_guard = bool(_os.environ.get("EOD_VARIANT", "").strip())
+            # buy_pullback regime gate: requires SSE > MA20 +1% (truly strong)
+            # to avoid the catastrophic 2025-11 drawdown (-389% single month).
+            # Toggle via env BUY_PULLBACK_REQUIRE_STRONG (default on).
+            if (
+                _os.environ.get("BUY_PULLBACK_REQUIRE_STRONG", "1") == "1"
+                and "buy_pullback" in self._picker_strategies
+                and market_env is not None
+                and market_env.diff_pct < 1.0  # not strong enough
+                and not _bypass_guard
+            ):
+                logger.warning(
+                    "[MarketGuard/buy_pullback] SSE diff %+.2f%% < +1.0%% required, "
+                    "removing buy_pullback for this day",
+                    market_env.diff_pct,
+                )
+                self._picker_strategies = [s for s in self._picker_strategies if s != "buy_pullback"]
+                if not self._picker_strategies:
+                    return [], stats, {}
+
             if getattr(cfg, "picker_market_guard", True) and not _bypass_guard:
                 if market_env and not market_env.is_strong:
                     raw_action = getattr(cfg, "picker_weak_market_action", "limit")
