@@ -53,6 +53,17 @@ def _get_local_db():
     return _LOCAL_DB
 
 
+def _project_fields(df: Optional[pd.DataFrame], fields: Optional[str]) -> Optional[pd.DataFrame]:
+    """Mimic Tushare's ``fields="a,b,c"`` projection on a DataFrame."""
+    if df is None or df.empty or not fields:
+        return df
+    wanted = [f.strip() for f in fields.split(",") if f.strip()]
+    keep = [c for c in wanted if c in df.columns]
+    if not keep:
+        return df
+    return df[keep].copy()
+
+
 def _localdb_lookup(api: str, **kw) -> Optional[pd.DataFrame]:
     """Try to satisfy a Tushare-style call from the local warehouse.
 
@@ -67,24 +78,24 @@ def _localdb_lookup(api: str, **kw) -> Optional[pd.DataFrame]:
         sd = kw.get("start_date")
         ed = kw.get("end_date")
         if api == "daily" and td:
-            return db.get_market_daily(td)
+            return _project_fields(db.get_market_daily(td), kw.get("fields"))
         if api == "daily_basic" and td:
-            return db.get_market_daily_basic(td)
+            return _project_fields(db.get_market_daily_basic(td), kw.get("fields"))
         if api == "moneyflow" and td and not kw.get("ts_code"):
-            return db.get_market_moneyflow(td)
+            return _project_fields(db.get_market_moneyflow(td), kw.get("fields"))
         if api == "moneyflow_hsgt" and sd:
-            return db.get_moneyflow_hsgt(sd, ed or sd)
+            return _project_fields(db.get_moneyflow_hsgt(sd, ed or sd), kw.get("fields"))
         if api == "index_daily":
             ts_code = kw.get("ts_code")
             if ts_code:
-                return db.get_index_daily(ts_code, sd, ed)
+                return _project_fields(db.get_index_daily(ts_code, sd, ed), kw.get("fields"))
         if api == "top_list" and td:
-            return db.get_top_list(td, td)
+            return _project_fields(db.get_top_list(td, td), kw.get("fields"))
         if api == "stock_basic":
-            return db.get_stock_basic()
+            return _project_fields(db.get_stock_basic(), kw.get("fields"))
         if api == "trade_cal":
             ex = kw.get("exchange", "SSE")
-            return db.get_trade_cal(ex, sd, ed)
+            return _project_fields(db.get_trade_cal(ex, sd, ed), kw.get("fields"))
     except Exception as e:
         logger.debug("[ts-cache] LocalDB lookup %s failed: %s", api, e)
     return None
