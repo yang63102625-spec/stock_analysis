@@ -390,10 +390,34 @@ def evaluate_trailing_exit(
 
     sid = (strategy_id or "").strip().lower()
 
-    # Bottom reversal: hard +20% cap (was +15), no trailing past cap.
-    if sid == BOTTOM_REVERSAL and profit_pct >= 20.0:
-        return True, "bottom_reversal_hardcap_20pct"
+    # ---- Bottom reversal: swing-trade rules ----
+    # This is a medium-term (20-60d) bet on "true bottom → consolidation
+    # → launch". The buy_pullback short-term rules below kill these
+    # trades too early (20d time stop, MA20-tight trailing). Custom set:
+    #   - hardcap raised to +35% (let real launches run)
+    #   - ATR trailing only after +25%
+    #   - time stop pushed out to 60d, threshold cut to +3%
+    #   - hard floor: -8% from entry (true breakdown of base)
+    if sid == BOTTOM_REVERSAL:
+        if profit_pct >= 35.0:
+            return True, "bottom_reversal_hardcap_35pct"
+        # Trailing only deep into the move
+        if profit_pct >= 25.0:
+            if _safe_pos(atr) and atr > 0:
+                retrace = peak - current_price
+                if retrace >= atr * 3.0:
+                    return True, "trailing_atr3.0_retrace"
+            if _safe_pos(ma10) and current_price < ma10 * 0.97:
+                return True, "trailing_below_ma10_3pct"
+        # Hard floor — true base-break, not noise
+        if profit_pct <= -8.0:
+            return True, "bottom_reversal_hard_floor_-8pct"
+        # Time stop: 60 trading days without breaking +3%
+        if holding_days >= 60 and profit_pct < 3.0:
+            return True, "time_stop_60d_no_progress"
+        return False, ""
 
+    # ---- buy_pullback / breakout: short-term rules below ----
     # Trailing zone (>=15% profit, was 20%): A-share rallies often start ABC
     # consolidation around +18-22%; entering trailing at 15% locks in 3-5%
     # additional profit on average versus the 20% threshold.
@@ -422,7 +446,7 @@ def evaluate_trailing_exit(
         return True, "time_stop_20d_no_progress"
 
     # MA20 break for non-reversal strategies (defensive trend-failure exit).
-    if sid != BOTTOM_REVERSAL and _safe_pos(ma20) and current_price < ma20 * 0.97:
+    if _safe_pos(ma20) and current_price < ma20 * 0.97:
         return True, "broke_ma20"
 
     return False, ""

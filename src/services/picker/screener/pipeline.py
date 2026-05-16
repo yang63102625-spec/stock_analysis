@@ -80,6 +80,33 @@ class _PipelineMixin:
                 if not self._picker_strategies:
                     return [], stats, {}
 
+            # bottom_reversal regime gate: same lesson as buy_pullback —
+            # "second buy point" technical patterns only convert into
+            # real launches when the broad tape is at least neutral.
+            # In a falling SSE, "about-to-break" patterns become "fake
+            # breakout then crash". Default +1% (looser than buy_pullback
+            # because reversals look for catch-up rebounds). Toggle via
+            # BOTTOM_REV_REQUIRE_STRONG / BOTTOM_REV_GATE_PCT.
+            try:
+                _br_gate = float(_os.environ.get("BOTTOM_REV_GATE_PCT", "1.0"))
+            except ValueError:
+                _br_gate = 1.0
+            if (
+                _os.environ.get("BOTTOM_REV_REQUIRE_STRONG", "1") == "1"
+                and "bottom_reversal" in self._picker_strategies
+                and market_env is not None
+                and market_env.diff_pct < _br_gate
+                and not _bypass_guard
+            ):
+                logger.warning(
+                    "[MarketGuard/bottom_reversal] SSE diff %+.2f%% < %+.2f%% required, "
+                    "removing bottom_reversal for this day",
+                    market_env.diff_pct, _br_gate,
+                )
+                self._picker_strategies = [s for s in self._picker_strategies if s != "bottom_reversal"]
+                if not self._picker_strategies:
+                    return [], stats, {}
+
             if getattr(cfg, "picker_market_guard", True) and not _bypass_guard:
                 if market_env and not market_env.is_strong:
                     raw_action = getattr(cfg, "picker_weak_market_action", "limit")
@@ -135,6 +162,10 @@ class _PipelineMixin:
 
             candidates_per_strategy: Dict[str, List[ScreenedStock]] = {}
 
+            # df is referenced by post-pipeline strategy dispatch blocks
+            # (bottom_reversal) outside the if-needs-daily branch — keep
+            # it bound to None when no daily fetch happens.
+            df = None
             # --- Daily-data pipeline: only fetch spot data when at least one strategy needs it ---
             if needs_daily:
                 df = self._fetch_spot_data(trade_date)
@@ -198,12 +229,13 @@ class _PipelineMixin:
 
                     # Run each daily-data strategy
                     for strategy_id in daily_strategies:
-                        # small_cap is in DAILY_DATA_STRATEGIES so we only
-                        # fetch spot data once across strategies, but it
-                        # does NOT go through the params-driven momentum/
-                        # volume/score pipeline — handled in the dedicated
-                        # dispatch block below.
-                        if strategy_id == "small_cap":
+                        # small_cap and bottom_reversal both live in
+                        # DAILY_DATA_STRATEGIES so we fetch spot once
+                        # across strategies, but they do NOT go through
+                        # the params-driven momentum / volume / score
+                        # pipeline — handled by dedicated dispatch
+                        # blocks below.
+                        if strategy_id in ("small_cap", "bottom_reversal"):
                             continue
                         params = get_strategy_params(strategy_id)
 
@@ -283,6 +315,24 @@ class _PipelineMixin:
                 if sc_cands:
                     candidates_per_strategy["small_cap"] = sc_cands
                     logger.info(f"[Screener] small_cap: {len(sc_cands)} candidates")
+
+            # --- bottom_reversal v2: multi-window geometric "second buy point" ---
+            # Coarse pre-filter on the already-fetched spot frame, then a
+            # per-candidate 180d LocalDB lookup checks drawdown depth,
+            # consolidation tightness, MA60 slope, volume regime, and the
+            # current price's position inside the recent range. See
+            # bottom_reversal_v2.py for the full rule set.
+            if "bottom_reversal" in self._picker_strategies:
+                td_yyyymmdd = trade_date if trade_date else (
+                    self._as_of_date.replace("-", "") if self._as_of_date else None
+                )
+                br_cands = self._screen_bottom_reversal_v2(
+                    spot_df=df,
+                    trade_date_yyyymmdd=td_yyyymmdd,
+                )
+                if br_cands:
+                    candidates_per_strategy["bottom_reversal"] = br_cands
+                    logger.info(f"[Screener] bottom_reversal: {len(br_cands)} candidates")
 
             if not candidates_per_strategy:
                 stats.final_pool = 0
