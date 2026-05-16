@@ -24,13 +24,16 @@ export const PickerBacktestPanel: React.FC<{ summary: PickerBacktestSummary }> =
         {summary.winCount}胜 / {summary.lossCount}负 / {summary.insufficientCount}数据不足
       </span>
     </div>
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1 divide-x divide-border/40">
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-1 divide-x divide-border/40">
       <StatCell label="胜率" value={summary.winRatePct != null ? `${summary.winRatePct.toFixed(1)}%` : '--'} accent />
       <StatCell label="平均收益" value={summary.avgReturnPct != null ? `${summary.avgReturnPct.toFixed(1)}%` : '--'} accent />
       <StatCell label="最大回撤" value={summary.maxDrawdownPct != null ? `${summary.maxDrawdownPct.toFixed(1)}%` : '--'} />
       <StatCell label="盈亏比" value={summary.profitFactor != null ? summary.profitFactor.toFixed(2) : '--'} />
       <StatCell label="超额收益" value={summary.alphaVsBenchmarkPct != null ? `${summary.alphaVsBenchmarkPct.toFixed(1)}%` : '--'} />
       <StatCell label="基准收益" value={summary.benchmarkAvgReturnPct != null ? `${summary.benchmarkAvgReturnPct.toFixed(1)}%` : '--'} />
+      <StatCell label="年化收益" value={summary.cagrPct != null ? `${summary.cagrPct.toFixed(1)}%` : '--'} accent />
+      <StatCell label="Sharpe" value={summary.sharpeRatio != null ? summary.sharpeRatio.toFixed(2) : '--'} />
+      <StatCell label="Calmar" value={summary.calmarRatio != null ? summary.calmarRatio.toFixed(2) : '--'} />
     </div>
   </div>
 );
