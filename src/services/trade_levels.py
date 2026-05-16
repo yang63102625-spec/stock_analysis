@@ -11,8 +11,8 @@ Single source of truth for entry/stop/target levels across:
 Design principles:
 1. Numerical layer is owned by code, not LLM. LLM only explains, never invents
    stop/take-profit numbers.
-2. Strategy-aware: each strategy (buy_pullback / breakout / bottom_reversal /
-   eod_buyback) has its own level computation logic.
+2. Strategy-aware: each strategy (buy_pullback / breakout / bottom_reversal)
+   has its own level computation logic.
 3. ATR-based trailing stop replaces fixed-percentage take-profit ceilings to
    let winners run while protecting profits.
 4. Risk/Reward (R/R) is always computed; callers can hard-filter R/R < 1.8.
@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 BUY_PULLBACK = "buy_pullback"
 BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
-EOD_BUYBACK = "eod_buyback"
 
 # Risk/Reward floor: candidates below this should be filtered by callers.
 # Tuned to 2.0 (was 1.8): A-share round-trip cost (slippage + tax + commission)
@@ -249,17 +248,6 @@ _STRATEGY_CONFIGS: Dict[str, _StrategyConfig] = {
             "no_progress_3d": "买入 3 日内未确认上涨 → 减半",
         },
     ),
-    EOD_BUYBACK: _StrategyConfig(
-        # expected_mult 1.025→1.018: aligns with realistic EOD buyback median
-        # next-day return; previous value inflated R/R and over-sized position.
-        tp1_mult=1.03, expected_mult=1.018,
-        pos_mult=0.7, abs_stop_cap_pct=0.03,
-        tp2_rule="次日尾盘前清仓（不持隔夜超过 1 日）",
-        stage_rules={
-            "next_day_open_+3pct": "次日早盘 +3% 减半",
-            "next_day_close": "次日尾盘前必须清仓",
-        },
-    ),
 }
 
 
@@ -282,9 +270,6 @@ def _resolve_entry_anchor(
     if sid == BOTTOM_REVERSAL:
         anchor = recent_low * 0.98 if _safe_pos(recent_low) else current_price * 0.94
         return current_price, current_price * 0.97, anchor
-    if sid == EOD_BUYBACK:
-        anchor = day_low * 0.98 if _safe_pos(day_low) else current_price * 0.97
-        return current_price, current_price * 0.99, anchor
     # Fallback (unknown strategy → pullback semantics).
     ideal = min(current_price, ma5 * 1.01) if _safe_pos(ma5) else current_price
     return ideal, current_price * 0.97, None
@@ -408,10 +393,6 @@ def evaluate_trailing_exit(
     # Bottom reversal: hard +20% cap (was +15), no trailing past cap.
     if sid == BOTTOM_REVERSAL and profit_pct >= 20.0:
         return True, "bottom_reversal_hardcap_20pct"
-
-    # EOD buyback: must close within next session.
-    if sid == EOD_BUYBACK and holding_days >= 1:
-        return True, "eod_buyback_next_day_close"
 
     # Trailing zone (>=15% profit, was 20%): A-share rallies often start ABC
     # consolidation around +18-22%; entering trailing at 15% locks in 3-5%

@@ -115,11 +115,6 @@ def filter_by_realtime(
     for stock in candidates:
         code = stock.code
         try:
-            # eod_buyback candidates already filtered; skip realtime re-validation
-            if "eod_buyback" in (stock.strategies or []):
-                filtered.append(stock)
-                continue
-
             reasons = []
 
             # Use realtime data if available, otherwise fall back to daily data
@@ -203,8 +198,6 @@ def filter_by_realtime(
                 for strategy_id in stock.strategies:
                     params = get_strategy_params(strategy_id)
 
-                    if strategy_id == "eod_buyback":
-                        continue
                     if (
                         params.daily_change_min is not None
                         and change_pct is not None

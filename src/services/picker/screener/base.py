@@ -2,8 +2,8 @@
 """
 Core ``StockScreener`` setup: constructor, instance attributes, market
 environment check, small static utilities and the thin delegations to
-``risk_filters``. All other concerns (data fetch, filters/scoring, pipeline,
-eod_buyback) live in dedicated mixins inside this sub-package.
+``risk_filters``. All other concerns (data fetch, filters/scoring, pipeline)
+live in dedicated mixins inside this sub-package.
 """
 from __future__ import annotations
 
@@ -34,7 +34,6 @@ class _ScreenerBase:
     _ETF_PREFIXES = ("51", "52", "56", "58", "15", "16", "18")
 
     # Strategies that require daily spot data (fetched via _fetch_spot_data).
-    # eod_buyback uses a dedicated realtime full-market path and does NOT need daily data.
     DAILY_DATA_STRATEGIES = {"buy_pullback", "breakout", "bottom_reversal"}
 
     # Strategies that benefit from sector strength filtering

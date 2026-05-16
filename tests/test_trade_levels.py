@@ -11,7 +11,6 @@ from src.services.trade_levels import (
     BOTTOM_REVERSAL,
     BREAKOUT,
     BUY_PULLBACK,
-    EOD_BUYBACK,
     RR_MIN,
     TradeLevels,
     compute_atr,
@@ -80,16 +79,6 @@ def test_bottom_reversal_no_trailing():
     # Bottom reversal must NOT use trailing.
     assert "trailing" not in tl.take_profit_2_rule
     assert "15%" in tl.take_profit_2_rule
-
-
-def test_eod_buyback_short_horizon():
-    tl = compute_trade_levels(
-        strategy_id=EOD_BUYBACK,
-        current_price=15.0, ma5=14.8, ma10=14.5, ma20=14.0,
-        market_cap_yi=100.0, day_low=14.7,
-    )
-    assert tl.take_profit_1 == pytest.approx(15.0 * 1.03, abs=0.001)
-    assert "次日" in tl.take_profit_2_rule
 
 
 def test_position_size_by_market_cap():
@@ -194,16 +183,6 @@ def test_bottom_reversal_20pct_hardcap():
     )
     assert should is True
     assert reason == "bottom_reversal_hardcap_20pct"
-
-
-def test_eod_buyback_next_day_exit():
-    should, reason = evaluate_trailing_exit(
-        strategy_id=EOD_BUYBACK,
-        entry_price=10.0, current_price=10.2, current_high=10.3,
-        ma10=10.1, ma20=10.0, atr=0.2, holding_days=1, peak_price=10.3,
-    )
-    assert should is True
-    assert reason == "eod_buyback_next_day_close"
 
 
 def test_time_stop_20d_no_progress():

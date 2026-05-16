@@ -405,91 +405,6 @@ def test_b_wave_filter_keeps_at_bottom():
     assert len(out) == 1, "At bottom (no bounce yet) should be kept"
 
 
-def test_config_parse_picker_strategies_includes_eod_buyback():
-    """src.config.loader._parse_picker_strategies must recognise eod_buyback."""
-    from src.config.loader import _parse_picker_strategies
-    result = _parse_picker_strategies("eod_buyback")
-    assert result == ["eod_buyback"], f"Expected ['eod_buyback'], got {result}"
-
-    # Combo with other strategies
-    result2 = _parse_picker_strategies("buy_pullback,eod_buyback")
-    assert "eod_buyback" in result2
-
-
-def _make_eod_stock(code="600810", change_pct=4.0, vol_ratio=3.0, turnover=10.0,
-                    market_cap=100.0, strategies=None):
-    """Helper to create a ScreenedStock tagged with eod_buyback strategy."""
-    try:
-        from src.services.picker import ScreenedStock
-    except ImportError:
-        ScreenedStock = _get_picker_module().ScreenedStock
-    return ScreenedStock(
-        code=code, name="Test", price=10, change_pct=change_pct,
-        volume_ratio=vol_ratio, turnover_rate=turnover, pe=20, pb=2,
-        market_cap=market_cap, amount=1, change_pct_60d=10, score=50,
-        strategies=strategies if strategies is not None else ["eod_buyback"],
-    )
-
-
-def _make_realtime_filter_config():
-    """Return a config-like object accepted by ``filter_by_realtime``."""
-    return type("C", (), {
-        "picker_realtime_exclude_limit_up": True,
-        "picker_realtime_exclude_limit_down": True,
-        "picker_realtime_daily_chg_min": None,
-        "picker_realtime_daily_chg_max": None,
-        "picker_realtime_max_volume_ratio": 0.0,
-    })()
-
-
-def test_eod_buyback_bypasses_realtime_filter_high_change_pct():
-    """verify eod_buyback candidates pass through filter_by_realtime unchanged"""
-    from src.services.picker.realtime_filter import filter_by_realtime
-
-    cands = [_make_eod_stock(change_pct=10.04)]
-    result = filter_by_realtime(cands, data_manager=None, config=_make_realtime_filter_config())
-    # eod_buyback candidates bypass filter_by_realtime entirely
-    assert len(result) == 1, "eod_buyback candidates should bypass filter_by_realtime"
-
-
-def test_eod_buyback_bypasses_realtime_filter_low_turnover():
-    """verify eod_buyback candidates pass through filter_by_realtime unchanged"""
-    from src.services.picker.realtime_filter import filter_by_realtime
-
-    cands = [_make_eod_stock(change_pct=4.5, turnover=2.06)]
-    result = filter_by_realtime(cands, data_manager=None, config=_make_realtime_filter_config())
-    assert isinstance(result, list)
-
-
-def test_eod_buyback_bypasses_realtime_filter_none_change_pct():
-    """verify eod_buyback candidates pass through filter_by_realtime unchanged"""
-    from src.services.picker.realtime_filter import filter_by_realtime
-
-    try:
-        from src.services.picker import ScreenedStock
-    except ImportError:
-        ScreenedStock = _get_picker_module().ScreenedStock
-
-    stock = ScreenedStock(
-        code="600810", name="Test", price=10, change_pct=0.0,
-        volume_ratio=3.0, turnover_rate=10.0, pe=20, pb=2,
-        market_cap=100, amount=1, change_pct_60d=10, score=50,
-        strategies=["eod_buyback"],
-    )
-    stock.change_pct = None  # type: ignore[assignment]
-    result = filter_by_realtime([stock], data_manager=None, config=_make_realtime_filter_config())
-    assert isinstance(result, list)
-
-
-def test_eod_buyback_passes_valid_stock():
-    """eod_buyback must pass a stock that meets all criteria (except limit-up history check)."""
-    from src.services.picker.realtime_filter import filter_by_realtime
-
-    cands = [_make_eod_stock(change_pct=4.5, vol_ratio=3.0, turnover=10.0, market_cap=100.0)]
-    result = filter_by_realtime(cands, data_manager=None, config=_make_realtime_filter_config())
-    assert isinstance(result, list)
-
-
 def test_empty_pool_prompt_no_free_pick():
     """When candidates is empty, prompt must NOT say '请仅基于市场情报推荐'."""
     try:
@@ -583,11 +498,6 @@ if __name__ == "__main__":
         test_b_wave_filter_excludes_b_wave_bounce,
         test_b_wave_filter_keeps_uptrend,
         test_b_wave_filter_keeps_at_bottom,
-        test_config_parse_picker_strategies_includes_eod_buyback,
-        test_eod_buyback_bypasses_realtime_filter_high_change_pct,
-        test_eod_buyback_bypasses_realtime_filter_low_turnover,
-        test_eod_buyback_bypasses_realtime_filter_none_change_pct,
-        test_eod_buyback_passes_valid_stock,
         test_empty_pool_prompt_no_free_pick,
         test_post_validation_filters_out_of_pool_picks,
         test_empty_candidates_skip_llm_message,

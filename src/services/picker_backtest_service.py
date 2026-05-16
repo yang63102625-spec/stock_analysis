@@ -225,46 +225,9 @@ class PickerBacktestService:
                     return {}
                 entry_price = float(close_v)
 
-            # ============================================================
-            # Path A — eod_buyback: T+1 overnight intraday TP/SL (short-term)
-            # ============================================================
-            if strategy_id == "eod_buyback":
-                exit_idx = entry_idx + 1
-                if exit_idx >= len(df):
-                    return {}
-                nb = df.iloc[exit_idx]
-                next_high = float(nb[high_col]) if high_col and pd.notna(nb[high_col]) else None
-                next_low = float(nb[low_col]) if low_col and pd.notna(nb[low_col]) else None
-                next_close = float(nb[close_col]) if pd.notna(nb[close_col]) else None
-                if next_close is None or next_close <= 0:
-                    return {}
-                ENTRY_SLIPPAGE, EXIT_SLIPPAGE, ROUND_TRIP = 0.0015, 0.0015, 0.10
-                T1_TP, T1_SL = 0.04, 0.025
-                effective_entry = entry_price * (1 + ENTRY_SLIPPAGE)
-                tp_trigger = entry_price * (1 + T1_TP)
-                sl_trigger = entry_price * (1 - T1_SL)
-                hit_sl = next_low is not None and next_low <= sl_trigger
-                hit_tp = next_high is not None and next_high >= tp_trigger
-                if hit_sl:
-                    raw, reason = sl_trigger, "stop_loss_t1"
-                elif hit_tp:
-                    raw, reason = tp_trigger, "take_profit_t1"
-                else:
-                    raw, reason = next_close, "t1_close"
-                effective_exit = raw * (1 - EXIT_SLIPPAGE)
-                net_pct = (effective_exit - effective_entry) / effective_entry * 100.0 - ROUND_TRIP
-                return {
-                    "exit_price": effective_exit,
-                    "return_pct": net_pct,
-                    "exit_reason": reason,
-                    "hold_days": 1,
-                }
-
-            # ============================================================
-            # Path B — multi-day strategies (buy_pullback / breakout /
-            # bottom_reversal): use unified trade_levels engine with
-            # ATR-trailing stop / strategy-specific TP rules.
-            # ============================================================
+            # Multi-day strategies (buy_pullback / breakout / bottom_reversal):
+            # use unified trade_levels engine with ATR-trailing stop /
+            # strategy-specific TP rules.
             forward_df = df.iloc[entry_idx:].copy()
             if len(forward_df) < 2:
                 return {}
@@ -535,17 +498,6 @@ class PickerBacktestService:
         Returns:
             Dict with results, summary, and performance metrics.
         """
-        # eod_buyback is a strict T+1 overnight strategy: buy at today's close,
-        # sell at next trading day's close. Holding period is fixed at 1 trading
-        # day regardless of caller's `hold_days`. Force-override to keep the
-        # backtest semantically consistent with the live strategy.
-        if picker_strategies and set(picker_strategies) == {"eod_buyback"} and hold_days != 1:
-            logger.info(
-                "[PickerBacktest] eod_buyback is T+1 overnight; forcing hold_days=1 (was %d)",
-                hold_days,
-            )
-            hold_days = 1
-
         if picker_strategies is not None:
             cfg = get_config()
             screener = StockScreener(

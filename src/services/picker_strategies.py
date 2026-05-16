@@ -4,6 +4,10 @@ Picker strategies: each strategy has its own screening logic and fixed params.
 
 Strategies: buy_pullback, breakout, bottom_reversal
 No intensity modes (defensive/balanced/offensive) — each strategy has one set of params.
+
+Note: eod_buyback was removed in May 2026 — 2-year OOS validation showed
+PF=0.58 with negative alpha vs CSI300 buy-and-hold. See
+docs/research/SMALL_CAP_FINAL_REPORT.md §1 for the post-mortem.
 """
 
 from dataclasses import dataclass
@@ -31,13 +35,12 @@ from src.services.trade_levels import (
 BUY_PULLBACK = "buy_pullback"
 BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
-EOD_BUYBACK = "eod_buyback"  # 尾盘买入法 (End-of-Day Buyback)
 
 # Default strategy when PICKER_STRATEGIES not set
 DEFAULT_STRATEGIES = [BUY_PULLBACK]
 
 # All available strategies
-ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL, EOD_BUYBACK]
+ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL]
 
 def is_mainboard_stock(code: str) -> bool:
     """Check if a stock is listed on the main board (SSE/SZSE main).
@@ -62,7 +65,6 @@ STRATEGY_DISPLAY_NAMES: Dict[str, str] = {
     BUY_PULLBACK: "买回踩",
     BREAKOUT: "突破",
     BOTTOM_REVERSAL: "底部反转",
-    EOD_BUYBACK: "尾盘买入",
 }
 
 
@@ -173,42 +175,11 @@ BOTTOM_REVERSAL_PARAMS = StrategyParams(
     market_cap_max=300.0,
 )
 
-# EOD buyback (尾盘买入法): 七条铁律
-# Dynamic indicators (change%, turnover%, volume ratio) are checked exclusively
-# in the Phase-2 realtime filter (_filter_by_realtime), NOT in Phase-1 pre-filter.
-# Only structural / static conditions are used here for pre-screening.
-EOD_BUYBACK_PARAMS = StrategyParams(
-    max_bias_pct=8.0,  # Strict entry, no chasing
-    leader_bias_exempt_pct=0.0,  # No exemption
-    pe_max=100,
-    pe_ideal_low=12,
-    pe_ideal_high=40,
-    # Dynamic momentum: skip pre-filter (delegated to realtime phase)
-    daily_change_min=None,
-    daily_change_max=None,
-    max_consecutive_up_days=3,  # Risk surges after 3 consecutive up days
-    require_volume_shrink=False,
-    require_ma_bullish=False,
-    max_retracement_pct=0.5,
-    # 60d trend: skip pre-filter (not important for eod_buyback)
-    change_60d_min=None,
-    change_60d_max=None,
-    # Dynamic volume: skip pre-filter (delegated to realtime phase)
-    volume_ratio_min=None,
-    turnover_rate_min=None,
-    turnover_rate_max=None,
-    # Structural: market cap range (slightly wider than realtime 60-300)
-    market_cap_min=60.0,  # Raise liquidity bar (亿元)
-    market_cap_max=300.0,
-)
-
-
 # Registry for get_strategy_params (single source of truth)
 _STRATEGY_PARAMS: Dict[str, StrategyParams] = {
     BUY_PULLBACK: BUY_PULLBACK_PARAMS,
     BREAKOUT: BREAKOUT_PARAMS,
     BOTTOM_REVERSAL: BOTTOM_REVERSAL_PARAMS,
-    EOD_BUYBACK: EOD_BUYBACK_PARAMS,
 }
 
 
@@ -252,9 +223,7 @@ def parse_picker_strategies(value: Optional[str]) -> List[str]:
 def filter_momentum(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame:
     """Apply strategy-specific momentum filter.
 
-    When a param is None the corresponding condition is skipped entirely,
-    so strategies like eod_buyback can delegate dynamic checks to the
-    realtime phase.
+    When a param is None the corresponding condition is skipped entirely.
     """
     # Per-strategy PE ceiling (shared basic filter only enforces pe<100;
     # tighter strategies like bottom_reversal need their own pe_max applied).
@@ -287,9 +256,7 @@ def filter_volume(
 ) -> pd.DataFrame:
     """Apply volume filter with strategy-specific settings.
 
-    When a param is None the corresponding condition is skipped entirely,
-    so strategies like eod_buyback can delegate dynamic checks to the
-    realtime phase.
+    When a param is None the corresponding condition is skipped entirely.
 
     Priority:
     1. Use params.turnover_rate_min/max if explicitly set in strategy
@@ -512,58 +479,11 @@ def score_bottom_reversal(row: Dict[str, Any], params: StrategyParams) -> float:
     return trend + mom + vol + to + pe_s + mid + candle_bonus
 
 
-def score_eod_buyback(
-    row: Dict[str, Any], params: StrategyParams, *, has_recent_limit_up: bool = False,
-) -> float:
-    """Phase-1 structural scoring for EOD buyback (尾盘买入法).
-
-    NOTE: This scorer is only used by Phase-1 daily-data path (backtest).
-    The live realtime path (_screen_eod_buyback_realtime) uses its own
-    inline scoring logic and does NOT call this function.
-
-    Only scores STRUCTURAL / STATIC conditions that do not change intraday.
-    Dynamic indicators (change%, turnover%, volume ratio, VWAP) are evaluated
-    exclusively in the Phase-2 realtime filter (_filter_by_realtime).
-
-    Structural rules scored here:
-        - Rule ①: Main-board only
-        - Rule ⑥: Market cap 60-300 yi
-        - Rule ④: Recent limit-up within 20 trading days (bonus)
-
-    Args:
-        row: Stock data dict from DataFrame row.
-        params: Strategy parameters.
-        has_recent_limit_up: Whether stock had a limit-up day in recent 20 trading days.
-    """
-    code = str(row.get("代码", ""))
-
-    # Rule ①: Main-board only — non-mainboard stocks score 0
-    if not is_mainboard_stock(code):
-        return 0.0
-
-    total_mv = float(row.get("总市值", 0) or 0)
-
-    # Rule ⑥: Market cap 60-300 yi (optimal center ~150 yi scores highest)
-    market_cap_yi = total_mv / 1e8
-    if 100 <= market_cap_yi <= 200:
-        cap = 30.0  # sweet spot
-    elif 60 <= market_cap_yi < 100 or 200 < market_cap_yi <= 300:
-        cap = 20.0  # acceptable range
-    else:
-        cap = 0.0
-
-    # Rule ④: Bonus for recent limit-up within 20 trading days
-    limit_up_bonus = 15.0 if has_recent_limit_up else 0.0
-
-    return cap + limit_up_bonus
-
-
 # Populate _SCORERS after all scorers are defined
 _SCORERS.update({
     BUY_PULLBACK: score_buy_pullback,
     BREAKOUT: score_breakout,
     BOTTOM_REVERSAL: score_bottom_reversal,
-    EOD_BUYBACK: score_eod_buyback,
 })
 
 

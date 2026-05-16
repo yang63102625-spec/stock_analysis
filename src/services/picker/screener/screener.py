@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-``StockScreener`` - composes pipeline / data-fetch / filter-scoring / eod-buyback
-mixins on top of ``_ScreenerBase``. Every concern lives in its own module
-under ``src.services.picker.screener``.
+``StockScreener`` - composes pipeline / data-fetch / filter-scoring mixins
+on top of ``_ScreenerBase``. Every concern lives in its own module under
+``src.services.picker.screener``.
 """
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import logging
 
 from .base import _ScreenerBase
 from .data_fetch import _DataFetchMixin
-from .eod_buyback import _EodBuybackMixin
 from .filters_scoring import _FilterScoringMixin
 from .pipeline import _PipelineMixin
 
@@ -21,7 +20,6 @@ class StockScreener(
     _PipelineMixin,
     _FilterScoringMixin,
     _DataFetchMixin,
-    _EodBuybackMixin,
     _ScreenerBase,
 ):
     """Multi-layer quantitative screener using full-market spot data.
