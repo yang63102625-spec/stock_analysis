@@ -241,7 +241,6 @@ class GeminiAnalyzer(_LLMClientMixin, _PromptBuilderMixin, _ResponseParserMixin)
 - **浮盈 >20%（trailing 区）**：跌破 MA10 或回撤 ATR×2.5 才卖出，让趋势走完
 - **不再设"15% 必须止盈"硬规则**：让强势股的利润奔跑是收益率最大来源
 - 反转策略例外：浮盈 +15% 全部止盈（反转不让利润奔跑）
-- 尾盘买入策略例外：次日尾盘前必须清仓
 
 ### 止损规则（按市值差异化，与 trade_levels 一致）
 - 小盘股(总市值<50亿)：跌破MA20下方0.5%或亏损5%，立即止损

@@ -307,8 +307,7 @@ Content-Type: application/json
 | 数据 | 来源 | 说明 |
 | ---- | ---- | ---- |
 | 全市场行情 | Tushare / AkShare / efinance | 含 60 日涨跌幅（Tushare 需 trade_cal + daily 计算） |
-| eod_buyback 实时 | `ts.get_realtime_quotes()` | 龙虾方案：分批200只查询，替代 efinance 全市场接口 |
-| eod_buyback 基本面 | Tushare Pro `daily_basic` | 换手率、总市值 |
+| small_cap 全市场快照 | LocalStockDB (Tushare `daily` + `daily_basic`) | 按日 parquet 分片，毫秒级读取 |
 | 日线 | DataFetcherManager.get_daily_data | 乖离率、连板、连涨、健康回踩、MACD 均需日线 |
 
 ---
@@ -319,28 +318,39 @@ Content-Type: application/json
 | ---- | ---- |
 | 趋势上行 | 买回踩、突破 |
 | 震荡筑底 | 底部反转 |
+| 长期持有 | 小市值（月度再平衡） |
 | 趋势不明 | 多策略并行，对比结果 |
 
 ---
 
-## 十、盘后策略：eod_buyback（龙虾方案）
+## 十、横截面因子：small_cap（小市值）
 
-**策略逻辑**：盘后全市场筛选，使用实时行情数据进行七条铁律过滤。
+**策略逻辑**：每个交易日返回市值最小的 top-N 只 A 股，作为 A 股市场上经过 6 年 OOS 验证的稳定 alpha 因子（详见 `docs/research/SMALL_CAP_FINAL_REPORT.md`）。
 
-### 数据获取
+### 数据来源
 
-- 使用 `ts.get_realtime_quotes()` 分批200只查询全市场实时行情（替代 efinance 全市场接口）
-- 补充 Tushare Pro `daily_basic` 获取换手率、总市值
-- 盘后（15:00后）启用量比过滤，VWAP 实时验证
+- LocalStockDB 全市场 `daily` + `daily_basic` by-date 分片（毫秒级读取）
+- 不依赖盘中实时行情，也不依赖 daily-spot 流水线
 
-### 七条铁律筛选
+### 筛选逻辑
 
-盘后策略通过七条硬性过滤条件筛选候选：价格、涨跌幅（3-6%）、成交量（量比 2.5-4.0）、换手率（5-12%）、市值（60-300亿）、ST/退市排除、涨跌停排除。
+1. 排除 ST / `*ST` / 退市股票
+2. 排除上市未满 365 天的新股
+3. 可选流动性下限：过去 5 个交易日平均成交额 ≥ 200 万元
+4. 按 `total_mv` 升序取 top-N
 
-### 特殊处理
+### 配置开关
 
-- eod_buyback 候选完整 bypass `_filter_by_realtime()`，避免与盘中实时过滤双重过滤
-- 空筛选池三重防护：跳过 LLM、后验证、提示词加严
+| 环境变量 | 默认值 | 说明 |
+| ---- | ---- | ---- |
+| `SMALL_CAP_TOP_N` | 50 | 每日输出的候选数量 |
+| `SMALL_CAP_MIN_AMOUNT_YUAN` | 2000000 | 流动性下限（设 0 关闭） |
+
+### 使用建议
+
+- 推荐再平衡频率 20 个交易日（约月度）；picker 本身每日输出快照，调仓由调用方决定
+- 建议组合规模 30-50 只以分散个股黑天鹅
+- 单年最大回撤 25%+ 的历史记录，建议仅作为长期持有的组合配置而非短线工具
 
 ---
 

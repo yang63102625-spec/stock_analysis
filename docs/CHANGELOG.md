@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Picker strategy lineup — drop eod_buyback, add small_cap
+
+- **Removed `eod_buyback`** (尾盘买入): 2-year OOS validation showed PF 0.58
+  with negative alpha vs CSI 300 buy-and-hold. Net delta: -1629 LOC.
+  Surface deleted across backend (`screener/eod_buyback.py`, trade_levels
+  branch, pipeline dispatch, realtime-filter bypass, scorer/params),
+  frontend (`STRATEGY_OPTIONS`, `PickerStrategy` types, UI labels),
+  configs (`PICKER_STRATEGIES` valid set), tests, and docs.
+- **Added `small_cap`** (小市值, displayed as 小市值): dedicated
+  LocalStockDB-backed screening path that returns the top-N smallest
+  market-cap A-shares per trade date, with ST / `*ST` / 退市 / new-listing
+  exclusion and an optional 5-day liquidity floor. Defaults: `top_n=50`,
+  `min_amount_yuan=2,000,000` (per `docs/research/SMALL_CAP_FINAL_REPORT.md`).
+  Tunable via `SMALL_CAP_TOP_N` / `SMALL_CAP_MIN_AMOUNT_YUAN` env. Surface:
+  new `picker/screener/small_cap.py` mixin, registered in `ALL_STRATEGIES`,
+  `STRATEGY_DISPLAY_NAMES`, `_parse_picker_strategies`, frontend strategy
+  lists, and the picker-strategies guide.
+- **Research scripts cleanup**: removed one-off small_cap exploratory
+  scripts (`small_cap_optimize.py`, `small_cap_regime.py`,
+  `small_cap_yearly.py`); conclusions live in
+  `docs/research/SMALL_CAP_FINAL_REPORT.md`.
+
 ### Backtest v3 — strict AI-plan execution + agent-path data fixes
 
 - **Engine rewrite** (`4db46ea`): `BacktestEngine` now strictly replays
