@@ -468,6 +468,7 @@ def simulate_forward_trade(
     apply_slippage: bool = True,
     apply_limit_up_filter: bool = True,
     is_kc_cy: bool = False,
+    hard_stop_pct: float = 0.0,
 ) -> Dict[str, Any]:
     """Simulate a forward trade using unified trade_levels exit rules.
 
@@ -495,13 +496,35 @@ def simulate_forward_trade(
                 return {"skipped": True, "skip_reason": "limit_up_unfillable"}
 
     peak_price = effective_entry
+    hard_stop_price = (
+        effective_entry * (1.0 - hard_stop_pct) if hard_stop_pct > 0 else 0.0
+    )
     for i, bar in enumerate(bars):
         close = bar.get("close")
         high = bar.get("high", close)
+        low = bar.get("low", close)
         if close is None or close <= 0:
             continue
         if high and high > peak_price:
             peak_price = high
+
+        # Hard stop check FIRST — wins over trailing rules. Triggers when
+        # the bar's intraday low pierces the hard stop level.
+        if hard_stop_price > 0 and low is not None and float(low) <= hard_stop_price:
+            exit_price_raw = hard_stop_price
+            exit_price = (
+                exit_price_raw * (1 - DEFAULT_SLIPPAGE_PCT / 100.0)
+                if apply_slippage
+                else exit_price_raw
+            )
+            ret = _net_return_pct(effective_entry, exit_price)
+            return {
+                "skipped": False,
+                "exit_price": exit_price,
+                "exit_reason": f"hard_stop_-{int(hard_stop_pct*100)}pct",
+                "return_pct": ret,
+                "hold_days": i + 1,
+            }
 
         should_exit, reason = evaluate_trailing_exit(
             strategy_id=strategy_id,

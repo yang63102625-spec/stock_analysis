@@ -9,6 +9,7 @@ Uses top N by score (no LLM) for each trade date.
 from __future__ import annotations
 
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -79,6 +80,17 @@ class PickerBacktestSummary:
     profit_factor: Optional[float]
     alpha_vs_benchmark_pct: Optional[float]
     benchmark_avg_return_pct: Optional[float]
+    # ── New v6 benchmarks (truer alpha measurement) ──────────────────
+    # Per-period equal-weight market average over same windows as picks
+    market_eqw_avg_return_pct: Optional[float] = None
+    alpha_vs_market_eqw_pct: Optional[float] = None
+    # Whole-period totals for "buy & hold" comparison (cash-aware)
+    strategy_total_return_pct: Optional[float] = None
+    benchmark_total_return_pct: Optional[float] = None
+    market_eqw_total_return_pct: Optional[float] = None
+    bh_alpha_vs_benchmark_pct: Optional[float] = None
+    bh_alpha_vs_market_eqw_pct: Optional[float] = None
+    days_in_market_pct: Optional[float] = None
 
 
 class PickerBacktestService:
@@ -273,6 +285,15 @@ class PickerBacktestService:
 
             mcap_yi = 0.0  # unknown; trade_levels falls back to mid band
             is_kc_cy = code.startswith(("30", "68"))
+            # buy_pullback hard stop: -3% by default. The MA20-break rule kills
+            # 33% of trades for an average -8% loss; tighter intraday hard stop
+            # caps single-trade damage. Override with BUY_PULLBACK_HARD_STOP_PCT.
+            hard_stop_pct = 0.0
+            if strategy_id == "buy_pullback":
+                try:
+                    hard_stop_pct = float(os.environ.get("BUY_PULLBACK_HARD_STOP_PCT", "0.03"))
+                except ValueError:
+                    hard_stop_pct = 0.03
             sim = simulate_forward_trade(
                 strategy_id=strategy_id,
                 entry_price=entry_price,
@@ -281,6 +302,7 @@ class PickerBacktestService:
                 apply_slippage=True,
                 apply_limit_up_filter=True,
                 is_kc_cy=is_kc_cy,
+                hard_stop_pct=hard_stop_pct,
             )
             if sim.get("skipped"):
                 return {}
@@ -313,6 +335,105 @@ class PickerBacktestService:
             return (p1 - p0) / p0 * 100
         except Exception as e:
             logger.debug(f"[PickerBacktest] Benchmark return failed: {e}")
+            return None
+
+    def _get_market_eqw_returns_batch(
+        self, date_pairs: List[Tuple[str, Optional[str]]]
+    ) -> Dict[Tuple[str, str], float]:
+        """Equal-weight cross-section average return over [trade_date, exit_date].
+
+        For each (entry, exit) pair, computes:
+            mean over all stocks of (close_exit / close_entry - 1)*100
+
+        Excludes stocks missing either endpoint. Reads from LocalDB by-date
+        shards — no network. Returns dict keyed by (entry, exit).
+        """
+        valid = [(td, ed) for td, ed in date_pairs if ed is not None]
+        if not valid:
+            return {}
+        try:
+            from src.services.local_db import default_db
+            db = default_db()
+        except Exception:
+            return {}
+
+        unique_dates = sorted({d for td, ed in valid for d in (td, ed)})
+        close_by_date: Dict[str, Dict[str, float]] = {}
+        for d in unique_dates:
+            df = db.get_market_daily(d)
+            if df is None or df.empty:
+                continue
+            if "ts_code" not in df.columns or "close" not in df.columns:
+                continue
+            close_by_date[d] = dict(zip(df["ts_code"], df["close"].astype(float)))
+
+        result: Dict[Tuple[str, str], float] = {}
+        for td, ed in valid:
+            m_entry = close_by_date.get(td)
+            m_exit = close_by_date.get(ed)
+            if not m_entry or not m_exit:
+                continue
+            rets: List[float] = []
+            for ts_code, p0 in m_entry.items():
+                if p0 <= 0:
+                    continue
+                p1 = m_exit.get(ts_code)
+                if p1 is None or p1 <= 0:
+                    continue
+                rets.append((p1 - p0) / p0 * 100)
+            if rets:
+                result[(td, ed)] = sum(rets) / len(rets)
+        return result
+
+    def _get_index_total_return(
+        self, start_date: str, end_date: str
+    ) -> Optional[float]:
+        """Buy-and-hold benchmark return from start to end (close-to-close)."""
+        try:
+            from src.services.local_db import default_db
+            db = default_db()
+            df = db.get_index_daily(BENCHMARK_CODE, start_date, end_date)
+            if df is None or df.empty or len(df) < 2:
+                return None
+            df = df.sort_values("trade_date")
+            p0 = float(df["close"].iloc[0])
+            p1 = float(df["close"].iloc[-1])
+            if p0 <= 0:
+                return None
+            return (p1 - p0) / p0 * 100
+        except Exception:
+            return None
+
+    def _get_market_eqw_total_return(
+        self, start_date: str, end_date: str
+    ) -> Optional[float]:
+        """Equal-weight buy-and-hold of all stocks listed at start_date.
+
+        Universe: all stocks present in market_daily on start_date AND end_date.
+        Return: mean per-stock B&H return (geometric/arithmetic both equivalent
+        for cross-section average; we use arithmetic for consistency).
+        """
+        try:
+            from src.services.local_db import default_db
+            db = default_db()
+            df_start = db.get_market_daily(start_date)
+            df_end = db.get_market_daily(end_date)
+            if df_start is None or df_end is None or df_start.empty or df_end.empty:
+                return None
+            entry_map = dict(zip(df_start["ts_code"], df_start["close"].astype(float)))
+            exit_map = dict(zip(df_end["ts_code"], df_end["close"].astype(float)))
+            rets: List[float] = []
+            for ts_code, p0 in entry_map.items():
+                if p0 <= 0:
+                    continue
+                p1 = exit_map.get(ts_code)
+                if p1 is None or p1 <= 0:
+                    continue
+                rets.append((p1 - p0) / p0 * 100)
+            if not rets:
+                return None
+            return sum(rets) / len(rets)
+        except Exception:
             return None
 
     def _get_benchmark_returns_batch(
@@ -460,7 +581,9 @@ class PickerBacktestService:
             date_pairs.append((td, exit_d))
 
         benchmark_map = self._get_benchmark_returns_batch(date_pairs)
+        market_eqw_map = self._get_market_eqw_returns_batch(date_pairs)
         benchmark_returns: List[float] = []
+        market_eqw_returns: List[float] = []
 
         results: List[PickResult] = []
         days_with_picks = 0
@@ -483,6 +606,9 @@ class PickerBacktestService:
                 bm_ret = benchmark_map.get((td, exit_date))
                 if bm_ret is not None:
                     benchmark_returns.append(bm_ret)
+                me_ret = market_eqw_map.get((td, exit_date))
+                if me_ret is not None:
+                    market_eqw_returns.append(me_ret)
 
                 # Parallelize forward return fetches (5 picks per day)
                 pick_results = self._get_forward_returns_parallel(picks, td, exit_date)
@@ -513,6 +639,8 @@ class PickerBacktestService:
         avg_ret = sum(r.return_pct for r in valid) / len(valid) if valid else None
         bm_avg = sum(benchmark_returns) / len(benchmark_returns) if benchmark_returns else None
         alpha = (avg_ret - bm_avg) if (avg_ret is not None and bm_avg is not None) else None
+        me_avg = sum(market_eqw_returns) / len(market_eqw_returns) if market_eqw_returns else None
+        alpha_me = (avg_ret - me_avg) if (avg_ret is not None and me_avg is not None) else None
 
         # Max drawdown: use daily batch returns
         batch_returns: Dict[str, List[float]] = {}
@@ -534,6 +662,31 @@ class PickerBacktestService:
         gross_loss = abs(sum(r.return_pct for r in losses if r.return_pct))
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else None
 
+        # ── Whole-period B&H comparison (cash-aware) ──────────────────
+        # Strategy total return: compound daily-avg returns over the full
+        # trading-day axis. On no-pick days the position is in cash (0%).
+        # This yields a portfolio-level NAV directly comparable to a buy-
+        # and-hold of the benchmark over the same calendar window.
+        no_pick_days = max(0, len(trade_dates) - len(daily_avg))
+        days_in_market_pct = (
+            len(daily_avg) / len(trade_dates) * 100 if trade_dates else None
+        )
+        nav = 1.0
+        for r in daily_avg:
+            nav *= 1 + r / 100
+        # Cash days contribute nothing (factor 1.0); ignored explicitly
+        _ = no_pick_days
+        strategy_total = (nav - 1.0) * 100
+
+        bh_bench = self._get_index_total_return(start_date, end_date)
+        bh_market = self._get_market_eqw_total_return(start_date, end_date)
+        bh_alpha_bench = (
+            strategy_total - bh_bench if bh_bench is not None else None
+        )
+        bh_alpha_market = (
+            strategy_total - bh_market if bh_market is not None else None
+        )
+
         summary = PickerBacktestSummary(
             start_date=start_date,
             end_date=end_date,
@@ -549,6 +702,14 @@ class PickerBacktestService:
             profit_factor=round(profit_factor, 2) if profit_factor is not None else None,
             alpha_vs_benchmark_pct=round(alpha, 2) if alpha is not None else None,
             benchmark_avg_return_pct=round(bm_avg, 2) if bm_avg is not None else None,
+            market_eqw_avg_return_pct=round(me_avg, 2) if me_avg is not None else None,
+            alpha_vs_market_eqw_pct=round(alpha_me, 2) if alpha_me is not None else None,
+            strategy_total_return_pct=round(strategy_total, 2),
+            benchmark_total_return_pct=round(bh_bench, 2) if bh_bench is not None else None,
+            market_eqw_total_return_pct=round(bh_market, 2) if bh_market is not None else None,
+            bh_alpha_vs_benchmark_pct=round(bh_alpha_bench, 2) if bh_alpha_bench is not None else None,
+            bh_alpha_vs_market_eqw_pct=round(bh_alpha_market, 2) if bh_alpha_market is not None else None,
+            days_in_market_pct=round(days_in_market_pct, 2) if days_in_market_pct is not None else None,
         )
 
         # Log summary (cache stats: hits / total lookups, not network requests)
@@ -594,6 +755,14 @@ class PickerBacktestService:
                 "profit_factor": summary.profit_factor,
                 "alpha_vs_benchmark_pct": summary.alpha_vs_benchmark_pct,
                 "benchmark_avg_return_pct": summary.benchmark_avg_return_pct,
+                "market_eqw_avg_return_pct": summary.market_eqw_avg_return_pct,
+                "alpha_vs_market_eqw_pct": summary.alpha_vs_market_eqw_pct,
+                "strategy_total_return_pct": summary.strategy_total_return_pct,
+                "benchmark_total_return_pct": summary.benchmark_total_return_pct,
+                "market_eqw_total_return_pct": summary.market_eqw_total_return_pct,
+                "bh_alpha_vs_benchmark_pct": summary.bh_alpha_vs_benchmark_pct,
+                "bh_alpha_vs_market_eqw_pct": summary.bh_alpha_vs_market_eqw_pct,
+                "days_in_market_pct": summary.days_in_market_pct,
             },
             "trade_dates_count": len(trade_dates),
         }

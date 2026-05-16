@@ -54,20 +54,27 @@ class _PipelineMixin:
             # EOD_VARIANT bypasses market guard (variants have own regime logic)
             import os as _os
             _bypass_guard = bool(_os.environ.get("EOD_VARIANT", "").strip())
-            # buy_pullback regime gate: requires SSE > MA20 +1% (truly strong)
-            # to avoid the catastrophic 2025-11 drawdown (-389% single month).
-            # Toggle via env BUY_PULLBACK_REQUIRE_STRONG (default on).
+            # buy_pullback regime gate: requires SSE > MA20 by an explicit
+            # threshold (default +2.0%) to avoid the 2025-11 -389% drawdown.
+            # +1% was too lenient — Nov had several days briefly above +1%
+            # that turned into losses. +2% requires confirmed uptrend.
+            # Toggle via BUY_PULLBACK_REQUIRE_STRONG (default on).
+            # Threshold via BUY_PULLBACK_GATE_PCT (default 2.0).
+            try:
+                _gate_pct = float(_os.environ.get("BUY_PULLBACK_GATE_PCT", "2.0"))
+            except ValueError:
+                _gate_pct = 2.0
             if (
                 _os.environ.get("BUY_PULLBACK_REQUIRE_STRONG", "1") == "1"
                 and "buy_pullback" in self._picker_strategies
                 and market_env is not None
-                and market_env.diff_pct < 1.0  # not strong enough
+                and market_env.diff_pct < _gate_pct
                 and not _bypass_guard
             ):
                 logger.warning(
-                    "[MarketGuard/buy_pullback] SSE diff %+.2f%% < +1.0%% required, "
+                    "[MarketGuard/buy_pullback] SSE diff %+.2f%% < +%.1f%% required, "
                     "removing buy_pullback for this day",
-                    market_env.diff_pct,
+                    market_env.diff_pct, _gate_pct,
                 )
                 self._picker_strategies = [s for s in self._picker_strategies if s != "buy_pullback"]
                 if not self._picker_strategies:
@@ -232,6 +239,16 @@ class _PipelineMixin:
                         if self._enable_b_wave_filter:
                             cands = self._filter_b_wave_risk(cands)
 
+                        # buy_pullback moneyflow filter (smart-money/dumb-money divergence)
+                        # 主散背离: 大单+超大单 净流入 > 0 AND 中小单 净流入 < 0
+                        # Toggle via BUY_PULLBACK_MONEYFLOW_FILTER (default on).
+                        if (
+                            strategy_id == "buy_pullback"
+                            and cands
+                            and _os.environ.get("BUY_PULLBACK_MONEYFLOW_FILTER", "1") == "1"
+                        ):
+                            cands = self._filter_buy_pullback_moneyflow(cands, trade_date=trade_date)
+
                         if cands:
                             candidates_per_strategy[strategy_id] = cands
                             logger.info(f"[Screener] {strategy_id}: {len(cands)} candidates")
@@ -356,3 +373,82 @@ class _PipelineMixin:
     ) -> Tuple[List[ScreenedStock], ScreenStats, Dict[str, List[ScreenedStock]]]:
         """Run screening as of a specific trade date (YYYYMMDD). For backtest use."""
         return self.screen(trade_date=trade_date)
+
+    def _filter_buy_pullback_moneyflow(
+        self,
+        cands: List[ScreenedStock],
+        trade_date: Optional[str],
+    ) -> List[ScreenedStock]:
+        """Smart-money / dumb-money divergence filter.
+
+        Keep only candidates where on the candidate-selection day:
+          - main force (大单+超大单) net inflow > 0
+          - retail (中小单) net inflow < 0
+
+        Hypothesis: institutions accumulate on dips while retail panics out.
+        Same lever that materially improved eod_buyback (Iter-1 → +0.13 PF).
+
+        Drops candidates with no flow data (conservative — avoid false positives).
+        """
+        td = trade_date if trade_date else (
+            self._as_of_date.replace("-", "") if self._as_of_date else None
+        )
+        if not td:
+            return cands
+
+        try:
+            from data_provider.moneyflow_fetcher import MoneyflowFetcher
+
+            api = self._get_tushare_api() if hasattr(self, "_get_tushare_api") else None
+            if api is None:
+                from src.services.picker import get_tushare_api as _get_api
+
+                api = _get_api(self._data_manager) if self._data_manager else None
+            if api is None:
+                logger.warning("[buy_pullback/moneyflow] no Tushare api; skipping filter")
+                return cands
+            mf = MoneyflowFetcher(api)
+            df_mf = mf.get_market_moneyflow(td)
+        except Exception as e:
+            logger.warning(
+                "[buy_pullback/moneyflow] fetch failed (%s); skipping flow filter", e
+            )
+            return cands
+
+        if df_mf is None or df_mf.empty:
+            logger.warning(
+                "[buy_pullback/moneyflow] no flow data for %s; skipping filter", td
+            )
+            return cands
+
+        df_mf["code"] = df_mf["ts_code"].str.split(".").str[0]
+        for col in (
+            "buy_lg_amount", "buy_elg_amount", "sell_lg_amount", "sell_elg_amount",
+            "buy_sm_amount", "buy_md_amount", "sell_sm_amount", "sell_md_amount",
+        ):
+            if col in df_mf.columns:
+                df_mf[col] = pd.to_numeric(df_mf[col], errors="coerce").fillna(0)
+
+        df_mf["main_net"] = (
+            df_mf.get("buy_lg_amount", 0) + df_mf.get("buy_elg_amount", 0)
+            - df_mf.get("sell_lg_amount", 0) - df_mf.get("sell_elg_amount", 0)
+        )
+        df_mf["retail_net"] = (
+            df_mf.get("buy_sm_amount", 0) + df_mf.get("buy_md_amount", 0)
+            - df_mf.get("sell_sm_amount", 0) - df_mf.get("sell_md_amount", 0)
+        )
+        flow_lookup = df_mf.set_index("code")[["main_net", "retail_net"]].to_dict("index")
+
+        before = len(cands)
+        kept: List[ScreenedStock] = []
+        for c in cands:
+            f = flow_lookup.get(str(c.code))
+            if f is None:
+                continue
+            if f["main_net"] > 0 and f["retail_net"] < 0:
+                kept.append(c)
+        logger.info(
+            "[buy_pullback/moneyflow] %s: filter (main>0 & retail<0): %d → %d",
+            td, before, len(kept),
+        )
+        return kept
