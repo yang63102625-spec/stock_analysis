@@ -43,6 +43,9 @@ export interface PickerBacktestSummary {
   profitFactor?: number;
   alphaVsBenchmarkPct?: number;
   benchmarkAvgReturnPct?: number;
+  cagrPct?: number;
+  sharpeRatio?: number;
+  calmarRatio?: number;
 }
 
 export interface PickerBacktestRunResponse {

@@ -90,7 +90,12 @@ class PickerBacktestSummary:
     market_eqw_total_return_pct: Optional[float] = None
     bh_alpha_vs_benchmark_pct: Optional[float] = None
     bh_alpha_vs_market_eqw_pct: Optional[float] = None
+    # NAV-derived portfolio metrics (especially relevant for small_cap)
+    cagr_pct: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    calmar_ratio: Optional[float] = None
     days_in_market_pct: Optional[float] = None
+
 
 
 class PickerBacktestService:
@@ -670,6 +675,37 @@ class PickerBacktestService:
         _ = no_pick_days
         strategy_total = (nav - 1.0) * 100
 
+        # NAV-derived risk metrics. Returns are *per rebalance batch*, not
+        # daily — for short windows Sharpe is informational only.
+        cagr_pct = None
+        sharpe_ratio = None
+        calmar_ratio = None
+        if daily_avg and len(trade_dates) >= 2:
+            try:
+                import math
+                years = max(len(trade_dates) / 252.0, 1e-6)
+                if nav > 0:
+                    cagr = nav ** (1.0 / years) - 1.0
+                    cagr_pct = cagr * 100
+                    if max_drawdown and max_drawdown > 0:
+                        calmar_ratio = round(cagr_pct / max_drawdown, 3)
+                # Sharpe: annualised mean / stdev of per-rebalance batch returns
+                # (252 trading days / hold_days = annual batches per year).
+                if len(daily_avg) >= 2:
+                    mean_r = sum(daily_avg) / len(daily_avg) / 100
+                    var = sum((x / 100 - mean_r) ** 2 for x in daily_avg) / (len(daily_avg) - 1)
+                    sd = math.sqrt(var)
+                    if sd > 0:
+                        batches_per_year = 252.0 / max(hold_days, 1)
+                        sharpe_ratio = round(
+                            (mean_r * batches_per_year) /
+                            (sd * math.sqrt(batches_per_year)), 3,
+                        )
+                if cagr_pct is not None:
+                    cagr_pct = round(cagr_pct, 2)
+            except Exception as e:
+                logger.debug("[PickerBacktest] NAV metrics calc failed: %s", e)
+
         bh_bench = self._get_index_total_return(start_date, end_date)
         bh_market = self._get_market_eqw_total_return(start_date, end_date)
         bh_alpha_bench = (
@@ -702,6 +738,9 @@ class PickerBacktestService:
             bh_alpha_vs_benchmark_pct=round(bh_alpha_bench, 2) if bh_alpha_bench is not None else None,
             bh_alpha_vs_market_eqw_pct=round(bh_alpha_market, 2) if bh_alpha_market is not None else None,
             days_in_market_pct=round(days_in_market_pct, 2) if days_in_market_pct is not None else None,
+            cagr_pct=cagr_pct,
+            sharpe_ratio=sharpe_ratio,
+            calmar_ratio=calmar_ratio,
         )
 
         # Log summary (cache stats: hits / total lookups, not network requests)
@@ -755,6 +794,9 @@ class PickerBacktestService:
                 "bh_alpha_vs_benchmark_pct": summary.bh_alpha_vs_benchmark_pct,
                 "bh_alpha_vs_market_eqw_pct": summary.bh_alpha_vs_market_eqw_pct,
                 "days_in_market_pct": summary.days_in_market_pct,
+                "cagr_pct": summary.cagr_pct,
+                "sharpe_ratio": summary.sharpe_ratio,
+                "calmar_ratio": summary.calmar_ratio,
             },
             "trade_dates_count": len(trade_dates),
         }
