@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import os
 import time
 from concurrent.futures import as_completed
 from datetime import datetime, timedelta
@@ -372,23 +373,40 @@ class SectorStrengthService:
 
         import akshare as ak
 
-        # Get all sector names with retry (East Money API can be flaky)
+        # Get all sector names. East Money is reachable on-network but
+        # the call hangs / fails when the host is offline or proxied
+        # through a non-PRC egress. Old logic slept 5+10+15s per call
+        # which costs 30s per backtest session × N sessions.
+        # Three layers of defence now:
+        #   1. Process-level kill switch: once the call has failed this
+        #      run, do not try again. A single backtest can otherwise
+        #      eat 8s × 60+ sessions on what is provably an unreachable
+        #      host. SECTOR_NAMES_RETRY_FAILED=1 to opt out.
+        #   2. Hard wall-clock timeout (SECTOR_NAMES_TIMEOUT_S, 8s).
+        #   3. Caller silently falls back to no sector filter.
+        if getattr(SectorStrengthService, "_names_fetch_dead", False) and \
+                os.environ.get("SECTOR_NAMES_RETRY_FAILED", "0") != "1":
+            return {}
+
+        try:
+            _to = float(os.environ.get("SECTOR_NAMES_TIMEOUT_S", "8"))
+        except ValueError:
+            _to = 8.0
         df_names = None
-        for attempt in range(3):
-            try:
-                df_names = ak.stock_board_industry_name_em()
-                if df_names is not None and not df_names.empty:
-                    break
-            except Exception as e:
-                wait = (attempt + 1) * 5  # 5s, 10s, 15s
-                logger.warning(
-                    "[SectorStrength] Preload sector names attempt %d/3 failed: %s, retrying in %ds",
-                    attempt + 1, e, wait,
-                )
-                time.sleep(wait)
+        try:
+            df_names = run_with_timeout(
+                ak.stock_board_industry_name_em, _to, "sector_names_em",
+            )
+        except Exception as e:
+            logger.warning(
+                "[SectorStrength] Preload sector names failed (%s, timeout=%.1fs); "
+                "disabling sector filter for the rest of this process",
+                e, _to,
+            )
+            SectorStrengthService._names_fetch_dead = True
 
         if df_names is None or df_names.empty:
-            logger.warning("[SectorStrength] All 3 attempts to fetch sector names for preload failed")
+            SectorStrengthService._names_fetch_dead = True
             return {}
 
         sector_names = df_names['板块名称'].tolist()
