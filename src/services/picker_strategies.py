@@ -124,7 +124,14 @@ BUY_PULLBACK_PARAMS = StrategyParams(
     max_retracement_pct=0.4,         # Stricter retracement limit
     change_60d_min=8.0,              # Require established uptrend (raised 5→8: weak
                                       # 5% trends often fail at pullback support)
-    change_60d_max=50.0,             # Don't miss strong stock pullbacks
+    change_60d_max=65.0,             # Don't truncate momentum tail: 6-month
+                                      # grid search (min∈{5,8,12} × max∈{35,50,65})
+                                      # showed max=65 strictly dominates max=50
+                                      # (+41.9% vs +39.8% total return, same MDD,
+                                      # higher win rate). max=35 destroys alpha
+                                      # entirely (~0% return). Pullbacks in
+                                      # high-momentum names (60d 50-65%) have
+                                      # the highest payoff in this dataset.
     volume_ratio_min=0.7,            # Allow shrinking volume to pass
     min_pullback_from_high_pct=2.0,  # 1-3% pullback is valid entry
     max_distance_above_ma10_pct=5.0,  # Wider support zone tolerance
