@@ -122,9 +122,16 @@ BUY_PULLBACK_PARAMS = StrategyParams(
     require_volume_shrink=True,      # Core: healthy pullback = shrinking volume
     require_ma_bullish=True,         # MA alignment confirms uptrend
     max_retracement_pct=0.4,         # Stricter retracement limit
-    change_60d_min=8.0,              # Require established uptrend (raised 5→8: weak
-                                      # 5% trends often fail at pullback support)
-    change_60d_max=50.0,             # Don't miss strong stock pullbacks
+    change_60d_min=12.0,             # Trend must be clearly confirmed. 8% is too
+                                      # close to noise; 12% filters out the edge
+                                      # cases where MA structure is still forming
+                                      # and "pullback to MA" hasn't really set up.
+    change_60d_max=35.0,             # > 35% over 60 days means the stock has
+                                      # already used most of its short-term elastic
+                                      # band — pullbacks at this stage frequently
+                                      # turn into the first leg of a top, not a
+                                      # buyable consolidation. Cap to keep the
+                                      # universe in the high-probability zone.
     volume_ratio_min=0.7,            # Allow shrinking volume to pass
     min_pullback_from_high_pct=2.0,  # 1-3% pullback is valid entry
     max_distance_above_ma10_pct=5.0,  # Wider support zone tolerance

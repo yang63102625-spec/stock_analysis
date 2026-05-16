@@ -57,13 +57,19 @@ class _PipelineMixin:
             # buy_pullback regime gate: requires SSE > MA20 by an explicit
             # threshold (default +2.0%) to avoid the 2025-11 -389% drawdown.
             # +1% was too lenient — Nov had several days briefly above +1%
-            # that turned into losses. +2% requires confirmed uptrend.
+            # The full pattern filter (60d>=8%, MA-bullish, price>MA20,
+            # volume-shrink, 2-3% pullback from N-day high) already encodes
+            # individual-stock strength; the index gate exists only to
+            # avoid bidding into a freshly weakened tape. -0.5% allows
+            # normal flat/mildly-positive days (which historically still
+            # contain valid healthy pullbacks) while still vetoing days
+            # the market is breaking down.
             # Toggle via BUY_PULLBACK_REQUIRE_STRONG (default on).
-            # Threshold via BUY_PULLBACK_GATE_PCT (default 2.0).
+            # Threshold via BUY_PULLBACK_GATE_PCT (default -0.5).
             try:
-                _gate_pct = float(_os.environ.get("BUY_PULLBACK_GATE_PCT", "2.0"))
+                _gate_pct = float(_os.environ.get("BUY_PULLBACK_GATE_PCT", "-0.5"))
             except ValueError:
-                _gate_pct = 2.0
+                _gate_pct = -0.5
             if (
                 _os.environ.get("BUY_PULLBACK_REQUIRE_STRONG", "1") == "1"
                 and "buy_pullback" in self._picker_strategies
@@ -72,8 +78,8 @@ class _PipelineMixin:
                 and not _bypass_guard
             ):
                 logger.warning(
-                    "[MarketGuard/buy_pullback] SSE diff %+.2f%% < +%.1f%% required, "
-                    "removing buy_pullback for this day",
+                    "[MarketGuard/buy_pullback] SSE diff %+.2f%% < %+.2f%% required "
+                    "(index breaking down vs MA20), removing buy_pullback for this day",
                     market_env.diff_pct, _gate_pct,
                 )
                 self._picker_strategies = [s for s in self._picker_strategies if s != "buy_pullback"]
