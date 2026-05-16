@@ -12,6 +12,7 @@ from .base import _ScreenerBase
 from .data_fetch import _DataFetchMixin
 from .filters_scoring import _FilterScoringMixin
 from .pipeline import _PipelineMixin
+from .small_cap import _SmallCapMixin
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class StockScreener(
     _PipelineMixin,
     _FilterScoringMixin,
     _DataFetchMixin,
+    _SmallCapMixin,
     _ScreenerBase,
 ):
     """Multi-layer quantitative screener using full-market spot data.

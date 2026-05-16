@@ -259,6 +259,21 @@ class _PipelineMixin:
             else:
                 logger.info("[Screener] Skipping daily data fetch (only realtime strategies selected)")
 
+            # --- small_cap: dedicated LocalDB-backed path (no daily spot needed) ---
+            if "small_cap" in self._picker_strategies:
+                from .small_cap import small_cap_min_amount_yuan, small_cap_top_n
+                td_yyyymmdd = trade_date if trade_date else (
+                    self._as_of_date.replace("-", "") if self._as_of_date else None
+                )
+                sc_cands = self._screen_small_cap(
+                    trade_date_yyyymmdd=td_yyyymmdd,
+                    top_n=small_cap_top_n(),
+                    min_amount_yuan=small_cap_min_amount_yuan(),
+                )
+                if sc_cands:
+                    candidates_per_strategy["small_cap"] = sc_cands
+                    logger.info(f"[Screener] small_cap: {len(sc_cands)} candidates")
+
             if not candidates_per_strategy:
                 stats.final_pool = 0
                 logger.warning("[Screener] No candidates from any strategy")
