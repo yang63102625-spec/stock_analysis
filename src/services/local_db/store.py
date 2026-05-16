@@ -267,6 +267,14 @@ class LocalStockDB:
 
     def _read_market(self, table: str, trade_date: str) -> pd.DataFrame:
         td = _norm_date(trade_date)
+        # Fast path: by-date sharded mirror (single file, ~10-50ms).
+        by_date = self.root / f"{table}_by_date" / f"{td}.parquet"
+        if by_date.exists():
+            try:
+                return pd.read_parquet(by_date)
+            except Exception:
+                pass
+        # Fallback: scan all per-stock parquet files (~5-10s for 5400 stocks).
         chunks: List[pd.DataFrame] = []
         d = self.root / table
         if not d.exists():
