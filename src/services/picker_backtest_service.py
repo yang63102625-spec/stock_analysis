@@ -225,6 +225,29 @@ class PickerBacktestService:
                     return {}
                 entry_price = float(close_v)
 
+            # small_cap is a cross-sectional rebalance factor: hold N trading
+            # days, no stop/TP, only frictions. Different semantics from the
+            # single-stock momentum strategies below.
+            if strategy_id == "small_cap":
+                forward_df = df.iloc[entry_idx:].copy()
+                hold = max(1, min(hold_days, len(forward_df) - 1))
+                if hold < 1 or len(forward_df) < 2:
+                    return {}
+                exit_row = forward_df.iloc[hold]
+                exit_price_raw = float(exit_row[close_col]) if pd.notna(exit_row[close_col]) else 0.0
+                if exit_price_raw <= 0:
+                    return {}
+                ENTRY_SLIP, EXIT_SLIP, ROUND_TRIP = 0.001, 0.001, 0.10
+                eff_entry = entry_price * (1 + ENTRY_SLIP)
+                eff_exit = exit_price_raw * (1 - EXIT_SLIP)
+                net_pct = (eff_exit - eff_entry) / eff_entry * 100.0 - ROUND_TRIP
+                return {
+                    "exit_price": eff_exit,
+                    "return_pct": net_pct,
+                    "exit_reason": "rebalance_window_end",
+                    "hold_days": hold,
+                }
+
             # Multi-day strategies (buy_pullback / breakout / bottom_reversal):
             # use unified trade_levels engine with ATR-trailing stop /
             # strategy-specific TP rules.
@@ -498,6 +521,23 @@ class PickerBacktestService:
         Returns:
             Dict with results, summary, and performance metrics.
         """
+        # small_cap is a monthly-rebalance factor; force hold_days >= 20 unless
+        # the caller already requested a longer window. Top-N also defaults to
+        # 50 to match the recommended portfolio size from the research report.
+        if picker_strategies and set(picker_strategies) == {"small_cap"}:
+            if hold_days < 20:
+                logger.info(
+                    "[PickerBacktest] small_cap rebalance window: forcing hold_days=20 (was %d)",
+                    hold_days,
+                )
+                hold_days = 20
+            if top_n < 30:
+                logger.info(
+                    "[PickerBacktest] small_cap recommended top_n>=30; forcing top_n=50 (was %d)",
+                    top_n,
+                )
+                top_n = 50
+
         if picker_strategies is not None:
             cfg = get_config()
             screener = StockScreener(
