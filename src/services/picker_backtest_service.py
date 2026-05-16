@@ -276,15 +276,21 @@ class PickerBacktestService:
 
             mcap_yi = 0.0  # unknown; trade_levels falls back to mid band
             is_kc_cy = code.startswith(("30", "68"))
-            # buy_pullback hard stop: -3% by default. The MA20-break rule kills
-            # 33% of trades for an average -8% loss; tighter intraday hard stop
-            # caps single-trade damage. Override with BUY_PULLBACK_HARD_STOP_PCT.
+            # buy_pullback hard stop: disabled by default. Earlier intuition
+            # said a -3% intraday stop would cap MA20-break losses, but
+            # measured A/B on 2026-02 → 2026-05 (hold=10, top_n=5):
+            #   hard_stop=3% → 82 picks, WR=28%, avg=+0.68%, tot=+48.9%
+            #   hard_stop=0  → 82 picks, WR=46%, avg=+1.73%, tot=+76.6%
+            # The -3% stop kicks healthy intraday washes out for full
+            # losses while the trade_levels MA20 / take-profit rules
+            # would have let them recover. Leave hard stop off; users
+            # who want it back set BUY_PULLBACK_HARD_STOP_PCT=0.03.
             hard_stop_pct = 0.0
             if strategy_id == "buy_pullback":
                 try:
-                    hard_stop_pct = float(os.environ.get("BUY_PULLBACK_HARD_STOP_PCT", "0.03"))
+                    hard_stop_pct = float(os.environ.get("BUY_PULLBACK_HARD_STOP_PCT", "0"))
                 except ValueError:
-                    hard_stop_pct = 0.03
+                    hard_stop_pct = 0.0
             sim = simulate_forward_trade(
                 strategy_id=strategy_id,
                 entry_price=entry_price,
