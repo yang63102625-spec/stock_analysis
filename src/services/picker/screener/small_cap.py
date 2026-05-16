@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """Small-cap factor screener.
 
-Dedicated full-market screening path that does not rely on the daily-spot
-pipeline used by buy_pullback / breakout / bottom_reversal. Reads market
-breadth directly from LocalStockDB (Tushare-backed parquet warehouse) and
-selects the N smallest-market-cap eligible stocks at the given trade date.
+Returns the top-N smallest-market-cap eligible A-shares.
 
-Why it's separate from the daily-spot pipeline:
-    The other strategies are single-day momentum/pullback patterns scored
-    from akshare spot fields (中文列名). small_cap is a cross-sectional
-    monthly-rebalanced factor whose universe definition (ST exclusion,
-    new-listing exclusion, optional liquidity floor) and ranking signal
-    (total_mv ascending) come from Tushare daily_basic. Forcing it through
-    the daily-spot path would lose the universe filters and rank by the
-    wrong column.
+Two execution paths, mirroring the rest of the picker:
+
+* **Live mode** (no ``as_of_date``) — uses ``_fetch_spot_data`` to pull the
+  current full-market quote (Tushare daily → akshare spot → efinance
+  fallback chain that all other strategies rely on). This guarantees the
+  picker reflects today's tradable universe.
+* **Historical / backtest mode** (``as_of_date`` set) — reads market
+  breadth from LocalStockDB by-date parquet shards (Tushare-backed).
+
+Universe filters (ST / 退市 / *ST / new listings within 365 days) and the
+optional liquidity floor are applied identically in both modes.
 
 Reference research and parameter justification: see
 docs/research/SMALL_CAP_FINAL_REPORT.md.
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pandas as pd
 
@@ -40,7 +40,7 @@ SMALL_CAP_MIN_LIST_DAYS = 365  # exclude first-year new listings
 
 
 class _SmallCapMixin:
-    """Mixin: ``_screen_small_cap_historical`` + ``_screen_small_cap_live``."""
+    """Mixin: ``_screen_small_cap``."""
 
     def _screen_small_cap(
         self,
@@ -48,13 +48,121 @@ class _SmallCapMixin:
         top_n: int = SMALL_CAP_TOP_N_DEFAULT,
         min_amount_yuan: float = SMALL_CAP_MIN_AMOUNT_YUAN_DEFAULT,
     ) -> List[ScreenedStock]:
-        """Return top-N smallest-market-cap eligible A-shares at trade_date.
+        """Return top-N smallest-market-cap eligible A-shares.
 
-        ``trade_date_yyyymmdd`` may be ``None`` (live mode → latest cached
-        date). Returns empty list when LocalDB has no coverage; caller is
-        expected to tolerate it the same way buy_pullback tolerates a
-        missing spot snapshot.
+        - ``trade_date_yyyymmdd`` set (backtest) → read from LocalStockDB.
+        - ``trade_date_yyyymmdd`` is None (live) → use _fetch_spot_data,
+          the same realtime path the other strategies take.
         """
+        is_historical = bool(trade_date_yyyymmdd)
+
+        if is_historical:
+            picks = self._select_small_cap_from_localdb(
+                trade_date_yyyymmdd, top_n, min_amount_yuan,
+            )
+        else:
+            picks = self._select_small_cap_live(top_n, min_amount_yuan)
+
+        if not picks:
+            logger.info(
+                "[SmallCap] no candidates (mode=%s, top_n=%d, min_amount=%g)",
+                "historical" if is_historical else "live", top_n, min_amount_yuan,
+            )
+        return picks
+
+    # ------------------------------------------------------------------
+    # Live path — share the realtime spot fetch with other strategies.
+    # ------------------------------------------------------------------
+
+    def _select_small_cap_live(
+        self, top_n: int, min_amount_yuan: float,
+    ) -> List[ScreenedStock]:
+        df = self._fetch_spot_data(trade_date=None)
+        if df is None or df.empty:
+            logger.warning("[SmallCap] live spot fetch returned nothing")
+            return []
+
+        # Spot DataFrame uses akshare-convention Chinese column names with
+        # 总市值 in yuan (see data_fetch._try_tushare normalisation block).
+        mc_col = "总市值" if "总市值" in df.columns else None
+        if mc_col is None:
+            logger.warning("[SmallCap] spot data missing 总市值 column; cannot rank")
+            return []
+
+        panel = df.copy()
+        panel["_mv_yuan"] = pd.to_numeric(panel[mc_col], errors="coerce")
+        panel = panel.dropna(subset=["_mv_yuan"])
+        panel = panel[panel["_mv_yuan"] > 0]
+
+        # Exclusions: ST in name, KC/CY/BSE (60-300 yi is the sweet spot for
+        # the factor and these boards have different tick rules / risk).
+        if "名称" in panel.columns:
+            panel = panel[~panel["名称"].astype(str).str.contains("ST|退|\\*", regex=True, na=False)]
+        if "代码" in panel.columns:
+            code_str = panel["代码"].astype(str)
+            # Drop BSE (8/4 legacy + 92 new code range 920xxx-924xxx) — their
+            # liquidity profile and trading rules diverge from the main
+            # sample the small_cap factor was validated on.
+            panel = panel[~code_str.str.startswith(("8", "4", "92"))]
+
+        if panel.empty:
+            return []
+
+        # Optional liquidity floor (today's 成交额, since live mode doesn't
+        # have a cheap 5-day average without extra calls).
+        if min_amount_yuan > 0 and "成交额" in panel.columns:
+            amt = pd.to_numeric(panel["成交额"], errors="coerce").fillna(0)
+            panel = panel[amt >= min_amount_yuan]
+            if panel.empty:
+                return []
+
+        panel = panel.sort_values("_mv_yuan").head(top_n)
+
+        return [self._spot_row_to_screened_stock(row) for _, row in panel.iterrows()]
+
+    @staticmethod
+    def _spot_row_to_screened_stock(row) -> ScreenedStock:
+        code = str(row.get("代码", "") or "")
+        name = str(row.get("名称", "") or "")
+        price = float(pd.to_numeric(row.get("最新价", 0), errors="coerce") or 0)
+        change_pct = float(pd.to_numeric(row.get("涨跌幅", 0), errors="coerce") or 0)
+        vol_ratio = float(pd.to_numeric(row.get("量比", 0), errors="coerce") or 0)
+        turnover = float(pd.to_numeric(row.get("换手率", 0), errors="coerce") or 0)
+        pe = float(pd.to_numeric(row.get("市盈率-动态", 0), errors="coerce") or 0)
+        pb = float(pd.to_numeric(row.get("市净率", 0), errors="coerce") or 0)
+        mv_yuan = float(pd.to_numeric(row.get("总市值", 0), errors="coerce") or 0)
+        amount_yuan = float(pd.to_numeric(row.get("成交额", 0), errors="coerce") or 0)
+        industry = str(row.get("industry") or row.get("行业") or "")
+
+        market_cap_yi = mv_yuan / 1e8
+        amount_yi = amount_yuan / 1e8
+        # Smaller cap → higher score (same as historical path).
+        score = 1500.0 / max(market_cap_yi, 1.0) if market_cap_yi > 0 else 0.0
+
+        return ScreenedStock(
+            code=code,
+            name=name,
+            price=price,
+            change_pct=change_pct,
+            volume_ratio=vol_ratio,
+            turnover_rate=turnover,
+            pe=pe,
+            pb=pb,
+            market_cap=market_cap_yi,
+            amount=amount_yi,
+            change_pct_60d=float(pd.to_numeric(row.get("60日涨跌幅", 0), errors="coerce") or 0),
+            score=score,
+            strategies=["small_cap"],
+            industry=industry,
+        )
+
+    # ------------------------------------------------------------------
+    # Historical path — LocalDB only. Used by backtest harness.
+    # ------------------------------------------------------------------
+
+    def _select_small_cap_from_localdb(
+        self, trade_date_yyyymmdd: str, top_n: int, min_amount_yuan: float,
+    ) -> List[ScreenedStock]:
         try:
             from src.services.local_db import default_db
         except Exception as e:
@@ -62,12 +170,7 @@ class _SmallCapMixin:
             return []
 
         db = default_db()
-
-        # Resolve target trade date.
-        td = self._resolve_small_cap_trade_date(db, trade_date_yyyymmdd)
-        if not td:
-            logger.warning("[SmallCap] cannot resolve trade date; returning []")
-            return []
+        td = trade_date_yyyymmdd
 
         try:
             daily = db.get_market_daily(td)
@@ -77,7 +180,7 @@ class _SmallCapMixin:
             return []
 
         if daily is None or daily.empty or basic is None or basic.empty:
-            logger.info("[SmallCap] no market data for %s", td)
+            logger.info("[SmallCap] no LocalDB market data for %s", td)
             return []
 
         panel = daily.merge(basic[["ts_code", "total_mv"]], on="ts_code", how="inner")
@@ -86,7 +189,6 @@ class _SmallCapMixin:
         if panel.empty:
             return []
 
-        # Universe exclusions (ST / 退市 / *ST / new listings within 1y).
         exclude_ts, list_dates = self._small_cap_static_filters(db)
         if exclude_ts:
             panel = panel[~panel["ts_code"].isin(exclude_ts)]
@@ -108,7 +210,6 @@ class _SmallCapMixin:
         if panel.empty:
             return []
 
-        # Optional liquidity floor: avg daily amount over previous N sessions.
         if min_amount_yuan > 0:
             panel = self._small_cap_apply_liquidity_floor(
                 db, panel, td, min_amount_yuan, SMALL_CAP_LIQUIDITY_LOOKBACK_DAYS,
@@ -117,25 +218,10 @@ class _SmallCapMixin:
                 return []
 
         panel = panel.sort_values("total_mv").head(top_n)
-
-        return [self._small_cap_to_screened_stock(row) for _, row in panel.iterrows()]
-
-    @staticmethod
-    def _resolve_small_cap_trade_date(db, trade_date_yyyymmdd: Optional[str]) -> Optional[str]:
-        if trade_date_yyyymmdd:
-            return trade_date_yyyymmdd
-        try:
-            cal = db.get_trade_cal("SSE")
-            cal = cal[cal["is_open"] == 1].sort_values("cal_date")
-            if cal.empty:
-                return None
-            return str(cal["cal_date"].iloc[-1])
-        except Exception as e:
-            logger.warning("[SmallCap] trade_cal lookup failed: %s", e)
-            return None
+        return [self._localdb_row_to_screened_stock(row) for _, row in panel.iterrows()]
 
     @staticmethod
-    def _small_cap_static_filters(db):
+    def _small_cap_static_filters(db) -> Tuple[set, dict]:
         try:
             sb = db.get_stock_basic()
         except Exception:
@@ -191,21 +277,15 @@ class _SmallCapMixin:
         return panel[panel["ts_code"].apply(lambda c: avg_amt.get(c, 0.0) >= min_amount_yuan)]
 
     @staticmethod
-    def _small_cap_to_screened_stock(row) -> ScreenedStock:
+    def _localdb_row_to_screened_stock(row) -> ScreenedStock:
         ts_code = str(row.get("ts_code", ""))
         code = ts_code.split(".")[0] if "." in ts_code else ts_code
         close = float(row.get("close", 0) or 0)
         amount_thousand_yuan = float(row.get("amount", 0) or 0)
         total_mv_wan = float(row.get("total_mv", 0) or 0)
-        # daily_basic.total_mv 单位: 万元; 转为亿元 (/1e4)
         market_cap_yi = total_mv_wan / 1e4
-        # daily.amount 单位: 千元; 转为亿元 (/1e5)
         amount_yi = amount_thousand_yuan / 1e5
         pct_chg = float(row.get("pct_chg", 0) or 0)
-
-        # Score: smaller cap = higher score (linear inverse within universe).
-        # 50 yi → ~30, 200 yi → ~7.5; passes downstream rank consumers without
-        # collapsing all picks to the same value.
         score = 1500.0 / max(market_cap_yi, 1.0) if market_cap_yi > 0 else 0.0
 
         return ScreenedStock(

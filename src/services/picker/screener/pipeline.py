@@ -198,6 +198,13 @@ class _PipelineMixin:
 
                     # Run each daily-data strategy
                     for strategy_id in daily_strategies:
+                        # small_cap is in DAILY_DATA_STRATEGIES so we only
+                        # fetch spot data once across strategies, but it
+                        # does NOT go through the params-driven momentum/
+                        # volume/score pipeline — handled in the dedicated
+                        # dispatch block below.
+                        if strategy_id == "small_cap":
+                            continue
                         params = get_strategy_params(strategy_id)
 
                         # Apply sector filter for applicable strategies
@@ -257,9 +264,12 @@ class _PipelineMixin:
                                 top5_str = ", ".join(f"{c.code}({c.score:.1f})" for c in top5)
                                 logger.debug(f"[Screener] {strategy_id} top-5: {top5_str}")
             else:
-                logger.info("[Screener] Skipping daily data fetch (only realtime strategies selected)")
+                logger.info("[Screener] No daily-data strategies selected; skipping spot fetch")
 
-            # --- small_cap: dedicated LocalDB-backed path (no daily spot needed) ---
+            # --- small_cap: cross-sectional market-cap rank ---
+            # Live mode uses the realtime spot DataFrame fetched above
+            # (today's full-market quote). Historical / backtest mode reads
+            # from LocalStockDB by-date shards.
             if "small_cap" in self._picker_strategies:
                 from .small_cap import small_cap_min_amount_yuan, small_cap_top_n
                 td_yyyymmdd = trade_date if trade_date else (
