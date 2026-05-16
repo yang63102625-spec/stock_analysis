@@ -189,6 +189,17 @@ class _SmallCapMixin:
         if panel.empty:
             return []
 
+        # Drop BSE (legacy 8/4 prefixes + new 92x range). Mirror of the
+        # live-mode filter in _select_small_cap_live. Without this the
+        # backtest universe gets flooded by 920xxx tickers whose daily
+        # bars are absent from LocalDB → 100% "数据不足".
+        ts_code_str = panel["ts_code"].astype(str)
+        code_head = ts_code_str.str[:1]
+        code_head2 = ts_code_str.str[:2]
+        panel = panel[~(code_head.isin(["8", "4"]) | (code_head2 == "92"))]
+        if panel.empty:
+            return []
+
         exclude_ts, list_dates = self._small_cap_static_filters(db)
         if exclude_ts:
             panel = panel[~panel["ts_code"].isin(exclude_ts)]

@@ -150,6 +150,35 @@ class PickerBacktestService:
             logger.warning("exchange_calendars sessions_in_range failed: %s", e)
             return []
 
+    def _fetch_daily_from_localdb(
+        self, code: str, start_iso: str, end_iso: str,
+    ) -> Optional["pd.DataFrame"]:
+        """Read a single stock's daily bars from LocalStockDB and shape
+        them to match what _get_forward_return expects (lowercase
+        OHLCV columns with a `date` field).
+
+        Returns ``None`` if LocalDB doesn't have the symbol or fails
+        to open, so the caller can fall back to the network fetcher.
+        """
+        try:
+            from src.services.local_db import default_db
+            db = default_db()
+            ts_code = code if "." in code else (
+                f"{code}.SH" if code.startswith(("6", "9")) else f"{code}.SZ"
+            )
+            start_yyyymmdd = start_iso.replace("-", "")
+            end_yyyymmdd = end_iso.replace("-", "")
+            df = db.get_daily(ts_code, start_yyyymmdd, end_yyyymmdd)
+            if df is None or df.empty:
+                return None
+            out = df.rename(columns={"trade_date": "date"}).copy()
+            if "date" in out.columns:
+                out["date"] = pd.to_datetime(out["date"].astype(str), format="%Y%m%d")
+            return out
+        except Exception as e:  # pragma: no cover — keep backtest resilient
+            logger.debug("[PickerBacktest] LocalDB read failed for %s: %s", code, e)
+            return None
+
     def _get_exit_date(self, trade_date: str, hold_days: int) -> Optional[str]:
         """Get exit date (hold_days trading days after trade_date)."""
         dates = self._get_trade_dates(
@@ -190,9 +219,17 @@ class PickerBacktestService:
             start_dt = pd.Timestamp(trade_date) - pd.Timedelta(days=45)
             start_iso = start_dt.strftime("%Y-%m-%d")
             end_iso = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
-            df, _ = self._data_manager.get_daily_data(
-                code, start_date=start_iso, end_date=end_iso, days=80
-            )
+
+            # LocalDB-first: backtest data is fully resident in the local
+            # parquet warehouse. Going through DataFetcherManager hits the
+            # network (Tushare) per symbol per session — that's the slow
+            # path AND the one that returns empty in offline / sandboxed
+            # environments, which manifests as "数据不足" for every pick.
+            df = self._fetch_daily_from_localdb(code, start_iso, end_iso)
+            if df is None or df.empty:
+                df, _ = self._data_manager.get_daily_data(
+                    code, start_date=start_iso, end_date=end_iso, days=80,
+                )
             if df is None or df.empty:
                 return {}
             date_col = next((c for c in ["date", "日期"] if c in df.columns), df.columns[0])
@@ -234,10 +271,25 @@ class PickerBacktestService:
             # days, no stop/TP, only frictions. Different semantics from the
             # single-stock momentum strategies below.
             if strategy_id == "small_cap":
+                # Find the exit-date row inside the local bar window. We
+                # used to reference an undefined `hold_days` here, which
+                # threw NameError → caught by the outer try → every
+                # small_cap pick returned {} ("数据不足"). Derive the
+                # actual exit index from exit_date instead.
+                exit_str = f"{exit_date[:4]}-{exit_date[4:6]}-{exit_date[6:8]}"
+                exit_mask = df["_date_str"] == exit_str
                 forward_df = df.iloc[entry_idx:].copy()
-                hold = max(1, min(hold_days, len(forward_df) - 1))
-                if hold < 1 or len(forward_df) < 2:
+                if exit_mask.any():
+                    exit_idx = int(df.index[exit_mask].max())
+                    hold = exit_idx - entry_idx
+                else:
+                    # Caller's exit_date is past the bars we have; clip
+                    # to the last available bar instead of skipping.
+                    hold = len(forward_df) - 1
+                hold = max(1, hold)
+                if len(forward_df) < 2:
                     return {}
+                hold = min(hold, len(forward_df) - 1)
                 exit_row = forward_df.iloc[hold]
                 exit_price_raw = float(exit_row[close_col]) if pd.notna(exit_row[close_col]) else 0.0
                 if exit_price_raw <= 0:
