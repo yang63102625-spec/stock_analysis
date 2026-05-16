@@ -44,8 +44,8 @@ export function usePickerBacktest(): UsePickerBacktest {
     return d.toISOString().slice(0, 10);
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [holdDays, setHoldDays] = useState('10');
-  const [topN, setTopN] = useState('5');
+  const [holdDays, setHoldDays] = useState('5');
+  const [topN, setTopN] = useState('3');
   const [strategies, setStrategies] = useState<PickerStrategy[]>(['buy_pullback']);
 
   const [running, setRunning] = useState(false);
@@ -86,8 +86,8 @@ export function usePickerBacktest(): UsePickerBacktest {
     setRunning(true);
     setResult(null);
     setError(null);
-    const hold = parseInt(holdDays, 10) || 10;
-    const top = parseInt(topN, 10) || 5;
+    const hold = parseInt(holdDays, 10) || 5;
+    const top = parseInt(topN, 10) || 3;
     try {
       const picks: PickerStrategy[] = strategies.length > 0 ? strategies : ['buy_pullback'];
       const response = await pickerBacktestApi.run({
