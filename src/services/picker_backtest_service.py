@@ -608,6 +608,29 @@ class PickerBacktestService:
                 )
                 hold_days = 40
 
+        # breakout: empirically WR plateaus at ~36% with hold_days=5 and
+        # decays beyond. A/B 2024-07~2025-04 (10mo) showed hold_days=10 yields
+        # 70% trades exit at window_end with -1.65% avg, vs hold_days=5 at
+        # -0.90% avg + WR +5pp + MDD -11pp. Cap to 5 when caller has not
+        # asked for a longer window.
+        if picker_strategies and set(picker_strategies) == {"breakout"}:
+            if hold_days > 5:
+                logger.info(
+                    "[PickerBacktest] breakout short-swing window: clamping hold_days=5 (was %d)",
+                    hold_days,
+                )
+                hold_days = 5
+
+        # slow_bull: 30° long-term trend; meant for quarter+ holds. Force
+        # ≥60 trading days so trailing stops have room to ride the trend.
+        if picker_strategies and set(picker_strategies) == {"slow_bull"}:
+            if hold_days < 60:
+                logger.info(
+                    "[PickerBacktest] slow_bull long-term window: forcing hold_days=60 (was %d)",
+                    hold_days,
+                )
+                hold_days = 60
+
         if picker_strategies and set(picker_strategies) == {"small_cap"}:
             if hold_days < 20:
                 logger.info(

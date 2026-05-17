@@ -37,12 +37,13 @@ BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
 REVERSAL_BREAKOUT = "reversal_breakout"  # right-side breakout of a deep base
 SMALL_CAP = "small_cap"  # cross-sectional smallest-market-cap factor
+SLOW_BULL = "slow_bull"  # 30° long-term uptrend, higher lows + bullish stack
 
 # Default strategy when PICKER_STRATEGIES not set
 DEFAULT_STRATEGIES = [BUY_PULLBACK]
 
 # All available strategies
-ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL, SMALL_CAP]
+ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL, SMALL_CAP, SLOW_BULL]
 
 def is_mainboard_stock(code: str) -> bool:
     """Check if a stock is listed on the main board (SSE/SZSE main).
@@ -69,6 +70,7 @@ STRATEGY_DISPLAY_NAMES: Dict[str, str] = {
     BOTTOM_REVERSAL: "底部反转",
     REVERSAL_BREAKOUT: "反转突破",
     SMALL_CAP: "小市值",
+    SLOW_BULL: "慢牛趋势",
 }
 
 
@@ -140,25 +142,36 @@ BUY_PULLBACK_PARAMS = StrategyParams(
     require_price_above_ma20=True,     # Below MA20 = downtrend, reject
 )
 
-# Breakout: price breaks N-day high, volume confirmation
+# Breakout: price breaks N-day high, volume confirmation.
+# All defaults env-overridable for A/B tuning (BO_* prefix).
+import os as _os
+
+def _bo_envf(key: str, default: float) -> float:
+    try:
+        return float(_os.environ.get(f"BO_{key}", default))
+    except (ValueError, TypeError):
+        return float(default)
+
+def _bo_envi(key: str, default: int) -> int:
+    return int(_bo_envf(key, default))
+
 BREAKOUT_PARAMS = StrategyParams(
-    max_bias_pct=8.0,  # Tightened bias to reduce chasing (was 12.0)
-    leader_bias_exempt_pct=10.0,  # Leader exemption also tightened (was 14.0)
-    pe_max=100,
-    pe_ideal_low=15,
-    pe_ideal_high=50,
-    daily_change_min=2.0,  # Must be up
-    daily_change_max=10.0,  # Not limit-up chase
-    max_consecutive_up_days=2,  # Stricter: avoid late-stage chasing (was 4)
+    max_bias_pct=_bo_envf("MAX_BIAS_PCT", 8.0),
+    leader_bias_exempt_pct=_bo_envf("LEADER_BIAS_EXEMPT_PCT", 10.0),
+    pe_max=_bo_envi("PE_MAX", 100),
+    pe_ideal_low=_bo_envi("PE_IDEAL_LOW", 15),
+    pe_ideal_high=_bo_envi("PE_IDEAL_HIGH", 50),
+    daily_change_min=_bo_envf("DAILY_CHANGE_MIN", 2.0),
+    daily_change_max=_bo_envf("DAILY_CHANGE_MAX", 10.0),
+    max_consecutive_up_days=_bo_envi("MAX_CONSECUTIVE_UP_DAYS", 2),
     require_volume_shrink=False,
-    require_ma_bullish=False,  # Breakout may not have MA aligned yet
+    require_ma_bullish=False,
     max_retracement_pct=0.618,
-    change_60d_min=-10.0,  # Allow some downtrend before breakout
-    change_60d_max=50.0,  # Tightened to avoid parabolic (was 80.0)
-    volume_ratio_min=1.7,  # Eased 2.0→1.7: 2.0 over-filters healthy "moderate-volume
-                            # genuine breakouts"; 1.7 is empirical sweet spot.
-    breakout_lookback_days=20,       # 20-day resistance level lookback
-    max_upper_shadow_ratio=2.0,      # Upper shadow > 2x body = fake breakout
+    change_60d_min=_bo_envf("CHANGE_60D_MIN", -10.0),
+    change_60d_max=_bo_envf("CHANGE_60D_MAX", 50.0),
+    volume_ratio_min=_bo_envf("VOLUME_RATIO_MIN", 1.7),
+    breakout_lookback_days=_bo_envi("LOOKBACK_DAYS", 20),
+    max_upper_shadow_ratio=_bo_envf("MAX_UPPER_SHADOW", 2.0),
 )
 
 # Bottom reversal: 60d -25% ~ -5%, true bottom with volume shrink stabilisation

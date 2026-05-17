@@ -6,6 +6,7 @@ B-wave risk detection, and leader candidate check.
 """
 
 import logging
+import os as _os
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -256,7 +257,11 @@ def filter_healthy_pullback(
                 # Lookback high excluding today
                 high_nd = float(high_series_bk.iloc[-(window + 1):-1].max())
                 current_close = s.price
-                if high_nd > 0 and current_close < high_nd * 0.995:
+                # BO_BREAKOUT_PCT: how far above the N-day high today must close.
+                # Default 0.995 = "within 0.5% of the high" (lax). Raising to e.g.
+                # 1.01 demands a real 1% break-through.
+                _bk_mul = float(_os.environ.get("BO_BREAKOUT_PCT", "0.995"))
+                if high_nd > 0 and current_close < high_nd * _bk_mul:
                     logger.debug(
                         "[Screener] %s excluded: close %.2f below %dd high %.2f, not a true breakout",
                         s.code, current_close, bk_lookback, high_nd,

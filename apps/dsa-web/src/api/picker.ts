@@ -97,7 +97,7 @@ const PICKER_REQUEST_TIMEOUT_MS = 600_000; // 10 min
 
 export type PickerMode = 'defensive' | 'balanced' | 'offensive';
 
-export type PickerStrategy = 'buy_pullback' | 'breakout' | 'bottom_reversal' | 'reversal_breakout' | 'small_cap';
+export type PickerStrategy = 'buy_pullback' | 'breakout' | 'bottom_reversal' | 'reversal_breakout' | 'small_cap' | 'slow_bull';
 
 export interface PickerRecommendParams {
   picker_strategies?: PickerStrategy[];
@@ -110,6 +110,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   bottom_reversal: '底部反转',
   reversal_breakout: '反转突破',
   small_cap: '小市值',
+  slow_bull: '慢牛趋势',
 };
 
 export { STRATEGY_LABELS };

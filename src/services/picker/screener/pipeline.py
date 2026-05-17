@@ -130,7 +130,7 @@ class _PipelineMixin:
                         )
                         return [], stats, {}
                     elif action == "limit":
-                        allowed_str = getattr(cfg, "picker_weak_market_strategies", "bottom_reversal")
+                        allowed_str = getattr(cfg, "picker_weak_market_strategies", "bottom_reversal,slow_bull")
                         allowed = [s.strip() for s in allowed_str.split(",") if s.strip()]
                         original = list(self._picker_strategies)
                         self._picker_strategies = [s for s in self._picker_strategies if s in allowed]
@@ -240,7 +240,7 @@ class _PipelineMixin:
                         # the params-driven momentum / volume / score
                         # pipeline — handled by dedicated dispatch
                         # blocks below.
-                        if strategy_id in ("small_cap", "bottom_reversal", "reversal_breakout"):
+                        if strategy_id in ("small_cap", "bottom_reversal", "reversal_breakout", "slow_bull"):
                             continue
                         params = get_strategy_params(strategy_id)
 
@@ -354,6 +354,22 @@ class _PipelineMixin:
                 if rb_cands:
                     candidates_per_strategy["reversal_breakout"] = rb_cands
                     logger.info(f"[Screener] reversal_breakout: {len(rb_cands)} candidates")
+
+            # --- slow_bull: 30° long-term uptrend pattern. Long-only
+            # watchlist + entry. No MarketGuard gating (trend-following,
+            # holds through weak regimes). See slow_bull.py.
+            if "slow_bull" in self._picker_strategies:
+                from .slow_bull import slow_bull_top_n
+                td_yyyymmdd = trade_date if trade_date else (
+                    self._as_of_date.replace("-", "") if self._as_of_date else None
+                )
+                sb_cands = self._screen_slow_bull(
+                    trade_date_yyyymmdd=td_yyyymmdd,
+                    top_n=slow_bull_top_n(),
+                )
+                if sb_cands:
+                    candidates_per_strategy["slow_bull"] = sb_cands
+                    logger.info(f"[Screener] slow_bull: {len(sb_cands)} candidates")
 
             if not candidates_per_strategy:
                 stats.final_pool = 0
