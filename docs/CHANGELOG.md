@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Picker strategies — split bottom_reversal into watchlist + actionable
+
+- **New strategy `reversal_breakout`** (反转突破): right-side swing entry
+  triggered only after a deep-bottom stock breaks out of its 40d base
+  with conviction. Requires the prior base (180d max DD ≥ 25%, 40d
+  range ≤ 25%, MA60 not falling hard) AND a same-day trigger: close
+  ≥ 40d-high × 1.01, pct_chg ∈ [3%, 7%], volume ≥ 60d-avg × 2, and
+  main-force net inflow / today's amount ≥ 5%. Hold ~20 trading days,
+  +25% hardcap, ATR2 trailing from +12%, -6% hard floor, 20d time
+  stop. Backtest 2024-07~2025-04 (10mo incl. 9/24 rally):
+  WR 33.7%, PF 1.24, alpha vs HS300 +1.06%. MarketGuard +1% gate
+  prevents trading in falling tape. New mixin at
+  `picker/screener/reversal_breakout.py`, all thresholds env-tunable
+  via `REVERSAL_BREAKOUT_*`. Surface: `STRATEGY_DISPLAY_NAMES`,
+  pipeline dispatch, sector-filter group, frontend strategy lists,
+  API schemas/endpoints. Default hold_days forced to 20 in backtest.
+- **Repurposed `bottom_reversal` (v2) as watchlist**: the original
+  left-side "still consolidating, about to launch" mixin is now
+  tuned and scored for manual analysis rather than auto-trading.
+  Previous "about-to-break" thresholds (drawdown ≥ 35%, MA60 ≥ 0%,
+  price-pos ∈ [0.75, 0.97]) over-filtered and the resulting picks
+  underperformed in live backtests (WR 13%, PF 0.42). New defaults
+  surface stocks **still inside** the base for human review:
+  drawdown ≥ 25%, MA60 ≥ -3%, range ≤ 30%, price-pos ∈ [0.30, 0.85],
+  TOP_N 20. Scoring inverted: rewards lower price-pos (more upside
+  room) and accepts flat/slow-falling MA60. Trade-levels exit rules
+  restored to the v2 medium-swing config (+35% hardcap, -8% floor,
+  60d time stop) since the strategy is observed, not traded.
+  Backtest default hold_days raised to 40 to match the 60d time stop.
+
 ### Picker strategy lineup — drop eod_buyback, add small_cap
 
 - **Removed `eod_buyback`** (尾盘买入): 2-year OOS validation showed PF 0.58

@@ -13,6 +13,7 @@ from .bottom_reversal_v2 import _BottomReversalV2Mixin
 from .data_fetch import _DataFetchMixin
 from .filters_scoring import _FilterScoringMixin
 from .pipeline import _PipelineMixin
+from .reversal_breakout import _ReversalBreakoutMixin
 from .small_cap import _SmallCapMixin
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class StockScreener(
     _DataFetchMixin,
     _SmallCapMixin,
     _BottomReversalV2Mixin,
+    _ReversalBreakoutMixin,
     _ScreenerBase,
 ):
     """Multi-layer quantitative screener using full-market spot data.

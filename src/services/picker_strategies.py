@@ -35,6 +35,7 @@ from src.services.trade_levels import (
 BUY_PULLBACK = "buy_pullback"
 BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
+REVERSAL_BREAKOUT = "reversal_breakout"  # right-side breakout of a deep base
 SMALL_CAP = "small_cap"  # cross-sectional smallest-market-cap factor
 
 # Default strategy when PICKER_STRATEGIES not set
@@ -66,6 +67,7 @@ STRATEGY_DISPLAY_NAMES: Dict[str, str] = {
     BUY_PULLBACK: "买回踩",
     BREAKOUT: "突破",
     BOTTOM_REVERSAL: "底部反转",
+    REVERSAL_BREAKOUT: "反转突破",
     SMALL_CAP: "小市值",
 }
 

@@ -48,29 +48,33 @@ _MA_LONG = 60                 # long-term MA used for trend filter
 _VOL_SHORT = 5                # short volume average
 _VOL_LONG = 60                # long volume average
 
-# Default thresholds. Each is overridable via env so we can iterate
-# without code edits during tuning.
+# Default thresholds. Tuned for a *watchlist* — i.e. surface stocks
+# that are genuinely sitting in a real bottom right now, for manual
+# review. We deliberately do NOT require "about-to-break" geometry
+# (price-pos near range top, MA60 already turning up) — those are
+# the right-side signals handled by ``reversal_breakout``. Here we
+# want the earlier picture: real fall happened, range has formed,
+# price still inside the range. Each value is env-overridable for
+# discretionary tuning.
 _DEFAULTS = {
-    # Tightened after first backtest showed WR 30%: original thresholds
-    # were too permissive (52/57 days had picks, 206 picks/3mo). Now we
-    # demand a deeper base + tighter range + MA60 actually rising + price
-    # near the very top of the range (about-to-break, not mid-range).
-    "MIN_DRAWDOWN_PCT": 35.0,    # real bottom required
-    "MIN_BOUNCE_PCT": 12.0,      # slightly lower so very-recent breakouts still count
-    "MAX_RANGE_PCT": 22.0,       # tighter than original 25 but not 18
+    "MIN_DRAWDOWN_PCT": 25.0,    # 25% drop already qualifies as a base
+    "MIN_BOUNCE_PCT": 5.0,       # don't require a strong rebound — we want
+                                  # stocks still IN the base, not leaving it
+    "MAX_RANGE_PCT": 30.0,       # A-share consolidations 25-30% are common
     "MIN_RANGE_DAYS": 20,
-    "VOL_RATIO_MIN": 0.9,        # short vol at-or-above long vol
-    "VOL_RATIO_MAX": 2.2,
-    "MA60_SLOPE_MIN_PCT": 0.0,   # MA60 flat or up, no longer falling
-    "PRICE_POS_LOW": 0.75,       # near upper edge
-    "PRICE_POS_HIGH": 0.97,
-    "MAX_PB": 3.5,               # was 4.0
+    "VOL_RATIO_MIN": 0.6,        # don't gate on volume — bases run dry
+    "VOL_RATIO_MAX": 2.5,
+    "MA60_SLOPE_MIN_PCT": -3.0,  # real bottoms usually have a still-falling
+                                  # MA60; only reject "free-fall" cases
+    "PRICE_POS_LOW": 0.30,       # accept stocks anywhere in the lower-to-mid
+    "PRICE_POS_HIGH": 0.85,      # range; exclude only the very top
+    "MAX_PB": 4.0,
     "MARKET_CAP_MIN_YI": 30.0,
     "MARKET_CAP_MAX_YI": 300.0,
     "COARSE_60D_MIN_PCT": -50.0,
     "COARSE_60D_MAX_PCT": 10.0,
-    "MIN_AMOUNT_YUAN": 80_000_000.0,  # was 5kw → 8kw (better liquidity)
-    "TOP_N": 30,
+    "MIN_AMOUNT_YUAN": 80_000_000.0,
+    "TOP_N": 20,                 # plenty for daily manual review
     "MAX_PARALLEL": 16,
 }
 
@@ -326,12 +330,19 @@ class _BottomReversalV2Mixin:
 
         # --- score (0-100): reward depth of base + tight range + ---
         # rising MA60 + upper-range price position
+        # Watchlist scoring: reward "deeper base + tighter range + still
+        # has upside room (price NOT yet near top) + MA60 stabilising".
+        # Inverted price_pos vs right-side breakout: we want stocks
+        # that haven't already run.
         score = 0.0
-        score += min(25.0, max_dd_pct * 0.5)             # deep base bonus
-        score += min(20.0, max(0.0, ma60_slope_pct * 5)) # rising MA60
-        score += 20.0 * (1.0 - min(1.0, range_pct / 25))  # tight range
-        score += 20.0 * price_pos                         # near upper edge
-        score += 15.0 * min(1.0, vol_ratio / 2.0)         # volume thinking
+        score += min(30.0, max_dd_pct * 0.6)              # deep base
+        score += 20.0 * (1.0 - min(1.0, range_pct / 30))  # tighter range
+        score += 25.0 * (1.0 - price_pos)                 # MORE room above
+        # MA60 slope: stop punishing falling — only reward flat/rising.
+        # Clip to [-3, +3] then map to [0, 15].
+        slope_clipped = max(-3.0, min(3.0, ma60_slope_pct))
+        score += 15.0 * (slope_clipped + 3.0) / 6.0
+        score += 10.0 * min(1.0, vol_ratio / 1.5)         # volume
         score = round(score, 2)
 
         code = str(row.get("代码", "") or "")

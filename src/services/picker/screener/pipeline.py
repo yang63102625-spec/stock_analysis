@@ -82,28 +82,31 @@ class _PipelineMixin:
 
             # bottom_reversal regime gate: same lesson as buy_pullback —
             # "second buy point" technical patterns only convert into
-            # real launches when the broad tape is at least neutral.
-            # In a falling SSE, "about-to-break" patterns become "fake
-            # breakout then crash". Default +1% (looser than buy_pullback
-            # because reversals look for catch-up rebounds). Toggle via
-            # BOTTOM_REV_REQUIRE_STRONG / BOTTOM_REV_GATE_PCT.
+            # MarketGuard for reversal_breakout: right-side breakouts in a
+            # falling tape become "fake breakout then crash". Gate only
+            # opens when SSE is at least +1% above its MA20. Default +1%
+            # (looser than buy_pullback's +2% because reversal candidates
+            # are catch-up rebounds, not momentum trades). Toggle via
+            # REVERSAL_BREAKOUT_REQUIRE_STRONG / REVERSAL_BREAKOUT_GATE_PCT.
+            # bottom_reversal (v2) is a manual-analysis watchlist and is
+            # not gated by this guard.
             try:
-                _br_gate = float(_os.environ.get("BOTTOM_REV_GATE_PCT", "1.0"))
+                _rb_gate = float(_os.environ.get("REVERSAL_BREAKOUT_GATE_PCT", "1.0"))
             except ValueError:
-                _br_gate = 1.0
+                _rb_gate = 1.0
             if (
-                _os.environ.get("BOTTOM_REV_REQUIRE_STRONG", "1") == "1"
-                and "bottom_reversal" in self._picker_strategies
+                _os.environ.get("REVERSAL_BREAKOUT_REQUIRE_STRONG", "1") == "1"
+                and "reversal_breakout" in self._picker_strategies
                 and market_env is not None
-                and market_env.diff_pct < _br_gate
+                and market_env.diff_pct < _rb_gate
                 and not _bypass_guard
             ):
                 logger.warning(
-                    "[MarketGuard/bottom_reversal] SSE diff %+.2f%% < %+.2f%% required, "
-                    "removing bottom_reversal for this day",
-                    market_env.diff_pct, _br_gate,
+                    "[MarketGuard/reversal_breakout] SSE diff %+.2f%% < %+.2f%% required, "
+                    "removing reversal_breakout for this day",
+                    market_env.diff_pct, _rb_gate,
                 )
-                self._picker_strategies = [s for s in self._picker_strategies if s != "bottom_reversal"]
+                self._picker_strategies = [s for s in self._picker_strategies if s != "reversal_breakout"]
                 if not self._picker_strategies:
                     return [], stats, {}
 
@@ -162,10 +165,12 @@ class _PipelineMixin:
 
             candidates_per_strategy: Dict[str, List[ScreenedStock]] = {}
 
-            # df is referenced by post-pipeline strategy dispatch blocks
-            # (bottom_reversal) outside the if-needs-daily branch — keep
-            # it bound to None when no daily fetch happens.
+            # df and _sector_strong_codes are referenced by post-pipeline
+            # strategy dispatch blocks (bottom_reversal) outside the
+            # if-needs-daily branch — keep them bound to safe defaults
+            # when no daily fetch happens.
             df = None
+            _sector_strong_codes: Set[str] = set()
             # --- Daily-data pipeline: only fetch spot data when at least one strategy needs it ---
             if needs_daily:
                 df = self._fetch_spot_data(trade_date)
@@ -235,7 +240,7 @@ class _PipelineMixin:
                         # the params-driven momentum / volume / score
                         # pipeline — handled by dedicated dispatch
                         # blocks below.
-                        if strategy_id in ("small_cap", "bottom_reversal"):
+                        if strategy_id in ("small_cap", "bottom_reversal", "reversal_breakout"):
                             continue
                         params = get_strategy_params(strategy_id)
 
@@ -316,12 +321,10 @@ class _PipelineMixin:
                     candidates_per_strategy["small_cap"] = sc_cands
                     logger.info(f"[Screener] small_cap: {len(sc_cands)} candidates")
 
-            # --- bottom_reversal v2: multi-window geometric "second buy point" ---
-            # Coarse pre-filter on the already-fetched spot frame, then a
-            # per-candidate 180d LocalDB lookup checks drawdown depth,
-            # consolidation tightness, MA60 slope, volume regime, and the
-            # current price's position inside the recent range. See
-            # bottom_reversal_v2.py for the full rule set.
+            # --- bottom_reversal (v2): left-side "still consolidating,
+            # about to launch" screener. Watchlist-grade output for
+            # manual analysis — looser geometric filters, no sector
+            # gate, no smart-money confirmation. See bottom_reversal_v2.py.
             if "bottom_reversal" in self._picker_strategies:
                 td_yyyymmdd = trade_date if trade_date else (
                     self._as_of_date.replace("-", "") if self._as_of_date else None
@@ -333,6 +336,24 @@ class _PipelineMixin:
                 if br_cands:
                     candidates_per_strategy["bottom_reversal"] = br_cands
                     logger.info(f"[Screener] bottom_reversal: {len(br_cands)} candidates")
+
+            # --- reversal_breakout (v3): right-side confirmation. Buys
+            # only AFTER a deep-bottom stock breaks out of its base with
+            # volume + same-day main-force net inflow. Actionable swing
+            # entry. See reversal_breakout.py.
+            if "reversal_breakout" in self._picker_strategies:
+                td_yyyymmdd = trade_date if trade_date else (
+                    self._as_of_date.replace("-", "") if self._as_of_date else None
+                )
+                _rb_sector_codes = _sector_strong_codes if needs_daily else set()
+                rb_cands = self._screen_reversal_breakout(
+                    spot_df=df,
+                    trade_date_yyyymmdd=td_yyyymmdd,
+                    sector_strong_codes=_rb_sector_codes,
+                )
+                if rb_cands:
+                    candidates_per_strategy["reversal_breakout"] = rb_cands
+                    logger.info(f"[Screener] reversal_breakout: {len(rb_cands)} candidates")
 
             if not candidates_per_strategy:
                 stats.final_pool = 0

@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 BUY_PULLBACK = "buy_pullback"
 BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
+REVERSAL_BREAKOUT = "reversal_breakout"
 
 # Risk/Reward floor: candidates below this should be filtered by callers.
 # Tuned to 2.0 (was 1.8): A-share round-trip cost (slippage + tax + commission)
@@ -392,16 +393,14 @@ def evaluate_trailing_exit(
 
     # ---- Bottom reversal: swing-trade rules ----
     # This is a medium-term (20-60d) bet on "true bottom → consolidation
-    # → launch". The buy_pullback short-term rules below kill these
-    # trades too early (20d time stop, MA20-tight trailing). Custom set:
-    #   - hardcap raised to +35% (let real launches run)
-    #   - ATR trailing only after +25%
-    #   - time stop pushed out to 60d, threshold cut to +3%
-    #   - hard floor: -8% from entry (true breakdown of base)
+    # bottom_reversal (v2 left-side): manual-analysis watchlist for stocks
+    # sitting in a real consolidation. Loose exit rules — the strategy
+    # is observed, not auto-traded. Original v2 rule set:
+    #   +35% hardcap, ATR/MA10 trailing only after +25%, 60d time stop,
+    #   -8% hard floor.
     if sid == BOTTOM_REVERSAL:
         if profit_pct >= 35.0:
             return True, "bottom_reversal_hardcap_35pct"
-        # Trailing only deep into the move
         if profit_pct >= 25.0:
             if _safe_pos(atr) and atr > 0:
                 retrace = peak - current_price
@@ -409,12 +408,46 @@ def evaluate_trailing_exit(
                     return True, "trailing_atr3.0_retrace"
             if _safe_pos(ma10) and current_price < ma10 * 0.97:
                 return True, "trailing_below_ma10_3pct"
-        # Hard floor — true base-break, not noise
         if profit_pct <= -8.0:
             return True, "bottom_reversal_hard_floor_-8pct"
-        # Time stop: 60 trading days without breaking +3%
         if holding_days >= 60 and profit_pct < 3.0:
             return True, "time_stop_60d_no_progress"
+        return False, ""
+
+    # reversal_breakout (v3 right-side): actionable swing entry after
+    # the breakout has already happened. Tight rules tuned for a
+    # ~20d hold and a quick lock-in:
+    #   +25% hardcap, ATR trailing from +12%, MA10 trail from +8%,
+    #   -6% hard floor, 20d time stop.
+    # All thresholds env-overridable for A/B tuning.
+    if sid == REVERSAL_BREAKOUT:
+        import os as _os
+        def _ef(k, d):
+            try: return float(_os.environ.get(k, d))
+            except (ValueError, TypeError): return float(d)
+        hardcap = _ef("RB_EXIT_HARDCAP_PCT", 25.0)
+        trail_start = _ef("RB_EXIT_TRAIL_START_PCT", 12.0)
+        trail_atr_mul = _ef("RB_EXIT_TRAIL_ATR_MUL", 2.0)
+        ma10_start = _ef("RB_EXIT_MA10_START_PCT", 8.0)
+        ma10_buf = _ef("RB_EXIT_MA10_BUF_PCT", 2.0)
+        hard_floor = _ef("RB_EXIT_HARD_FLOOR_PCT", -6.0)
+        grace_days = int(_ef("RB_EXIT_GRACE_DAYS", 0))
+        time_stop_days = int(_ef("RB_EXIT_TIME_STOP_DAYS", 20))
+        time_stop_min_pct = _ef("RB_EXIT_TIME_STOP_MIN_PCT", 2.0)
+        if profit_pct >= hardcap:
+            return True, f"reversal_breakout_hardcap_{int(hardcap)}pct"
+        if profit_pct >= trail_start:
+            if _safe_pos(atr) and atr > 0:
+                retrace = peak - current_price
+                if retrace >= atr * trail_atr_mul:
+                    return True, f"trailing_atr{trail_atr_mul}_retrace"
+        if profit_pct >= ma10_start:
+            if _safe_pos(ma10) and current_price < ma10 * (1.0 - ma10_buf / 100.0):
+                return True, f"trailing_below_ma10_{int(ma10_buf)}pct"
+        if profit_pct <= hard_floor and holding_days > grace_days:
+            return True, f"reversal_breakout_hard_floor_{int(hard_floor)}pct"
+        if holding_days >= time_stop_days and profit_pct < time_stop_min_pct:
+            return True, f"time_stop_{time_stop_days}d_no_progress"
         return False, ""
 
     # ---- buy_pullback / breakout: short-term rules below ----

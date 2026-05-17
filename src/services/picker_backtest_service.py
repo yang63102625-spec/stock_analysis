@@ -587,6 +587,27 @@ class PickerBacktestService:
         # small_cap is a monthly-rebalance factor; force hold_days >= 20 unless
         # the caller already requested a longer window. Top-N also defaults to
         # 50 to match the recommended portfolio size from the research report.
+        # reversal_breakout (right-side) is a short swing; force ≥20d
+        # window so trailing/time-stop rules have room to fire.
+        if picker_strategies and set(picker_strategies) == {"reversal_breakout"}:
+            if hold_days < 20:
+                logger.info(
+                    "[PickerBacktest] reversal_breakout swing window: forcing hold_days=20 (was %d)",
+                    hold_days,
+                )
+                hold_days = 20
+
+        # bottom_reversal (left-side watchlist) is a medium swing trade
+        # observed over longer windows; force ≥40d to match the 60d
+        # time-stop in trade_levels.
+        if picker_strategies and set(picker_strategies) == {"bottom_reversal"}:
+            if hold_days < 40:
+                logger.info(
+                    "[PickerBacktest] bottom_reversal medium-swing window: forcing hold_days=40 (was %d)",
+                    hold_days,
+                )
+                hold_days = 40
+
         if picker_strategies and set(picker_strategies) == {"small_cap"}:
             if hold_days < 20:
                 logger.info(
