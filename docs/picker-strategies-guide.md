@@ -97,32 +97,7 @@
 
 ---
 
-### 3.2 突破 (breakout)
-
-**策略逻辑**：放量突破，顺势追强。
-
-| 参数 | 值 | 说明 |
-| ---- | - | ---- |
-| 60日涨跌幅 | -10% ~ 80% | 允许前期下跌后的突破，避免暴涨 |
-| 当日涨幅 | 2% ~ 10% | 必须上涨，不追涨停 |
-| 量比 | > 1.5 | 突破需放量 |
-| 乖离率 | ≤ 12% | 突破允许适度追高；龙头可豁免至 14%（60d>15%、今日 2–7%、量比>1.5、换手 2–8%） |
-| 均线 | 不要求 | 突破时可能尚未形成多头 |
-| 最大回调 | 61.8% | 斐波那契 |
-| 连涨天数 | ≤ 4 | 突破常出现在连涨中 |
-
-**评分逻辑**（量能 + 动量 + 趋势 + PE + 市值）：
-
-- **动量**：当日涨幅越高越高分（≤ 25）
-- **量比**：≥ 2.0 满分；≥ 1.5 部分分
-- **趋势**：60d 0–50% 区间线性；> 50% 给基础分
-- **换手**：2–10% 满分
-- **PE**：15–50 满分
-- **市值**：50–500 亿 加 5 分
-
----
-
-### 3.3 底部反转 (bottom_reversal)
+### 3.2 底部反转 (bottom_reversal)
 
 **策略逻辑**：大跌后企稳，左侧或早期反转。要求缩量确认底部、放量反转信号。
 
@@ -153,24 +128,24 @@
 
 ## 四、策略参数对照表
 
-| 参数 | 买回踩 | 突破 | 底部反转 |
-| ---- | ---- | ---- | ---- |
-| change_60d_min | 5% | -10% | -25% |
-| change_60d_max | **40%** | 80% | **-5%** |
-| daily_change_min | **-2.0%** | 2% | **1%** |
-| daily_change_max | **2%** | 10% | 5% |
-| volume_ratio_min | **0.7** | 1.5 | **0.7** |
-| max_bias_pct | **5%** | 12% | 6% |
-| pe_max | **60** | 100 | 100 |
-| pe_ideal_low | 10 | 15 | 8 |
-| pe_ideal_high | **30** | 50 | 35 |
-| max_consecutive_up_days | **2** | 4 | 3 |
-| require_ma_bullish | ✓ | ✗ | ✗ |
-| require_volume_shrink | **✓** | ✗ | **✓** |
-| max_retracement_pct | **40%** | 61.8% | **61.8%** |
-| min_pullback_from_high_pct | **3.0** | 0 (disabled) | 0 (disabled) |
-| require_price_above_ma20 | **True** | False | False |
-| max_distance_above_ma10_pct | **3.0** | 0 (disabled) | 0 (disabled) |
+| 参数 | 买回踩 | 底部反转 |
+| ---- | ---- | ---- |
+| change_60d_min | 5% | -25% |
+| change_60d_max | **40%** | **-5%** |
+| daily_change_min | **-2.0%** | **1%** |
+| daily_change_max | **2%** | 5% |
+| volume_ratio_min | **0.7** | **0.7** |
+| max_bias_pct | **5%** | 6% |
+| pe_max | **60** | 100 |
+| pe_ideal_low | 10 | 8 |
+| pe_ideal_high | **30** | 35 |
+| max_consecutive_up_days | **2** | 3 |
+| require_ma_bullish | ✓ | ✗ |
+| require_volume_shrink | **✓** | **✓** |
+| max_retracement_pct | **40%** | **61.8%** |
+| min_pullback_from_high_pct | **3.0** | 0 (disabled) |
+| require_price_above_ma20 | **True** | False |
+| max_distance_above_ma10_pct | **3.0** | 0 (disabled) |
 
 ### 板块强度过滤（Sector Strength Filter）
 
@@ -188,8 +163,8 @@
 | 策略 | 板块过滤 | 原因 |
 |------|---------|------|
 | buy_pullback | 启用 | 强势板块回踩反弹概率更高 |
-| breakout | 启用 | 强势板块突破更有持续性 |
 | bottom_reversal | 跳过 | 超跌反弹可出现在任意板块 |
+| reversal_breakout | 启用 | 强势板块右侧突破更有持续性 |
 
 **配置参数**：
 | 环境变量 | 默认值 | 说明 |
@@ -273,7 +248,7 @@
 
 ```bash
 # 选股策略，逗号分隔，默认 buy_pullback
-PICKER_STRATEGIES=buy_pullback,breakout,bottom_reversal
+PICKER_STRATEGIES=buy_pullback,bottom_reversal,reversal_breakout
 
 # 是否允许亏损股
 PICKER_ALLOW_LOSS=false
@@ -289,7 +264,7 @@ POST /api/v1/picker/recommend
 Content-Type: application/json
 
 {
-  "picker_strategies": ["buy_pullback", "breakout"]
+  "picker_strategies": ["buy_pullback", "bottom_reversal"]
 }
 ```
 

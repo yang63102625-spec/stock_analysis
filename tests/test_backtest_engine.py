@@ -162,7 +162,7 @@ class BacktestEngineV2TestCase(unittest.TestCase):
     def test_signal_snapshot_propagates_to_result(self):
         cfg = EvaluationConfig(eval_window_days=3)
         bars = _make_bars(date(2024, 1, 1), [102, 104, 105], highs=[103, 105, 106], lows=[101, 103, 104])
-        snap = _snapshot("STRONG_BUY", signal_score=92, market_environment="bull", strategy_id="breakout")
+        snap = _snapshot("STRONG_BUY", signal_score=92, market_environment="bull", strategy_id="buy_pullback")
         res = BacktestEngine.evaluate_single(
             analysis=snap, analysis_date=date(2024, 1, 1),
             start_price=100, forward_bars=bars, config=cfg,
@@ -170,7 +170,7 @@ class BacktestEngineV2TestCase(unittest.TestCase):
         self.assertEqual(res["signal_score_at_eval"], 92)
         self.assertEqual(res["buy_signal_at_eval"], "STRONG_BUY")
         self.assertEqual(res["market_environment_at_eval"], "bull")
-        self.assertEqual(res["strategy_id"], "breakout")
+        self.assertEqual(res["strategy_id"], "buy_pullback")
         # dim score snapshots
         self.assertEqual(res["macd_score_at_eval"], 8)
         self.assertEqual(res["capital_flow_score_at_eval"], 8)

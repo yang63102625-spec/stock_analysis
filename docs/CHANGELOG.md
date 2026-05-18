@@ -9,21 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Picker — breakout strategy A/B tuning & downgrade
+### Picker — drop `breakout` strategy (PF<1 across two backtest windows)
 
-- **Tuned default `hold_days=5` for `breakout`** (was 10). A/B 2024-07~2025-04
-  showed `hold_days=5` improves WR 30.8%→36.1%, AvgRet -1.65%→-0.90%, MDD
-  84.5%→73.2% by exiting before failed breakouts roll over to MA20 stops
-  (broke_ma20 count dropped 133→45). Other A/B variants (tighter entry
-  bands, stricter break threshold 1.01) showed no incremental alpha — entry
-  pool already saturated by top-N scoring. PF remains 0.71 even at the
-  optimum, so `breakout` is now flagged as a high-frequency, low-quality
-  swing strategy; users should pair with other signals rather than run it
-  standalone. Backend now auto-clamps `hold_days=5` when only `breakout`
-  is requested.
-- All `BREAKOUT_PARAMS` thresholds are now env-overridable via `BO_*`
-  prefix (`BO_DAILY_CHANGE_MIN`, `BO_VOLUME_RATIO_MIN`, `BO_BREAKOUT_PCT`,
-  etc.) for future A/B tuning without code edits.
+- **Removed `breakout`** from the picker strategy lineup. Two independent
+  walk-forward backtests both confirmed sub-1.0 Profit Factor with negative
+  alpha even after the May-2026 `hold_days 10→5` tuning:
+  - 2024-07 ~ 2025-04 (10mo): WR 36.1%, AvgRet -0.90%, PF 0.71, MDD 73.2%
+  - 2025-05 ~ 2026-05 (12mo): WR 40.2%, AvgRet -0.53%, PF 0.78,
+    total -64.4% vs HS300 +24.4% vs equal-weight market +40.9%
+- A/B saturation: tightening entry bands and the break-confirmation
+  threshold (1.01) gave no incremental alpha — top-N scoring already
+  selects the strongest candidates, so generic filter tightening has no
+  effect on the picks that matter.
+- Net delta surface removed: `BREAKOUT` constant, `BREAKOUT_PARAMS`, all
+  `BO_*` env helpers, `score_breakout` scorer, `_STRATEGY_PARAMS`
+  registry entry, breakout-only checks in `risk_filters.py` (long-upper-
+  shadow + N-day high confirmation), `BREAKOUT` config and entry-anchor
+  branch in `trade_levels.py`, the `picker_backtest_service` clamp,
+  `DAILY_DATA_STRATEGIES` / `SECTOR_FILTER_STRATEGIES` set members,
+  frontend `STRATEGY_OPTIONS` / `PickerStrategy` union / labels, API
+  schema descriptions, and `docs/picker-strategies-guide.md` §3.2.
+- `reversal_breakout` (right-side breakout of a deep base, validated
+  PF 1.24 / +1.06% alpha) is unaffected — different mixin, different
+  pipeline dispatch.
 
 ### Picker strategies — split bottom_reversal into watchlist + actionable
 

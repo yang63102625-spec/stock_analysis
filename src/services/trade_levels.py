@@ -11,7 +11,7 @@ Single source of truth for entry/stop/target levels across:
 Design principles:
 1. Numerical layer is owned by code, not LLM. LLM only explains, never invents
    stop/take-profit numbers.
-2. Strategy-aware: each strategy (buy_pullback / breakout / bottom_reversal)
+2. Strategy-aware: each strategy (buy_pullback / bottom_reversal / reversal_breakout)
    has its own level computation logic.
 3. ATR-based trailing stop replaces fixed-percentage take-profit ceilings to
    let winners run while protecting profits.
@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 # Strategy IDs (mirrored from picker_strategies for cross-import safety)
 BUY_PULLBACK = "buy_pullback"
-BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
 REVERSAL_BREAKOUT = "reversal_breakout"
 
@@ -225,17 +224,6 @@ _STRATEGY_CONFIGS: Dict[str, _StrategyConfig] = {
             "stage_15pct": "剩余 1/3 启用动态保护：跌破 10 日均线或从最高点回撤 2.5 倍日波幅时清仓",
         },
     ),
-    BREAKOUT: _StrategyConfig(
-        # tp1 raised 1.06→1.08: breakout first leg averages +8-12%; trimming
-        # at +6% truncates the fat-tail winners that justify the strategy.
-        tp1_mult=1.08, expected_mult=1.13,
-        stage_rules={
-            "stage_6pct": "减仓 1/3，止损上移至成本",
-            "stage_12pct": "再减 1/3，止损上移至 +6%",
-            "stage_15pct": "剩余 1/3 启用动态保护：跌破 10 日均线或从最高点回撤 2.5 倍日波幅时清仓",
-            "fail_breakout": "若 3 个交易日内回到突破位下方 → 全部止损",
-        },
-    ),
     BOTTOM_REVERSAL: _StrategyConfig(
         # Hard cap raised +15→+20: real reversals run +18-25% on main leg;
         # +15 single-shot exit caps fat-tail winners. New rule: +15 减半 / +20 全清.
@@ -265,9 +253,6 @@ def _resolve_entry_anchor(
     if sid == BUY_PULLBACK:
         ideal = min(current_price, ma5 * 1.01) if _safe_pos(ma5) else current_price
         return ideal, current_price * 0.97, None  # MA20-based stop applied separately
-    if sid == BREAKOUT:
-        bk = prior_high if _safe_pos(prior_high) else current_price * 0.98
-        return current_price, bk, bk * 0.97
     if sid == BOTTOM_REVERSAL:
         anchor = recent_low * 0.98 if _safe_pos(recent_low) else current_price * 0.94
         return current_price, current_price * 0.97, anchor
@@ -450,7 +435,7 @@ def evaluate_trailing_exit(
             return True, f"time_stop_{time_stop_days}d_no_progress"
         return False, ""
 
-    # ---- buy_pullback / breakout: short-term rules below ----
+    # ---- buy_pullback (default): short-term rules below ----
     # Trailing zone (>=15% profit, was 20%): A-share rallies often start ABC
     # consolidation around +18-22%; entering trailing at 15% locks in 3-5%
     # additional profit on average versus the 20% threshold.

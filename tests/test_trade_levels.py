@@ -9,7 +9,6 @@ import pytest
 
 from src.services.trade_levels import (
     BOTTOM_REVERSAL,
-    BREAKOUT,
     BUY_PULLBACK,
     RR_MIN,
     TradeLevels,
@@ -57,17 +56,6 @@ def test_buy_pullback_levels_sane():
     assert tl.risk_reward > 0
     assert "动态保护" in tl.take_profit_2_rule
     assert 0 < tl.position_pct <= 0.25
-
-
-def test_breakout_levels_sane():
-    tl = compute_trade_levels(
-        strategy_id=BREAKOUT,
-        current_price=20.0, ma5=19.5, ma10=19.0, ma20=18.5,
-        market_cap_yi=200.0, prior_high=19.8,
-    )
-    assert tl.ideal_buy > 0
-    assert tl.stop_loss < tl.ideal_buy
-    assert tl.take_profit_1 > tl.ideal_buy
 
 
 def test_bottom_reversal_no_trailing():

@@ -2,12 +2,13 @@
 """
 Picker strategies: each strategy has its own screening logic and fixed params.
 
-Strategies: buy_pullback, breakout, bottom_reversal
+Strategies: buy_pullback, bottom_reversal, reversal_breakout, small_cap
 No intensity modes (defensive/balanced/offensive) — each strategy has one set of params.
 
-Note: eod_buyback was removed in May 2026 — 2-year OOS validation showed
-PF=0.58 with negative alpha vs CSI300 buy-and-hold. See
-docs/research/SMALL_CAP_FINAL_REPORT.md §1 for the post-mortem.
+Removed strategies (kept here for context — see docs/CHANGELOG.md):
+- eod_buyback (May 2026): 2yr OOS PF=0.58, negative alpha vs CSI300 B&H.
+- breakout    (May 2026): two-window backtest PF 0.71/0.78, total return
+  -64% vs benchmark +24% in 2025-05~2026-05; A/B tuning saturated at PF<1.
 """
 
 from dataclasses import dataclass
@@ -33,7 +34,6 @@ from src.services.trade_levels import (
 
 # Strategy IDs (used in config)
 BUY_PULLBACK = "buy_pullback"
-BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
 REVERSAL_BREAKOUT = "reversal_breakout"  # right-side breakout of a deep base
 SMALL_CAP = "small_cap"  # cross-sectional smallest-market-cap factor
@@ -42,7 +42,7 @@ SMALL_CAP = "small_cap"  # cross-sectional smallest-market-cap factor
 DEFAULT_STRATEGIES = [BUY_PULLBACK]
 
 # All available strategies
-ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL, SMALL_CAP]
+ALL_STRATEGIES = [BUY_PULLBACK, BOTTOM_REVERSAL, REVERSAL_BREAKOUT, SMALL_CAP]
 
 def is_mainboard_stock(code: str) -> bool:
     """Check if a stock is listed on the main board (SSE/SZSE main).
@@ -65,7 +65,6 @@ _MID_CAP_MAX = 500e8
 
 STRATEGY_DISPLAY_NAMES: Dict[str, str] = {
     BUY_PULLBACK: "买回踩",
-    BREAKOUT: "突破",
     BOTTOM_REVERSAL: "底部反转",
     REVERSAL_BREAKOUT: "反转突破",
     SMALL_CAP: "小市值",
@@ -106,9 +105,6 @@ class StrategyParams:
     min_pullback_from_high_pct: float = 0.0
     max_distance_above_ma10_pct: float = 0.0  # Max % price can be above MA10 (0=disabled); ensures near support
     require_price_above_ma20: bool = False     # Reject if price below MA20 (entering downtrend)
-    # Breakout-specific: fake breakout filter
-    breakout_lookback_days: int = 20             # Lookback period for resistance level identification
-    max_upper_shadow_ratio: float = 2.0          # Max upper shadow to body ratio (fake breakout filter)
 
 
 # Buy pullback: 60d > 5%, MA bullish, shrinking-volume pullback entry
@@ -140,38 +136,6 @@ BUY_PULLBACK_PARAMS = StrategyParams(
     require_price_above_ma20=True,     # Below MA20 = downtrend, reject
 )
 
-# Breakout: price breaks N-day high, volume confirmation.
-# All defaults env-overridable for A/B tuning (BO_* prefix).
-import os as _os
-
-def _bo_envf(key: str, default: float) -> float:
-    try:
-        return float(_os.environ.get(f"BO_{key}", default))
-    except (ValueError, TypeError):
-        return float(default)
-
-def _bo_envi(key: str, default: int) -> int:
-    return int(_bo_envf(key, default))
-
-BREAKOUT_PARAMS = StrategyParams(
-    max_bias_pct=_bo_envf("MAX_BIAS_PCT", 8.0),
-    leader_bias_exempt_pct=_bo_envf("LEADER_BIAS_EXEMPT_PCT", 10.0),
-    pe_max=_bo_envi("PE_MAX", 100),
-    pe_ideal_low=_bo_envi("PE_IDEAL_LOW", 15),
-    pe_ideal_high=_bo_envi("PE_IDEAL_HIGH", 50),
-    daily_change_min=_bo_envf("DAILY_CHANGE_MIN", 2.0),
-    daily_change_max=_bo_envf("DAILY_CHANGE_MAX", 10.0),
-    max_consecutive_up_days=_bo_envi("MAX_CONSECUTIVE_UP_DAYS", 2),
-    require_volume_shrink=False,
-    require_ma_bullish=False,
-    max_retracement_pct=0.618,
-    change_60d_min=_bo_envf("CHANGE_60D_MIN", -10.0),
-    change_60d_max=_bo_envf("CHANGE_60D_MAX", 50.0),
-    volume_ratio_min=_bo_envf("VOLUME_RATIO_MIN", 1.7),
-    breakout_lookback_days=_bo_envi("LOOKBACK_DAYS", 20),
-    max_upper_shadow_ratio=_bo_envf("MAX_UPPER_SHADOW", 2.0),
-)
-
 # Bottom reversal: 60d -25% ~ -5%, true bottom with volume shrink stabilisation
 BOTTOM_REVERSAL_PARAMS = StrategyParams(
     max_bias_pct=6.0,  # Stricter (near support)
@@ -200,7 +164,6 @@ BOTTOM_REVERSAL_PARAMS = StrategyParams(
 # Registry for get_strategy_params (single source of truth)
 _STRATEGY_PARAMS: Dict[str, StrategyParams] = {
     BUY_PULLBACK: BUY_PULLBACK_PARAMS,
-    BREAKOUT: BREAKOUT_PARAMS,
     BOTTOM_REVERSAL: BOTTOM_REVERSAL_PARAMS,
 }
 
@@ -224,7 +187,7 @@ def _score_pe(pe: float, params: StrategyParams) -> float:
 
 
 def _score_pe_simple(pe: float, params: StrategyParams) -> float:
-    """PE score: ideal 10, else 5 (for breakout/bottom_reversal)."""
+    """PE score: ideal 10, else 5 (for bottom_reversal)."""
     return 10.0 if params.pe_ideal_low < pe < params.pe_ideal_high else 5.0
 
 
@@ -391,41 +354,6 @@ def score_buy_pullback(row: Dict[str, Any], params: StrategyParams) -> float:
     return trend + mom + vol + to + pe_s + mid
 
 
-def score_breakout(row: Dict[str, Any], params: StrategyParams) -> float:
-    """Score for breakout: volume + momentum + trend."""
-    pct_60d = float(row.get("60日涨跌幅", 0) or 0)
-    change_pct = float(row.get("涨跌幅", 0) or 0)
-    vol_ratio = float(row.get("量比", 0) or 0)
-    turnover = float(row.get("换手率", 0) or 0)
-    pe = float(row.get("市盈率-动态", 0) or 0)
-    total_mv = float(row.get("总市值", 0) or 0)
-
-    # Momentum: favor moderate breakout (2-4%), penalize chasing (>7%)
-    if 2.0 <= change_pct <= 4.0:
-        mom = 25.0   # Healthy breakout range
-    elif 4.0 < change_pct <= 7.0:
-        mom = 15.0   # Acceptable but higher risk
-    elif 7.0 < change_pct <= 10.0:
-        mom = 5.0    # Chasing risk, heavily penalized
-    else:
-        mom = 0.0
-    # Volume: require strong confirmation (min 2.0x after param change)
-    if vol_ratio >= 3.0:
-        vol = 25.0   # Very strong volume confirmation
-    elif vol_ratio >= 2.5:
-        vol = 20.0   # Strong volume
-    elif vol_ratio >= 2.0:
-        vol = 15.0   # Standard breakout volume (new minimum)
-    else:
-        vol = 5.0    # Below threshold, should be filtered by params
-    # Trend: moderate positive preferred
-    trend = min(15.0, max(0, pct_60d)) if 0 <= pct_60d <= 50 else 5.0
-    to = 10.0 if 2 <= turnover <= 10 else 5.0
-    pe_s = _score_pe_simple(pe, params)
-    mid = _score_mid_cap(total_mv)
-    return trend + mom + vol + to + pe_s + mid
-
-
 def score_bottom_reversal(row: Dict[str, Any], params: StrategyParams) -> float:
     """Score for bottom reversal: deep 60d decline + volume transition + reversal candle.
 
@@ -504,7 +432,6 @@ def score_bottom_reversal(row: Dict[str, Any], params: StrategyParams) -> float:
 # Populate _SCORERS after all scorers are defined
 _SCORERS.update({
     BUY_PULLBACK: score_buy_pullback,
-    BREAKOUT: score_breakout,
     BOTTOM_REVERSAL: score_bottom_reversal,
 })
 

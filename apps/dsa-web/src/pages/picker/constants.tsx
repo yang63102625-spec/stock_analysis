@@ -3,7 +3,6 @@ import type { PickerStrategy } from '../../api/picker';
 
 export const STRATEGY_OPTIONS: { value: PickerStrategy; label: string }[] = [
   { value: 'buy_pullback', label: '买回踩' },
-  { value: 'breakout', label: '突破' },
   { value: 'bottom_reversal', label: '底部反转' },
   { value: 'reversal_breakout', label: '反转突破' },
   { value: 'small_cap', label: '小市值' },

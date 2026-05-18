@@ -6,7 +6,6 @@ B-wave risk detection, and leader candidate check.
 """
 
 import logging
-import os as _os
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -199,8 +198,6 @@ def filter_healthy_pullback(
     4. Min distance from 20d high: must be >=X% below high
     5. Price above MA20: reject if below MA20
     6. Near MA10 support: price within X% above MA10
-    7. [breakout] Long upper shadow filter: fake breakout signal
-    8. [breakout] Resistance breakout confirmation: close >= 20d high
     """
     if not data_manager or not candidates:
         return candidates
@@ -228,45 +225,6 @@ def filter_healthy_pullback(
 
         df_daily = df_daily.sort_values(date_col).tail(lookback_days).reset_index(drop=True)
         close_series = pd.to_numeric(df_daily[close_col], errors="coerce").fillna(0)
-
-        # --- Breakout-specific checks (7 & 8): fake breakout filter ---
-        if strategy_id == "breakout":
-            open_col = _first_col(df_daily, "open", "开盘")
-            # Check 7: Long upper shadow filter (fake breakout signal)
-            max_shadow_ratio = getattr(mode_params, 'max_upper_shadow_ratio', 2.0)
-            if high_col and open_col and close_col:
-                latest = df_daily.iloc[-1]
-                h = float(pd.to_numeric(latest.get(high_col, 0), errors="coerce") or 0)
-                c = float(pd.to_numeric(latest.get(close_col, 0), errors="coerce") or 0)
-                o = float(pd.to_numeric(latest.get(open_col, 0), errors="coerce") or 0)
-                body = abs(c - o)
-                upper_shadow = h - max(c, o)
-                if body > 0 and upper_shadow / body > max_shadow_ratio:
-                    logger.debug(
-                        "[Screener] %s excluded: long upper shadow (ratio=%.1f > %.1f), fake breakout",
-                        s.code, upper_shadow / body, max_shadow_ratio,
-                    )
-                    continue
-
-            # Check 8: Resistance breakout confirmation (close must >= N-day high excluding today)
-            bk_lookback = getattr(mode_params, 'breakout_lookback_days', 20)
-            if high_col and len(df_daily) >= 2:
-                high_series_bk = pd.to_numeric(df_daily[high_col], errors="coerce").fillna(0)
-                # Use up to bk_lookback days, but always exclude today (last row)
-                window = min(bk_lookback, len(df_daily) - 1)
-                # Lookback high excluding today
-                high_nd = float(high_series_bk.iloc[-(window + 1):-1].max())
-                current_close = s.price
-                # BO_BREAKOUT_PCT: how far above the N-day high today must close.
-                # Default 0.995 = "within 0.5% of the high" (lax). Raising to e.g.
-                # 1.01 demands a real 1% break-through.
-                _bk_mul = float(_os.environ.get("BO_BREAKOUT_PCT", "0.995"))
-                if high_nd > 0 and current_close < high_nd * _bk_mul:
-                    logger.debug(
-                        "[Screener] %s excluded: close %.2f below %dd high %.2f, not a true breakout",
-                        s.code, current_close, bk_lookback, high_nd,
-                    )
-                    continue
 
         # Check 1: Volume shrink or mild expansion (1.0-1.3 acceptable for healthy pullback)
         VOLUME_SHRINK_LIMIT = 1.3  # Allow mild expansion as valid pullback signal

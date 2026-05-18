@@ -305,7 +305,7 @@ class PickerBacktestService:
                     "hold_days": hold,
                 }
 
-            # Multi-day strategies (buy_pullback / breakout / bottom_reversal):
+            # Multi-day strategies (buy_pullback / bottom_reversal / reversal_breakout):
             # use unified trade_levels engine with ATR-trailing stop /
             # strategy-specific TP rules.
             forward_df = df.iloc[entry_idx:].copy()
@@ -579,7 +579,7 @@ class PickerBacktestService:
             end_date: YYYY-MM-DD or YYYYMMDD
             hold_days: holding period in trading days
             top_n: number of picks per day (by score)
-            picker_strategies: optional override (buy_pullback, breakout, etc.)
+            picker_strategies: optional override (buy_pullback, bottom_reversal, etc.)
 
         Returns:
             Dict with results, summary, and performance metrics.
@@ -607,19 +607,6 @@ class PickerBacktestService:
                     hold_days,
                 )
                 hold_days = 40
-
-        # breakout: empirically WR plateaus at ~36% with hold_days=5 and
-        # decays beyond. A/B 2024-07~2025-04 (10mo) showed hold_days=10 yields
-        # 70% trades exit at window_end with -1.65% avg, vs hold_days=5 at
-        # -0.90% avg + WR +5pp + MDD -11pp. Cap to 5 when caller has not
-        # asked for a longer window.
-        if picker_strategies and set(picker_strategies) == {"breakout"}:
-            if hold_days > 5:
-                logger.info(
-                    "[PickerBacktest] breakout short-swing window: clamping hold_days=5 (was %d)",
-                    hold_days,
-                )
-                hold_days = 5
 
         if picker_strategies and set(picker_strategies) == {"small_cap"}:
             if hold_days < 20:
