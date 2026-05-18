@@ -118,7 +118,7 @@ def _resolve_bias_threshold() -> float:
 
 def _parse_picker_strategies(value: str) -> List[str]:
     """Parse PICKER_STRATEGIES (comma-separated). Default [buy_pullback] when empty."""
-    valid = ('buy_pullback', 'breakout', 'bottom_reversal', 'reversal_breakout', 'small_cap', 'slow_bull')
+    valid = ('buy_pullback', 'breakout', 'bottom_reversal', 'reversal_breakout', 'small_cap')
     if not value or not value.strip():
         return ['buy_pullback']
     parts = [p.strip().lower() for p in value.split(',') if p.strip()]
@@ -458,7 +458,7 @@ def load_config_from_env() -> Config:
         picker_market_guard=os.getenv('PICKER_MARKET_GUARD', 'true').lower() == 'true',
         picker_industry_top_n=int(os.getenv('PICKER_INDUSTRY_TOP_N', '2')),
         picker_weak_market_action=os.getenv('PICKER_WEAK_MARKET_ACTION', 'limit').strip().lower(),
-        picker_weak_market_strategies=os.getenv('PICKER_WEAK_MARKET_STRATEGIES', 'bottom_reversal,slow_bull').strip(),
+        picker_weak_market_strategies=os.getenv('PICKER_WEAK_MARKET_STRATEGIES', 'bottom_reversal').strip(),
         picker_sector_filter=os.getenv('PICKER_SECTOR_FILTER', 'true').lower() == 'true',
         picker_sector_top_pct=int(os.getenv('PICKER_SECTOR_TOP_PCT', '15')),
         log_dir=os.getenv('LOG_DIR', './logs'),

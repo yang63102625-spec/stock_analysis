@@ -621,16 +621,6 @@ class PickerBacktestService:
                 )
                 hold_days = 5
 
-        # slow_bull: 30° long-term trend; meant for quarter+ holds. Force
-        # ≥60 trading days so trailing stops have room to ride the trend.
-        if picker_strategies and set(picker_strategies) == {"slow_bull"}:
-            if hold_days < 60:
-                logger.info(
-                    "[PickerBacktest] slow_bull long-term window: forcing hold_days=60 (was %d)",
-                    hold_days,
-                )
-                hold_days = 60
-
         if picker_strategies and set(picker_strategies) == {"small_cap"}:
             if hold_days < 20:
                 logger.info(

@@ -37,13 +37,12 @@ BREAKOUT = "breakout"
 BOTTOM_REVERSAL = "bottom_reversal"
 REVERSAL_BREAKOUT = "reversal_breakout"  # right-side breakout of a deep base
 SMALL_CAP = "small_cap"  # cross-sectional smallest-market-cap factor
-SLOW_BULL = "slow_bull"  # 30° long-term uptrend, higher lows + bullish stack
 
 # Default strategy when PICKER_STRATEGIES not set
 DEFAULT_STRATEGIES = [BUY_PULLBACK]
 
 # All available strategies
-ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL, SMALL_CAP, SLOW_BULL]
+ALL_STRATEGIES = [BUY_PULLBACK, BREAKOUT, BOTTOM_REVERSAL, SMALL_CAP]
 
 def is_mainboard_stock(code: str) -> bool:
     """Check if a stock is listed on the main board (SSE/SZSE main).
@@ -70,7 +69,6 @@ STRATEGY_DISPLAY_NAMES: Dict[str, str] = {
     BOTTOM_REVERSAL: "底部反转",
     REVERSAL_BREAKOUT: "反转突破",
     SMALL_CAP: "小市值",
-    SLOW_BULL: "慢牛趋势",
 }
 
 

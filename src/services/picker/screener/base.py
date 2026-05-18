@@ -34,10 +34,7 @@ class _ScreenerBase:
     _ETF_PREFIXES = ("51", "52", "56", "58", "15", "16", "18")
 
     # Strategies that require daily spot data (fetched via _fetch_spot_data).
-    DAILY_DATA_STRATEGIES = {
-        "buy_pullback", "breakout", "bottom_reversal",
-        "reversal_breakout", "small_cap", "slow_bull",
-    }
+    DAILY_DATA_STRATEGIES = {"buy_pullback", "breakout", "bottom_reversal", "reversal_breakout", "small_cap"}
 
     # Strategies that benefit from sector strength filtering
     SECTOR_FILTER_STRATEGIES = {"buy_pullback", "breakout", "bottom_reversal", "reversal_breakout"}

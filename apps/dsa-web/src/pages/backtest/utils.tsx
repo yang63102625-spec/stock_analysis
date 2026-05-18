@@ -42,11 +42,10 @@ export function boolIcon(value?: boolean | null): React.ReactElement {
   return <span className="text-muted">--</span>;
 }
 
-export const STRATEGY_OPTIONS: { value: 'buy_pullback' | 'breakout' | 'bottom_reversal' | 'reversal_breakout' | 'small_cap' | 'slow_bull'; label: string }[] = [
+export const STRATEGY_OPTIONS: { value: 'buy_pullback' | 'breakout' | 'bottom_reversal' | 'reversal_breakout' | 'small_cap'; label: string }[] = [
   { value: 'buy_pullback', label: '买回踩' },
   { value: 'breakout', label: '突破' },
   { value: 'bottom_reversal', label: '底部反转' },
   { value: 'reversal_breakout', label: '反转突破' },
   { value: 'small_cap', label: '小市值' },
-  { value: 'slow_bull', label: '慢牛趋势' },
 ];

@@ -217,7 +217,7 @@ class Config:
     # Market guard
     picker_market_guard: bool = True
     picker_weak_market_action: str = "limit"
-    picker_weak_market_strategies: str = "bottom_reversal,slow_bull"
+    picker_weak_market_strategies: str = "bottom_reversal"
 
     # Industry concentration cap
     picker_industry_top_n: int = 2

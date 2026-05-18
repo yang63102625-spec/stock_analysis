@@ -9,35 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Picker — new `slow_bull` strategy (30° long-term uptrend)
-
-- **New strategy `slow_bull` (慢牛趋势)**: long-only watchlist + entry
-  for stocks showing a sustainable low-volatility uptrend. Filters:
-  - MA20 > MA60 > MA120 > MA250 (full bullish stack), price > MA60
-  - Annualised MA60 log-slope ∈ [10%, 60%] (configurable via
-    `SLOW_BULL_SLOPE_MIN_ANN` / `SLOPE_MAX_ANN`)
-  - Three rising 90-day lows (higher-lows structure)
-  - 60d ATR / price ≤ 3.5%
-  - 250d max drawdown ≤ 25%
-  - Distance to 250d high ≤ 8% AND distance to 250d low ≥ 30%
-  - PE ∈ [5, 80], total market cap ≥ 100亿
-  - Exclude ST / 退 / *ST / BSE (8/4/92x prefix) / new listings (<300 d)
-- Validation scan on 2026-05-14 returned 13 high-quality candidates
-  concentrated in dividend/utility/cycle-reversal sectors (e.g.
-  宁波银行、江苏金租、中国广核、陕西能源、明泰铝业、圣农发展).
-- Trend-following design — exempt from MarketGuard (added to
-  `PICKER_WEAK_MARKET_STRATEGIES` default allowlist alongside
-  `bottom_reversal`).
-- Backtest harness auto-clamps `hold_days ≥ 60` when running
-  `slow_bull` solo (long-term holds are essential to the strategy).
-- All thresholds env-tunable via `SLOW_BULL_*` prefix
-  (`SLOW_BULL_TOP_N`, `SLOW_BULL_SLOPE_MIN_ANN`, `SLOW_BULL_VOL_MAX`,
-  `SLOW_BULL_DD_MAX`, `SLOW_BULL_PE_MIN/MAX`, `SLOW_BULL_MCAP_MIN_YI`).
-- New mixin `picker/screener/slow_bull.py`, registered in screener
-  composition + pipeline dispatch. Surface: `STRATEGY_DISPLAY_NAMES`,
-  loader whitelist, frontend `STRATEGY_OPTIONS` / labels, API schema
-  docs. Research notebook at `scripts/scan_slow_bull.py`.
-
 ### Picker — breakout strategy A/B tuning & downgrade
 
 - **Tuned default `hold_days=5` for `breakout`** (was 10). A/B 2024-07~2025-04
