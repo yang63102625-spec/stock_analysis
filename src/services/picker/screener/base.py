@@ -62,6 +62,11 @@ class _ScreenerBase:
         self._enable_b_wave_filter = enable_b_wave_filter
         self._allow_loss = allow_loss
         self._stock_basic_cache: Optional[pd.DataFrame] = None  # Reuse across days in backtest
+        # Strategies removed by MarketGuard for the current screen() call.
+        # Each entry: (strategy_id, human_readable_zh_reason). Consumed by
+        # StockPickerService to render an accurate "今日市场" message instead
+        # of the generic "no stocks matched filters" fallback.
+        self._gated_strategies: List[Tuple[str, str]] = []
 
     def _check_market_environment(self) -> Optional[MarketEnvironment]:
         """Check SSE index vs MA20 to determine market regime."""

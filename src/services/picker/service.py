@@ -103,7 +103,16 @@ class StockPickerService:
                     f"strategies={strategies}. Skipping LLM call and returning empty picks."
                 )
                 result.picks = []
-                result.market_summary = "今日无符合量化筛选严格条件的股票，不进行 AI 选股。"
+                # Prefer a specific reason when MarketGuard removed strategies,
+                # so the UI doesn't mislead users with the generic "no stocks
+                # matched filters" message (e.g. when nothing was actually
+                # screened because the strategy was gated off).
+                gated = getattr(self._screener, "_gated_strategies", []) or []
+                if gated:
+                    reasons = "；".join(reason for _, reason in gated)
+                    result.market_summary = f"{reasons}。今日不进行 AI 选股。"
+                else:
+                    result.market_summary = "今日无符合量化筛选严格条件的股票，不进行 AI 选股。"
                 result.success = True
                 result.elapsed_seconds = time.time() - start
                 return result

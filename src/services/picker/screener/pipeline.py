@@ -33,6 +33,7 @@ class _PipelineMixin:
         When trade_date is provided (YYYYMMDD), run historical screening (Tushare only).
         Uses multi-strategy when picker_strategies has multiple entries."""
         stats = ScreenStats()
+        self._gated_strategies = []
         self._as_of_date = self._trade_date_to_iso(trade_date) if trade_date else None
         # Push as_of_date to the caching manager so its LocalStockDB-backed
         # window resolution doesn't peek into the future during backtests.
@@ -76,6 +77,11 @@ class _PipelineMixin:
                     "removing buy_pullback for this day",
                     market_env.diff_pct, _gate_pct,
                 )
+                self._gated_strategies.append((
+                    "buy_pullback",
+                    f"大盘强度不足（上证仅高于MA20 {market_env.diff_pct:+.2f}% < 要求 +{_gate_pct:.1f}%），"
+                    f"买回踩策略已自动暂停以避免弱势反弹失败",
+                ))
                 self._picker_strategies = [s for s in self._picker_strategies if s != "buy_pullback"]
                 if not self._picker_strategies:
                     return [], stats, {}
@@ -106,6 +112,11 @@ class _PipelineMixin:
                     "removing reversal_breakout for this day",
                     market_env.diff_pct, _rb_gate,
                 )
+                self._gated_strategies.append((
+                    "reversal_breakout",
+                    f"大盘强度不足（上证仅高于MA20 {market_env.diff_pct:+.2f}% < 要求 +{_rb_gate:.2f}%），"
+                    f"反转突破策略已自动暂停以规避假突破风险",
+                ))
                 self._picker_strategies = [s for s in self._picker_strategies if s != "reversal_breakout"]
                 if not self._picker_strategies:
                     return [], stats, {}
