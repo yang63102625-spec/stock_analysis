@@ -240,25 +240,40 @@ _STRATEGY_CONFIGS: Dict[str, _StrategyConfig] = {
 }
 
 
+def _pullback_secondary(ideal: float, ma10: float, ma20: float) -> float:
+    """Deeper pullback entry. Anchor to MA10 (fallback MA20, then -4% of ideal).
+
+    Always enforce at least 2% gap below ideal so the two entries don't visually
+    overlap once the LLM expands each into a ±1.5% range in the report UI.
+    """
+    candidates: List[float] = []
+    if _safe_pos(ma10) and ma10 < ideal:
+        candidates.append(ma10)
+    if _safe_pos(ma20) and ma20 < ideal:
+        candidates.append(ma20)
+    secondary = max(candidates) if candidates else ideal * 0.96
+    return min(secondary, ideal * 0.98)
+
+
 def _resolve_entry_anchor(
-    sid: str, current_price: float, ma5: float,
+    sid: str, current_price: float, ma5: float, ma10: float, ma20: float,
     prior_high: Optional[float], recent_low: Optional[float], day_low: Optional[float],
 ) -> Tuple[float, float, Optional[float]]:
     """Return (ideal_buy, secondary_buy, tech_stop_anchor).
 
     - ideal_buy:        primary entry price for R/R math.
-    - secondary_buy:    pullback re-entry reference shown in UI.
+    - secondary_buy:    deeper pullback re-entry reference shown in UI.
     - tech_stop_anchor: technical stop reference (None = use abs_stop only).
     """
     if sid == BUY_PULLBACK:
         ideal = min(current_price, ma5 * 1.01) if _safe_pos(ma5) else current_price
-        return ideal, current_price * 0.97, None  # MA20-based stop applied separately
+        return ideal, _pullback_secondary(ideal, ma10, ma20), None
     if sid == BOTTOM_REVERSAL:
         anchor = recent_low * 0.98 if _safe_pos(recent_low) else current_price * 0.94
-        return current_price, current_price * 0.97, anchor
-    # Fallback (unknown strategy → pullback semantics).
+        secondary = recent_low if _safe_pos(recent_low) and recent_low < current_price else current_price * 0.95
+        return current_price, min(secondary, current_price * 0.97), anchor
     ideal = min(current_price, ma5 * 1.01) if _safe_pos(ma5) else current_price
-    return ideal, current_price * 0.97, None
+    return ideal, _pullback_secondary(ideal, ma10, ma20), None
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +308,7 @@ def compute_trade_levels(
     cfg = _STRATEGY_CONFIGS.get(sid) or _STRATEGY_CONFIGS[BUY_PULLBACK]
 
     ideal, secondary, tech_stop_anchor = _resolve_entry_anchor(
-        sid, current_price, ma5, prior_high, recent_low, day_low,
+        sid, current_price, ma5, ma10, ma20, prior_high, recent_low, day_low,
     )
 
     # Stop-loss: max(technical_anchor, absolute) so the higher floor wins.

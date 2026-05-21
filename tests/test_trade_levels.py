@@ -58,6 +58,31 @@ def test_buy_pullback_levels_sane():
     assert 0 < tl.position_pct <= 0.25
 
 
+def test_buy_pullback_secondary_anchored_to_ma10():
+    """secondary_buy should track MA10 (deeper pullback), not just price*0.97.
+
+    Regression: when current_price hugs MA5, the old `current_price * 0.97`
+    formula produced a secondary only ~3% below ideal, which the LLM expanded
+    into overlapping price ranges in the report UI.
+    """
+    tl = compute_trade_levels(
+        strategy_id=BUY_PULLBACK,
+        current_price=18.65, ma5=18.50, ma10=18.00, ma20=17.50,
+        market_cap_yi=120.0,
+    )
+    assert tl.secondary_buy == pytest.approx(18.00, abs=0.01)
+    assert tl.secondary_buy <= tl.ideal_buy * 0.98
+
+
+def test_buy_pullback_secondary_fallback_when_no_ma10():
+    tl = compute_trade_levels(
+        strategy_id=BUY_PULLBACK,
+        current_price=10.0, ma5=9.9, ma10=0.0, ma20=0.0,
+        market_cap_yi=120.0,
+    )
+    assert tl.secondary_buy == pytest.approx(tl.ideal_buy * 0.96, abs=0.001)
+
+
 def test_bottom_reversal_no_trailing():
     tl = compute_trade_levels(
         strategy_id=BOTTOM_REVERSAL,
@@ -163,14 +188,25 @@ def test_stage6_break_cost():
     assert reason2 == "broke_ma20"
 
 
-def test_bottom_reversal_20pct_hardcap():
+def test_bottom_reversal_35pct_hardcap():
+    """bottom_reversal v2 (left-side) uses a loose +35% hardcap, not +20%."""
     should, reason = evaluate_trailing_exit(
+        strategy_id=BOTTOM_REVERSAL,
+        entry_price=10.0, current_price=13.5, current_high=13.5,
+        ma10=10.5, ma20=10.0, atr=0.3, holding_days=10, peak_price=13.5,
+    )
+    assert should is True
+    assert reason == "bottom_reversal_hardcap_35pct"
+
+
+def test_bottom_reversal_no_exit_below_25pct():
+    """Below +25% profit, bottom_reversal holds (loose left-side rules)."""
+    should, _ = evaluate_trailing_exit(
         strategy_id=BOTTOM_REVERSAL,
         entry_price=10.0, current_price=12.0, current_high=12.0,
         ma10=10.5, ma20=10.0, atr=0.3, holding_days=5, peak_price=12.0,
     )
-    assert should is True
-    assert reason == "bottom_reversal_hardcap_20pct"
+    assert should is False
 
 
 def test_time_stop_20d_no_progress():
