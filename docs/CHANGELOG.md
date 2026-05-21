@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — secondary_buy 与 ideal_buy 价格区间在报告 UI 重叠
+
+- `trade_levels._resolve_entry_anchor` 在 `buy_pullback` 策略下用
+  `current_price * 0.97` 作为 `secondary_buy`。当现价贴近 MA5 时，
+  secondary 仅低于 ideal 约 3%，LLM 把两个单点各扩成 ±1.5% 的价格区间后
+  视觉上完全贴边（如 ideal 18.5-18.8 vs secondary 18.2-18.5），用户
+  看不出两档买点的区别。
+- 修复：secondary_buy 改为锚定 MA10（其次 MA20、最后 ideal*0.96 兜底），
+  并强制 `secondary ≤ ideal * 0.98`，保证两档买点至少 2% 间距。
+  `bottom_reversal` 的 secondary 也顺手收紧为优先取 `recent_low`。
+- 顺手：把过期的 `test_bottom_reversal_20pct_hardcap` 更新到现行的
+  +35% hardcap，新增 2 条 secondary_buy 回归测试。
+
 ### Picker — drop `breakout` strategy (PF<1 across two backtest windows)
 
 - **Removed `breakout`** from the picker strategy lineup. Two independent
